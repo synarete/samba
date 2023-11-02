@@ -1408,7 +1408,27 @@ static int cephwrap_symlinkat(struct vfs_handle_struct *handle,
 {
 	struct smb_filename *full_fname = NULL;
 	int result = -1;
+#ifdef HAVE_LIBCEPHFS_NEW
+	int dirfd = fsp_get_pathref_fd(dirfsp);
 
+	if (dirfd < 0) {
+		goto use_full_path;
+	}
+
+	DBG_DEBUG("[CEPH] symlinkat(%p, %s, %d, %s)\n",
+		  handle,
+		  link_target->base_name,
+		  dirfd,
+		  new_smb_fname->base_name);
+
+	result = ceph_symlinkat(handle->data,
+				link_target->base_name,
+				dirfd,
+				new_smb_fname->base_name);
+	DBG_DEBUG("[CEPH] symlinkat(...) = %d\n", result);
+	WRAP_RETURN(result);
+use_full_path:
+#endif
 	full_fname = full_path_from_dirfsp_atname(talloc_tos(),
 						  dirfsp,
 						  new_smb_fname);
