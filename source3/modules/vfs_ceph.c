@@ -1668,8 +1668,16 @@ static ssize_t cephwrap_fgetxattr(struct vfs_handle_struct *handle,
 		  name,
 		  value,
 		  llu(size));
-	ret = ceph_fgetxattr(
-		handle->data, fsp_get_io_fd(fsp), name, value, size);
+	if (!fsp->fsp_flags.is_pathref) {
+		ret = ceph_fgetxattr(
+			handle->data, fsp_get_io_fd(fsp), name, value, size);
+	} else {
+		ret = ceph_getxattr(handle->data,
+				    fsp->fsp_name->base_name,
+				    name,
+				    value,
+				    size);
+	}
 	DBG_DEBUG("[CEPH] fgetxattr(...) = %d\n", ret);
 	if (ret < 0) {
 		WRAP_RETURN(ret);
