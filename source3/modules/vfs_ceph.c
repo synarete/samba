@@ -568,12 +568,48 @@ static int cephwrap_openat(struct vfs_handle_struct *handle,
 	bool have_opath = false;
 	bool became_root = false;
 	int result = -ENOENT;
+#ifdef HAVE_LIBCEPHFS_NEW
+	int dirfd = -1;
+#endif
 
 	if (how->resolve != 0) {
 		errno = ENOSYS;
 		return -1;
 	}
 
+	if (smb_fname->stream_name) {
+		goto out;
+	}
+
+#ifdef O_PATH
+	have_opath = true;
+	if (fsp->fsp_flags.is_pathref) {
+		flags |= O_PATH;
+	}
+#endif
+
+#ifdef HAVE_LIBCEPHFS_NEW
+	if (fsp->fsp_flags.is_pathref) {
+		goto use_full_path;
+	}
+	dirfd = fsp_get_pathref_fd(dirfsp);
+	if (dirfd < 0) {
+		goto use_full_path;
+	}
+
+	DBG_DEBUG("[CEPH] openat(%p, %d, %p, %d, %d)\n",
+		  handle,
+		  dirfd,
+		  fsp,
+		  flags,
+		  mode);
+
+	result = ceph_openat(
+		handle->data, dirfd, smb_fname->base_name, flags, mode);
+	goto out;
+
+use_full_path:
+#endif
 	/*
 	 * ceph doesn't have openat().
 	 */
