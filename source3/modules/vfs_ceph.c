@@ -1135,6 +1135,30 @@ static int cephwrap_unlinkat(struct vfs_handle_struct *handle,
 {
 	struct smb_filename *full_fname = NULL;
 	int result = -1;
+#ifdef HAVE_LIBCEPHFS_NEW
+	int dirfd = fsp_get_pathref_fd(dirfsp);
+
+	if ((dirfd < 0) || (flags & AT_REMOVEDIR)) {
+		goto use_full_path;
+	}
+	DBG_DEBUG("[CEPH] unlinkat(%p, %d, %s)\n",
+		  handle,
+		  dirfd,
+		  smb_fname_str_dbg(smb_fname));
+
+	if (smb_fname->stream_name) {
+		errno = ENOENT;
+		return result;
+	}
+
+	result = ceph_unlinkat(handle->data,
+			       dirfd,
+			       smb_fname->base_name,
+			       flags);
+	DBG_DEBUG("[CEPH] unlinkat(...) = %d\n", result);
+	WRAP_RETURN(result);
+use_full_path:
+#endif
 
 	DBG_DEBUG("[CEPH] unlink(%p, %s)\n",
 		  handle,
