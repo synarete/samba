@@ -49,6 +49,10 @@
 #define LIBCEPHFS_VERSION_CODE LIBCEPHFS_VERSION(0, 0, 0)
 #endif
 
+#if LIBCEPHFS_VERSION_CODE >= LIBCEPHFS_VERSION(10, 0, 3)
+#define HAVE_LIBCEPHFS_NEW 1
+#endif
+
 /*
  * Use %llu whenever we have a 64bit unsigned int, and cast to (long long
  * unsigned)
@@ -501,7 +505,26 @@ static int cephwrap_mkdirat(struct vfs_handle_struct *handle,
 {
 	struct smb_filename *full_fname = NULL;
 	int result;
+#ifdef HAVE_LIBCEPHFS_NEW
+	int dirfd = fsp_get_pathref_fd(dirfsp);
 
+	if (dirfd < 0) {
+		goto use_full_path;
+	}
+
+	DBG_DEBUG("[CEPH] mkdirat(%p, %d, %s)\n",
+		  handle,
+		  dirfd,
+		  smb_fname->base_name);
+
+	result = ceph_mkdirat(handle->data, dirfd, smb_fname->base_name, mode);
+
+	DBG_DEBUG("[CEPH] mkdirat(...) = %d\n", result);
+
+	WRAP_RETURN(result);
+
+use_full_path:
+#endif
 	full_fname = full_path_from_dirfsp_atname(talloc_tos(),
 						  dirfsp,
 						  smb_fname);
@@ -515,9 +538,10 @@ static int cephwrap_mkdirat(struct vfs_handle_struct *handle,
 
 	result = ceph_mkdir(handle->data, full_fname->base_name, mode);
 
+	DBG_DEBUG("[CEPH] mkdir(...) = %d\n", result);
 	TALLOC_FREE(full_fname);
 
-	return WRAP_RETURN(result);
+	WRAP_RETURN(result);
 }
 
 static int cephwrap_closedir(struct vfs_handle_struct *handle, DIR *dirp)
