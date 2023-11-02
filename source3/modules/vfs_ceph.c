@@ -1457,6 +1457,26 @@ static int cephwrap_readlinkat(struct vfs_handle_struct *handle,
 {
 	struct smb_filename *full_fname = NULL;
 	int result = -1;
+#ifdef HAVE_LIBCEPHFS_NEW
+	int dirfd = fsp_get_pathref_fd(dirfsp);
+
+	if (dirfd < 0) {
+		goto use_full_path;
+	}
+
+	DBG_DEBUG("[CEPH] readlinkat(%p, %d, %s, %p, %llu)\n",
+		  handle,
+		  dirfd,
+		  smb_fname->base_name,
+		  buf,
+		  llu(bufsiz));
+
+	result = ceph_readlinkat(
+		handle->data, dirfd, smb_fname->base_name, buf, bufsiz);
+	DBG_DEBUG("[CEPH] readlinkat(...) = %d\n", result);
+	WRAP_RETURN(result);
+use_full_path:
+#endif
 
 	full_fname = full_path_from_dirfsp_atname(talloc_tos(),
 						  dirfsp,
