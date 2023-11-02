@@ -5,6 +5,7 @@
    Copyright (C) Jeremy Allison 2007
    Copyright (C) Brian Chrisman 2011 <bchrisman@gmail.com>
    Copyright (C) Richard Sharpe 2011 <realrichardsharpe@gmail.com>
+   Copyright (C) Shachar Sharon 2023 <ssharon@ibm.com>
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -49,7 +50,8 @@
 #endif
 
 /*
- * Use %llu whenever we have a 64bit unsigned int, and cast to (long long unsigned)
+ * Use %llu whenever we have a 64bit unsigned int, and cast to (long long
+ * unsigned)
  */
 #define llu(_var) ((long long unsigned)_var)
 
@@ -57,13 +59,13 @@
  * Note, libceph's return code model is to return -errno! So we have to convert
  * to what Samba expects, with is set errno to -return and return -1
  */
-#define WRAP_RETURN(_res) \
-	errno = 0; \
-	if (_res < 0) { \
+#define WRAP_RETURN(_res)      \
+	errno = 0;             \
+	if (_res < 0) {        \
 		errno = -_res; \
-		return -1; \
-	} \
-	return _res \
+		return -1;     \
+	}                      \
+	return _res
 
 /*
  * Track unique connections, as virtual mounts, to cephfs file systems.
@@ -115,8 +117,9 @@ static struct ceph_mount_info *cephmount_cache_update(const char *cookie)
 	for (entry = cephmount_cached; entry; entry = entry->next) {
 		if (strcmp(entry->cookie, cookie) == 0) {
 			entry->count++;
-			DBG_DEBUG("updated mount cache: count is [%"
-				  PRIu32 "]\n", entry->count);
+			DBG_DEBUG("updated mount cache: count is [%" PRIu32
+				  "]\n",
+				  entry->count);
 			return entry->mount;
 		}
 	}
@@ -132,8 +135,9 @@ static int cephmount_cache_remove(struct ceph_mount_info *mount)
 	for (entry = cephmount_cached; entry; entry = entry->next) {
 		if (entry->mount == mount) {
 			if (--entry->count) {
-				DBG_DEBUG("updated mount cache: count is [%"
-					  PRIu32 "]\n", entry->count);
+				DBG_DEBUG("updated mount cache: count is "
+					  "[%" PRIu32 "]\n",
+					  entry->count);
 				return entry->count;
 			}
 
@@ -148,15 +152,19 @@ static int cephmount_cache_remove(struct ceph_mount_info *mount)
 	return -1;
 }
 
-static char *cephmount_get_cookie(TALLOC_CTX * mem_ctx, const int snum)
+static char *cephmount_get_cookie(TALLOC_CTX *mem_ctx, const int snum)
 {
-	const char *conf_file =
-	    lp_parm_const_string(snum, "ceph", "config_file", ".");
+	const char *conf_file = lp_parm_const_string(snum,
+						     "ceph",
+						     "config_file",
+						     ".");
 	const char *user_id = lp_parm_const_string(snum, "ceph", "user_id", "");
-	const char *fsname =
-	    lp_parm_const_string(snum, "ceph", "filesystem", "");
-	return talloc_asprintf(mem_ctx, "(%s/%s/%s)", conf_file, user_id,
-			       fsname);
+	const char *fsname = lp_parm_const_string(snum,
+						  "ceph",
+						  "filesystem",
+						  "");
+	return talloc_asprintf(
+		mem_ctx, "(%s/%s/%s)", conf_file, user_id, fsname);
 }
 
 static int cephmount_select_fs(struct ceph_mount_info *mnt, const char *fsname)
@@ -182,12 +190,18 @@ static struct ceph_mount_info *cephmount_mount_fs(const int snum)
 	char buf[256];
 	struct ceph_mount_info *mnt = NULL;
 	/* if config_file and/or user_id are NULL, ceph will use defaults */
-	const char *conf_file =
-	    lp_parm_const_string(snum, "ceph", "config_file", NULL);
-	const char *user_id =
-	    lp_parm_const_string(snum, "ceph", "user_id", NULL);
-	const char *fsname =
-	    lp_parm_const_string(snum, "ceph", "filesystem", NULL);
+	const char *conf_file = lp_parm_const_string(snum,
+						     "ceph",
+						     "config_file",
+						     NULL);
+	const char *user_id = lp_parm_const_string(snum,
+						   "ceph",
+						   "user_id",
+						   NULL);
+	const char *fsname = lp_parm_const_string(snum,
+						  "ceph",
+						  "filesystem",
+						  NULL);
 
 	DBG_DEBUG("[CEPH] calling: ceph_create\n");
 	ret = ceph_create(&mnt, user_id);
@@ -221,8 +235,8 @@ static struct ceph_mount_info *cephmount_mount_fs(const int snum)
 	}
 	/*
 	 * select a cephfs file system to use:
-	 * In ceph, multiple file system support has been stable since 'pacific'.
-	 * Permit different shares to access different file systems.
+	 * In ceph, multiple file system support has been stable since
+	 * 'pacific'. Permit different shares to access different file systems.
 	 */
 	if (fsname != NULL) {
 		ret = cephmount_select_fs(mnt, fsname);
@@ -237,11 +251,11 @@ static struct ceph_mount_info *cephmount_mount_fs(const int snum)
 		goto cm_done;
 	}
 
-      err_cm_release:
+err_cm_release:
 	ceph_release(mnt);
 	mnt = NULL;
 	DBG_DEBUG("[CEPH] Error mounting fs: %s\n", strerror(-ret));
-      cm_done:
+cm_done:
 	/*
 	 * Handle the error correctly. Ceph returns -errno.
 	 */
@@ -258,7 +272,8 @@ static struct ceph_mount_info *cephmount_mount_fs(const int snum)
    this possibility. */
 
 static int cephwrap_connect(struct vfs_handle_struct *handle,
-			    const char *service, const char *user)
+			    const char *service,
+			    const char *user)
 {
 	int ret = 0;
 	struct ceph_mount_info *cmount = NULL;
@@ -283,13 +298,13 @@ static int cephwrap_connect(struct vfs_handle_struct *handle,
 		goto connect_fail;
 	}
 
-      connect_ok:
+connect_ok:
 	handle->data = cmount;
 	/*
 	 * Unless we have an async implementation of getxattrat turn this off.
 	 */
 	lp_do_parameter(SNUM(handle->conn), "smbd async dosmode", "false");
-      connect_fail:
+connect_fail:
 	talloc_free(cookie);
 	return ret;
 }
@@ -322,16 +337,18 @@ static void cephwrap_disconnect(struct vfs_handle_struct *handle)
 /* Disk operations */
 
 static uint64_t cephwrap_disk_free(struct vfs_handle_struct *handle,
-				const struct smb_filename *smb_fname,
-				uint64_t *bsize,
-				uint64_t *dfree,
-				uint64_t *dsize)
+				   const struct smb_filename *smb_fname,
+				   uint64_t *bsize,
+				   uint64_t *dfree,
+				   uint64_t *dsize)
 {
 	struct statvfs statvfs_buf;
 	int ret;
 
-	if (!(ret = ceph_statfs(handle->data, smb_fname->base_name,
-			&statvfs_buf))) {
+	if (!(ret = ceph_statfs(handle->data,
+				smb_fname->base_name,
+				&statvfs_buf)))
+	{
 		/*
 		 * Provide all the correct values.
 		 */
@@ -339,7 +356,9 @@ static uint64_t cephwrap_disk_free(struct vfs_handle_struct *handle,
 		*dfree = statvfs_buf.f_bavail;
 		*dsize = statvfs_buf.f_blocks;
 		DBG_DEBUG("[CEPH] bsize: %llu, dfree: %llu, dsize: %llu\n",
-			llu(*bsize), llu(*dfree), llu(*dsize));
+			  llu(*bsize),
+			  llu(*dfree),
+			  llu(*dsize));
 		return *dfree;
 	} else {
 		DBG_DEBUG("[CEPH] ceph_statfs returned %d\n", ret);
@@ -348,10 +367,10 @@ static uint64_t cephwrap_disk_free(struct vfs_handle_struct *handle,
 }
 
 static int cephwrap_get_quota(struct vfs_handle_struct *handle,
-				const struct smb_filename *smb_fname,
-				enum SMB_QUOTA_TYPE qtype,
-				unid_t id,
-				SMB_DISK_QUOTA *qt)
+			      const struct smb_filename *smb_fname,
+			      enum SMB_QUOTA_TYPE qtype,
+			      unid_t id,
+			      SMB_DISK_QUOTA *qt)
 {
 	/* libceph: Ceph does not implement this */
 #if 0
@@ -372,7 +391,10 @@ static int cephwrap_get_quota(struct vfs_handle_struct *handle,
 #endif
 }
 
-static int cephwrap_set_quota(struct vfs_handle_struct *handle,  enum SMB_QUOTA_TYPE qtype, unid_t id, SMB_DISK_QUOTA *qt)
+static int cephwrap_set_quota(struct vfs_handle_struct *handle,
+			      enum SMB_QUOTA_TYPE qtype,
+			      unid_t id,
+			      SMB_DISK_QUOTA *qt)
 {
 	/* libceph: Ceph does not implement this */
 #if 0
@@ -411,15 +433,19 @@ static int cephwrap_statvfs(struct vfs_handle_struct *handle,
 	statbuf->TotalFileNodes = statvfs_buf.f_files;
 	statbuf->FreeFileNodes = statvfs_buf.f_ffree;
 	statbuf->FsIdentifier = statvfs_buf.f_fsid;
-	DBG_DEBUG("[CEPH] f_bsize: %ld, f_blocks: %ld, f_bfree: %ld, f_bavail: %ld\n",
-		(long int)statvfs_buf.f_bsize, (long int)statvfs_buf.f_blocks,
-		(long int)statvfs_buf.f_bfree, (long int)statvfs_buf.f_bavail);
+	DBG_DEBUG("[CEPH] f_bsize: %ld, f_blocks: %ld, f_bfree: %ld, f_bavail: "
+		  "%ld\n",
+		  (long int)statvfs_buf.f_bsize,
+		  (long int)statvfs_buf.f_blocks,
+		  (long int)statvfs_buf.f_bfree,
+		  (long int)statvfs_buf.f_bavail);
 
 	return ret;
 }
 
-static uint32_t cephwrap_fs_capabilities(struct vfs_handle_struct *handle,
-					 enum timestamp_set_resolution *p_ts_res)
+static uint32_t cephwrap_fs_capabilities(
+	struct vfs_handle_struct *handle,
+	enum timestamp_set_resolution *p_ts_res)
 {
 	uint32_t caps = FILE_CASE_SENSITIVE_SEARCH | FILE_CASE_PRESERVED_NAMES;
 
@@ -446,7 +472,7 @@ static DIR *cephwrap_fdopendir(struct vfs_handle_struct *handle,
 	}
 
 	DBG_DEBUG("[CEPH] fdopendir(...) = %d\n", ret);
-	return (DIR *) result;
+	return (DIR *)result;
 }
 
 static struct dirent *cephwrap_readdir(struct vfs_handle_struct *handle,
@@ -456,7 +482,7 @@ static struct dirent *cephwrap_readdir(struct vfs_handle_struct *handle,
 	struct dirent *result;
 
 	DBG_DEBUG("[CEPH] readdir(%p, %p)\n", handle, dirp);
-	result = ceph_readdir(handle->data, (struct ceph_dir_result *) dirp);
+	result = ceph_readdir(handle->data, (struct ceph_dir_result *)dirp);
 	DBG_DEBUG("[CEPH] readdir(...) = %p\n", result);
 
 	return result;
@@ -465,26 +491,27 @@ static struct dirent *cephwrap_readdir(struct vfs_handle_struct *handle,
 static void cephwrap_rewinddir(struct vfs_handle_struct *handle, DIR *dirp)
 {
 	DBG_DEBUG("[CEPH] rewinddir(%p, %p)\n", handle, dirp);
-	ceph_rewinddir(handle->data, (struct ceph_dir_result *) dirp);
+	ceph_rewinddir(handle->data, (struct ceph_dir_result *)dirp);
 }
 
 static int cephwrap_mkdirat(struct vfs_handle_struct *handle,
-			files_struct *dirfsp,
-			const struct smb_filename *smb_fname,
-			mode_t mode)
+			    files_struct *dirfsp,
+			    const struct smb_filename *smb_fname,
+			    mode_t mode)
 {
 	struct smb_filename *full_fname = NULL;
 	int result;
 
 	full_fname = full_path_from_dirfsp_atname(talloc_tos(),
-						dirfsp,
-						smb_fname);
+						  dirfsp,
+						  smb_fname);
 	if (full_fname == NULL) {
 		return -1;
 	}
 
 	DBG_DEBUG("[CEPH] mkdir(%p, %s)\n",
-		  handle, smb_fname_str_dbg(full_fname));
+		  handle,
+		  smb_fname_str_dbg(full_fname));
 
 	result = ceph_mkdir(handle->data, full_fname->base_name, mode);
 
@@ -498,7 +525,7 @@ static int cephwrap_closedir(struct vfs_handle_struct *handle, DIR *dirp)
 	int result;
 
 	DBG_DEBUG("[CEPH] closedir(%p, %p)\n", handle, dirp);
-	result = ceph_closedir(handle->data, (struct ceph_dir_result *) dirp);
+	result = ceph_closedir(handle->data, (struct ceph_dir_result *)dirp);
 	DBG_DEBUG("[CEPH] closedir(...) = %d\n", result);
 	WRAP_RETURN(result);
 }
@@ -536,8 +563,12 @@ static int cephwrap_openat(struct vfs_handle_struct *handle,
 		smb_fname = name;
 	}
 
-	DBG_DEBUG("[CEPH] openat(%p, %s, %p, %d, %d)\n", handle,
-		  smb_fname_str_dbg(smb_fname), fsp, flags, mode);
+	DBG_DEBUG("[CEPH] openat(%p, %s, %p, %d, %d)\n",
+		  handle,
+		  smb_fname_str_dbg(smb_fname),
+		  fsp,
+		  flags,
+		  mode);
 
 	if (smb_fname->stream_name) {
 		goto out;
@@ -579,12 +610,20 @@ static int cephwrap_close(struct vfs_handle_struct *handle, files_struct *fsp)
 	WRAP_RETURN(result);
 }
 
-static ssize_t cephwrap_pread(struct vfs_handle_struct *handle, files_struct *fsp, void *data,
-			size_t n, off_t offset)
+static ssize_t cephwrap_pread(struct vfs_handle_struct *handle,
+			      files_struct *fsp,
+			      void *data,
+			      size_t n,
+			      off_t offset)
 {
 	ssize_t result;
 
-	DBG_DEBUG("[CEPH] pread(%p, %p, %p, %llu, %llu)\n", handle, fsp, data, llu(n), llu(offset));
+	DBG_DEBUG("[CEPH] pread(%p, %p, %p, %llu, %llu)\n",
+		  handle,
+		  fsp,
+		  data,
+		  llu(n),
+		  llu(offset));
 
 	result = ceph_read(handle->data, fsp_get_io_fd(fsp), data, n, offset);
 	DBG_DEBUG("[CEPH] pread(...) = %llu\n", llu(result));
@@ -604,7 +643,8 @@ static struct tevent_req *cephwrap_pread_send(struct vfs_handle_struct *handle,
 					      struct tevent_context *ev,
 					      struct files_struct *fsp,
 					      void *data,
-					      size_t n, off_t offset)
+					      size_t n,
+					      off_t offset)
 {
 	struct tevent_req *req = NULL;
 	struct cephwrap_pread_state *state = NULL;
@@ -632,8 +672,8 @@ static struct tevent_req *cephwrap_pread_send(struct vfs_handle_struct *handle,
 static ssize_t cephwrap_pread_recv(struct tevent_req *req,
 				   struct vfs_aio_state *vfs_aio_state)
 {
-	struct cephwrap_pread_state *state =
-		tevent_req_data(req, struct cephwrap_pread_state);
+	struct cephwrap_pread_state *state = tevent_req_data(
+		req, struct cephwrap_pread_state);
 
 	DBG_DEBUG("[CEPH] %s\n", __func__);
 	if (tevent_req_is_unix_error(req, &vfs_aio_state->error)) {
@@ -643,12 +683,20 @@ static ssize_t cephwrap_pread_recv(struct tevent_req *req,
 	return state->bytes_read;
 }
 
-static ssize_t cephwrap_pwrite(struct vfs_handle_struct *handle, files_struct *fsp, const void *data,
-			size_t n, off_t offset)
+static ssize_t cephwrap_pwrite(struct vfs_handle_struct *handle,
+			       files_struct *fsp,
+			       const void *data,
+			       size_t n,
+			       off_t offset)
 {
 	ssize_t result;
 
-	DBG_DEBUG("[CEPH] pwrite(%p, %p, %p, %llu, %llu)\n", handle, fsp, data, llu(n), llu(offset));
+	DBG_DEBUG("[CEPH] pwrite(%p, %p, %p, %llu, %llu)\n",
+		  handle,
+		  fsp,
+		  data,
+		  llu(n),
+		  llu(offset));
 	result = ceph_write(handle->data, fsp_get_io_fd(fsp), data, n, offset);
 	DBG_DEBUG("[CEPH] pwrite(...) = %llu\n", llu(result));
 	WRAP_RETURN(result);
@@ -667,7 +715,8 @@ static struct tevent_req *cephwrap_pwrite_send(struct vfs_handle_struct *handle,
 					       struct tevent_context *ev,
 					       struct files_struct *fsp,
 					       const void *data,
-					       size_t n, off_t offset)
+					       size_t n,
+					       off_t offset)
 {
 	struct tevent_req *req = NULL;
 	struct cephwrap_pwrite_state *state = NULL;
@@ -695,8 +744,8 @@ static struct tevent_req *cephwrap_pwrite_send(struct vfs_handle_struct *handle,
 static ssize_t cephwrap_pwrite_recv(struct tevent_req *req,
 				    struct vfs_aio_state *vfs_aio_state)
 {
-	struct cephwrap_pwrite_state *state =
-		tevent_req_data(req, struct cephwrap_pwrite_state);
+	struct cephwrap_pwrite_state *state = tevent_req_data(
+		req, struct cephwrap_pwrite_state);
 
 	DBG_DEBUG("[CEPH] %s\n", __func__);
 	if (tevent_req_is_unix_error(req, &vfs_aio_state->error)) {
@@ -706,7 +755,10 @@ static ssize_t cephwrap_pwrite_recv(struct tevent_req *req,
 	return state->bytes_written;
 }
 
-static off_t cephwrap_lseek(struct vfs_handle_struct *handle, files_struct *fsp, off_t offset, int whence)
+static off_t cephwrap_lseek(struct vfs_handle_struct *handle,
+			    files_struct *fsp,
+			    off_t offset,
+			    int whence)
 {
 	off_t result = 0;
 
@@ -715,8 +767,12 @@ static off_t cephwrap_lseek(struct vfs_handle_struct *handle, files_struct *fsp,
 	WRAP_RETURN(result);
 }
 
-static ssize_t cephwrap_sendfile(struct vfs_handle_struct *handle, int tofd, files_struct *fromfsp, const DATA_BLOB *hdr,
-			off_t offset, size_t n)
+static ssize_t cephwrap_sendfile(struct vfs_handle_struct *handle,
+				 int tofd,
+				 files_struct *fromfsp,
+				 const DATA_BLOB *hdr,
+				 off_t offset,
+				 size_t n)
 {
 	/*
 	 * We cannot support sendfile because libceph is in user space.
@@ -727,24 +783,24 @@ static ssize_t cephwrap_sendfile(struct vfs_handle_struct *handle, int tofd, fil
 }
 
 static ssize_t cephwrap_recvfile(struct vfs_handle_struct *handle,
-			int fromfd,
-			files_struct *tofsp,
-			off_t offset,
-			size_t n)
+				 int fromfd,
+				 files_struct *tofsp,
+				 off_t offset,
+				 size_t n)
 {
 	/*
 	 * We cannot support recvfile because libceph is in user space.
 	 */
 	DBG_DEBUG("[CEPH] cephwrap_recvfile\n");
-	errno=ENOTSUP;
+	errno = ENOTSUP;
 	return -1;
 }
 
 static int cephwrap_renameat(struct vfs_handle_struct *handle,
-			files_struct *srcfsp,
-			const struct smb_filename *smb_fname_src,
-			files_struct *dstfsp,
-			const struct smb_filename *smb_fname_dst)
+			     files_struct *srcfsp,
+			     const struct smb_filename *smb_fname_src,
+			     files_struct *dstfsp,
+			     const struct smb_filename *smb_fname_dst)
 {
 	struct smb_filename *full_fname_src = NULL;
 	struct smb_filename *full_fname_dst = NULL;
@@ -757,15 +813,15 @@ static int cephwrap_renameat(struct vfs_handle_struct *handle,
 	}
 
 	full_fname_src = full_path_from_dirfsp_atname(talloc_tos(),
-						  srcfsp,
-						  smb_fname_src);
+						      srcfsp,
+						      smb_fname_src);
 	if (full_fname_src == NULL) {
 		errno = ENOMEM;
 		return -1;
 	}
 	full_fname_dst = full_path_from_dirfsp_atname(talloc_tos(),
-						  dstfsp,
-						  smb_fname_dst);
+						      dstfsp,
+						      smb_fname_dst);
 	if (full_fname_dst == NULL) {
 		TALLOC_FREE(full_fname_src);
 		errno = ENOMEM;
@@ -787,9 +843,9 @@ static int cephwrap_renameat(struct vfs_handle_struct *handle,
  */
 
 static struct tevent_req *cephwrap_fsync_send(struct vfs_handle_struct *handle,
-					TALLOC_CTX *mem_ctx,
-					struct tevent_context *ev,
-					files_struct *fsp)
+					      TALLOC_CTX *mem_ctx,
+					      struct tevent_context *ev,
+					      files_struct *fsp)
 {
 	struct tevent_req *req = NULL;
 	struct vfs_aio_state *state = NULL;
@@ -818,10 +874,10 @@ static struct tevent_req *cephwrap_fsync_send(struct vfs_handle_struct *handle,
 }
 
 static int cephwrap_fsync_recv(struct tevent_req *req,
-				struct vfs_aio_state *vfs_aio_state)
+			       struct vfs_aio_state *vfs_aio_state)
 {
-	struct vfs_aio_state *state =
-		tevent_req_data(req, struct vfs_aio_state);
+	struct vfs_aio_state *state = tevent_req_data(req,
+						      struct vfs_aio_state);
 
 	DBG_DEBUG("[CEPH] cephwrap_fsync_recv\n");
 
@@ -832,24 +888,36 @@ static int cephwrap_fsync_recv(struct tevent_req *req,
 	return 0;
 }
 
-#define SAMBA_STATX_ATTR_MASK	(CEPH_STATX_BASIC_STATS|CEPH_STATX_BTIME)
+#define SAMBA_STATX_ATTR_MASK (CEPH_STATX_BASIC_STATS | CEPH_STATX_BTIME)
 
-static void init_stat_ex_from_ceph_statx(struct stat_ex *dst, const struct ceph_statx *stx)
+static void init_stat_ex_from_ceph_statx(struct stat_ex *dst,
+					 const struct ceph_statx *stx)
 {
 	DBG_DEBUG("[CEPH]\tstx = {dev = %llx, ino = %llu, mode = 0x%x, "
 		  "nlink = %llu, uid = %d, gid = %d, rdev = %llx, size = %llu, "
 		  "blksize = %llu, blocks = %llu, atime = %llu, mtime = %llu, "
 		  "ctime = %llu, btime = %llu}\n",
-		  llu(stx->stx_dev), llu(stx->stx_ino), stx->stx_mode,
-		  llu(stx->stx_nlink), stx->stx_uid, stx->stx_gid,
-		  llu(stx->stx_rdev), llu(stx->stx_size), llu(stx->stx_blksize),
-		  llu(stx->stx_blocks), llu(stx->stx_atime.tv_sec),
-		  llu(stx->stx_mtime.tv_sec), llu(stx->stx_ctime.tv_sec),
+		  llu(stx->stx_dev),
+		  llu(stx->stx_ino),
+		  stx->stx_mode,
+		  llu(stx->stx_nlink),
+		  stx->stx_uid,
+		  stx->stx_gid,
+		  llu(stx->stx_rdev),
+		  llu(stx->stx_size),
+		  llu(stx->stx_blksize),
+		  llu(stx->stx_blocks),
+		  llu(stx->stx_atime.tv_sec),
+		  llu(stx->stx_mtime.tv_sec),
+		  llu(stx->stx_ctime.tv_sec),
 		  llu(stx->stx_btime.tv_sec));
 
 	if ((stx->stx_mask & SAMBA_STATX_ATTR_MASK) != SAMBA_STATX_ATTR_MASK) {
-		DBG_WARNING("%s: stx->stx_mask is incorrect (wanted %x, got %x)\n",
-				__func__, SAMBA_STATX_ATTR_MASK, stx->stx_mask);
+		DBG_WARNING(
+			"%s: stx->stx_mask is incorrect (wanted %x, got %x)\n",
+			__func__,
+			SAMBA_STATX_ATTR_MASK,
+			stx->stx_mask);
 	}
 
 	dst->st_ex_dev = stx->stx_dev;
@@ -869,20 +937,25 @@ static void init_stat_ex_from_ceph_statx(struct stat_ex *dst, const struct ceph_
 }
 
 static int cephwrap_stat(struct vfs_handle_struct *handle,
-			struct smb_filename *smb_fname)
+			 struct smb_filename *smb_fname)
 {
 	int result = -1;
 	struct ceph_statx stx;
 
-	DBG_DEBUG("[CEPH] stat(%p, %s)\n", handle, smb_fname_str_dbg(smb_fname));
+	DBG_DEBUG("[CEPH] stat(%p, %s)\n",
+		  handle,
+		  smb_fname_str_dbg(smb_fname));
 
 	if (smb_fname->stream_name) {
 		errno = ENOENT;
 		return result;
 	}
 
-	result = ceph_statx(handle->data, smb_fname->base_name, &stx,
-				SAMBA_STATX_ATTR_MASK, 0);
+	result = ceph_statx(handle->data,
+			    smb_fname->base_name,
+			    &stx,
+			    SAMBA_STATX_ATTR_MASK,
+			    0);
 	DBG_DEBUG("[CEPH] statx(...) = %d\n", result);
 	if (result < 0) {
 		WRAP_RETURN(result);
@@ -893,15 +966,16 @@ static int cephwrap_stat(struct vfs_handle_struct *handle,
 	return result;
 }
 
-static int cephwrap_fstat(struct vfs_handle_struct *handle, files_struct *fsp, SMB_STRUCT_STAT *sbuf)
+static int cephwrap_fstat(struct vfs_handle_struct *handle,
+			  files_struct *fsp,
+			  SMB_STRUCT_STAT *sbuf)
 {
 	int result = -1;
 	struct ceph_statx stx;
 	int fd = fsp_get_pathref_fd(fsp);
 
 	DBG_DEBUG("[CEPH] fstat(%p, %d)\n", handle, fd);
-	result = ceph_fstatx(handle->data, fd, &stx,
-				SAMBA_STATX_ATTR_MASK, 0);
+	result = ceph_fstatx(handle->data, fd, &stx, SAMBA_STATX_ATTR_MASK, 0);
 	DBG_DEBUG("[CEPH] fstat(...) = %d\n", result);
 	if (result < 0) {
 		WRAP_RETURN(result);
@@ -913,20 +987,25 @@ static int cephwrap_fstat(struct vfs_handle_struct *handle, files_struct *fsp, S
 }
 
 static int cephwrap_lstat(struct vfs_handle_struct *handle,
-			 struct smb_filename *smb_fname)
+			  struct smb_filename *smb_fname)
 {
 	int result = -1;
 	struct ceph_statx stx;
 
-	DBG_DEBUG("[CEPH] lstat(%p, %s)\n", handle, smb_fname_str_dbg(smb_fname));
+	DBG_DEBUG("[CEPH] lstat(%p, %s)\n",
+		  handle,
+		  smb_fname_str_dbg(smb_fname));
 
 	if (smb_fname->stream_name) {
 		errno = ENOENT;
 		return result;
 	}
 
-	result = ceph_statx(handle->data, smb_fname->base_name, &stx,
-				SAMBA_STATX_ATTR_MASK, AT_SYMLINK_NOFOLLOW);
+	result = ceph_statx(handle->data,
+			    smb_fname->base_name,
+			    &stx,
+			    SAMBA_STATX_ATTR_MASK,
+			    AT_SYMLINK_NOFOLLOW);
 	DBG_DEBUG("[CEPH] lstat(...) = %d\n", result);
 	if (result < 0) {
 		WRAP_RETURN(result);
@@ -940,7 +1019,7 @@ static int cephwrap_fntimes(struct vfs_handle_struct *handle,
 			    files_struct *fsp,
 			    struct smb_file_time *ft)
 {
-	struct ceph_statx stx = { 0 };
+	struct ceph_statx stx = {0};
 	int result;
 	int mask = 0;
 
@@ -973,31 +1052,33 @@ static int cephwrap_fntimes(struct vfs_handle_struct *handle,
 		/*
 		 * This is no longer a handle based call.
 		 */
-		result = ceph_setattrx(handle->data,
-				       fsp->fsp_name->base_name,
-				       &stx,
-				       mask,
-				       0);
+		result = ceph_setattrx(
+			handle->data, fsp->fsp_name->base_name, &stx, mask, 0);
 	}
 
 	DBG_DEBUG("[CEPH] ntimes(%p, %s, {%ld, %ld, %ld, %ld}) = %d\n",
-		  handle, fsp_str_dbg(fsp), ft->mtime.tv_sec, ft->atime.tv_sec,
-		  ft->ctime.tv_sec, ft->create_time.tv_sec, result);
+		  handle,
+		  fsp_str_dbg(fsp),
+		  ft->mtime.tv_sec,
+		  ft->atime.tv_sec,
+		  ft->ctime.tv_sec,
+		  ft->create_time.tv_sec,
+		  result);
 
 	return result;
 }
 
 static int cephwrap_unlinkat(struct vfs_handle_struct *handle,
-			struct files_struct *dirfsp,
-			const struct smb_filename *smb_fname,
-			int flags)
+			     struct files_struct *dirfsp,
+			     const struct smb_filename *smb_fname,
+			     int flags)
 {
 	struct smb_filename *full_fname = NULL;
 	int result = -1;
 
 	DBG_DEBUG("[CEPH] unlink(%p, %s)\n",
-		handle,
-		smb_fname_str_dbg(smb_fname));
+		  handle,
+		  smb_fname_str_dbg(smb_fname));
 
 	if (smb_fname->stream_name) {
 		errno = ENOENT;
@@ -1021,7 +1102,9 @@ static int cephwrap_unlinkat(struct vfs_handle_struct *handle,
 	WRAP_RETURN(result);
 }
 
-static int cephwrap_fchmod(struct vfs_handle_struct *handle, files_struct *fsp, mode_t mode)
+static int cephwrap_fchmod(struct vfs_handle_struct *handle,
+			   files_struct *fsp,
+			   mode_t mode)
 {
 	int result;
 
@@ -1043,7 +1126,10 @@ static int cephwrap_fchmod(struct vfs_handle_struct *handle, files_struct *fsp, 
 	WRAP_RETURN(result);
 }
 
-static int cephwrap_fchown(struct vfs_handle_struct *handle, files_struct *fsp, uid_t uid, gid_t gid)
+static int cephwrap_fchown(struct vfs_handle_struct *handle,
+			   files_struct *fsp,
+			   uid_t uid,
+			   gid_t gid)
 {
 	int result;
 
@@ -1054,19 +1140,23 @@ static int cephwrap_fchown(struct vfs_handle_struct *handle, files_struct *fsp, 
 }
 
 static int cephwrap_lchown(struct vfs_handle_struct *handle,
-			const struct smb_filename *smb_fname,
-			uid_t uid,
-			gid_t gid)
+			   const struct smb_filename *smb_fname,
+			   uid_t uid,
+			   gid_t gid)
 {
 	int result;
-	DBG_DEBUG("[CEPH] lchown(%p, %s, %d, %d)\n", handle, smb_fname->base_name, uid, gid);
+	DBG_DEBUG("[CEPH] lchown(%p, %s, %d, %d)\n",
+		  handle,
+		  smb_fname->base_name,
+		  uid,
+		  gid);
 	result = ceph_lchown(handle->data, smb_fname->base_name, uid, gid);
 	DBG_DEBUG("[CEPH] lchown(...) = %d\n", result);
 	WRAP_RETURN(result);
 }
 
 static int cephwrap_chdir(struct vfs_handle_struct *handle,
-			const struct smb_filename *smb_fname)
+			  const struct smb_filename *smb_fname)
 {
 	int result = -1;
 	DBG_DEBUG("[CEPH] chdir(%p, %s)\n", handle, smb_fname->base_name);
@@ -1076,19 +1166,16 @@ static int cephwrap_chdir(struct vfs_handle_struct *handle,
 }
 
 static struct smb_filename *cephwrap_getwd(struct vfs_handle_struct *handle,
-			TALLOC_CTX *ctx)
+					   TALLOC_CTX *ctx)
 {
 	const char *cwd = ceph_getcwd(handle->data);
 	DBG_DEBUG("[CEPH] getwd(%p) = %s\n", handle, cwd);
-	return synthetic_smb_fname(ctx,
-				cwd,
-				NULL,
-				NULL,
-				0,
-				0);
+	return synthetic_smb_fname(ctx, cwd, NULL, NULL, 0, 0);
 }
 
-static int strict_allocate_ftruncate(struct vfs_handle_struct *handle, files_struct *fsp, off_t len)
+static int strict_allocate_ftruncate(struct vfs_handle_struct *handle,
+				     files_struct *fsp,
+				     off_t len)
 {
 	off_t space_to_write;
 	int result;
@@ -1116,12 +1203,17 @@ static int strict_allocate_ftruncate(struct vfs_handle_struct *handle, files_str
 	}
 
 	space_to_write = len - pst->st_ex_size;
-	result = ceph_fallocate(handle->data, fsp_get_io_fd(fsp), 0, pst->st_ex_size,
+	result = ceph_fallocate(handle->data,
+				fsp_get_io_fd(fsp),
+				0,
+				pst->st_ex_size,
 				space_to_write);
 	WRAP_RETURN(result);
 }
 
-static int cephwrap_ftruncate(struct vfs_handle_struct *handle, files_struct *fsp, off_t len)
+static int cephwrap_ftruncate(struct vfs_handle_struct *handle,
+			      files_struct *fsp,
+			      off_t len)
 {
 	int result = -1;
 
@@ -1144,14 +1236,24 @@ static int cephwrap_fallocate(struct vfs_handle_struct *handle,
 	int result;
 
 	DBG_DEBUG("[CEPH] fallocate(%p, %p, %u, %llu, %llu\n",
-		  handle, fsp, mode, llu(offset), llu(len));
+		  handle,
+		  fsp,
+		  mode,
+		  llu(offset),
+		  llu(len));
 	/* unsupported mode flags are rejected by libcephfs */
-	result = ceph_fallocate(handle->data, fsp_get_io_fd(fsp), mode, offset, len);
+	result = ceph_fallocate(
+		handle->data, fsp_get_io_fd(fsp), mode, offset, len);
 	DBG_DEBUG("[CEPH] fallocate(...) = %d\n", result);
 	WRAP_RETURN(result);
 }
 
-static bool cephwrap_lock(struct vfs_handle_struct *handle, files_struct *fsp, int op, off_t offset, off_t count, int type)
+static bool cephwrap_lock(struct vfs_handle_struct *handle,
+			  files_struct *fsp,
+			  int op,
+			  off_t offset,
+			  off_t count,
+			  int type)
 {
 	DBG_DEBUG("[CEPH] lock\n");
 	return true;
@@ -1170,7 +1272,9 @@ static int cephwrap_filesystem_sharemode(struct vfs_handle_struct *handle,
 }
 
 static int cephwrap_fcntl(vfs_handle_struct *handle,
-			  files_struct *fsp, int cmd, va_list cmd_arg)
+			  files_struct *fsp,
+			  int cmd,
+			  va_list cmd_arg)
 {
 	/*
 	 * SMB_VFS_FCNTL() is currently only called by vfs_set_blocking() to
@@ -1197,7 +1301,12 @@ err_out:
 	return -1;
 }
 
-static bool cephwrap_getlock(struct vfs_handle_struct *handle, files_struct *fsp, off_t *poffset, off_t *pcount, int *ptype, pid_t *ppid)
+static bool cephwrap_getlock(struct vfs_handle_struct *handle,
+			     files_struct *fsp,
+			     off_t *poffset,
+			     off_t *pcount,
+			     int *ptype,
+			     pid_t *ppid)
 {
 	DBG_DEBUG("[CEPH] getlock returning false and errno=0\n");
 
@@ -1210,8 +1319,9 @@ static bool cephwrap_getlock(struct vfs_handle_struct *handle, files_struct *fsp
  * be accessible from libceph (which is a user-space client) but the fd might
  * be for some file the kernel knows about.
  */
-static int cephwrap_linux_setlease(struct vfs_handle_struct *handle, files_struct *fsp,
-				int leasetype)
+static int cephwrap_linux_setlease(struct vfs_handle_struct *handle,
+				   files_struct *fsp,
+				   int leasetype)
 {
 	int result = -1;
 
@@ -1221,89 +1331,97 @@ static int cephwrap_linux_setlease(struct vfs_handle_struct *handle, files_struc
 }
 
 static int cephwrap_symlinkat(struct vfs_handle_struct *handle,
-		const struct smb_filename *link_target,
-		struct files_struct *dirfsp,
-		const struct smb_filename *new_smb_fname)
+			      const struct smb_filename *link_target,
+			      struct files_struct *dirfsp,
+			      const struct smb_filename *new_smb_fname)
 {
 	struct smb_filename *full_fname = NULL;
 	int result = -1;
 
 	full_fname = full_path_from_dirfsp_atname(talloc_tos(),
-						dirfsp,
-						new_smb_fname);
+						  dirfsp,
+						  new_smb_fname);
 	if (full_fname == NULL) {
 		return -1;
 	}
 
-	DBG_DEBUG("[CEPH] symlink(%p, %s, %s)\n", handle,
-			link_target->base_name,
-			full_fname->base_name);
+	DBG_DEBUG("[CEPH] symlink(%p, %s, %s)\n",
+		  handle,
+		  link_target->base_name,
+		  full_fname->base_name);
 
 	result = ceph_symlink(handle->data,
-			link_target->base_name,
-			full_fname->base_name);
+			      link_target->base_name,
+			      full_fname->base_name);
 	TALLOC_FREE(full_fname);
 	DBG_DEBUG("[CEPH] symlink(...) = %d\n", result);
 	WRAP_RETURN(result);
 }
 
 static int cephwrap_readlinkat(struct vfs_handle_struct *handle,
-		const struct files_struct *dirfsp,
-		const struct smb_filename *smb_fname,
-		char *buf,
-		size_t bufsiz)
+			       const struct files_struct *dirfsp,
+			       const struct smb_filename *smb_fname,
+			       char *buf,
+			       size_t bufsiz)
 {
 	struct smb_filename *full_fname = NULL;
 	int result = -1;
 
 	full_fname = full_path_from_dirfsp_atname(talloc_tos(),
-						dirfsp,
-						smb_fname);
+						  dirfsp,
+						  smb_fname);
 	if (full_fname == NULL) {
 		return -1;
 	}
 
-	DBG_DEBUG("[CEPH] readlink(%p, %s, %p, %llu)\n", handle,
-			full_fname->base_name, buf, llu(bufsiz));
+	DBG_DEBUG("[CEPH] readlink(%p, %s, %p, %llu)\n",
+		  handle,
+		  full_fname->base_name,
+		  buf,
+		  llu(bufsiz));
 
-	result = ceph_readlink(handle->data, full_fname->base_name, buf, bufsiz);
+	result = ceph_readlink(handle->data,
+			       full_fname->base_name,
+			       buf,
+			       bufsiz);
 	TALLOC_FREE(full_fname);
 	DBG_DEBUG("[CEPH] readlink(...) = %d\n", result);
 	WRAP_RETURN(result);
 }
 
 static int cephwrap_linkat(struct vfs_handle_struct *handle,
-		files_struct *srcfsp,
-		const struct smb_filename *old_smb_fname,
-		files_struct *dstfsp,
-		const struct smb_filename *new_smb_fname,
-		int flags)
+			   files_struct *srcfsp,
+			   const struct smb_filename *old_smb_fname,
+			   files_struct *dstfsp,
+			   const struct smb_filename *new_smb_fname,
+			   int flags)
 {
 	struct smb_filename *full_fname_old = NULL;
 	struct smb_filename *full_fname_new = NULL;
 	int result = -1;
 
 	full_fname_old = full_path_from_dirfsp_atname(talloc_tos(),
-					srcfsp,
-					old_smb_fname);
+						      srcfsp,
+						      old_smb_fname);
 	if (full_fname_old == NULL) {
 		return -1;
 	}
 	full_fname_new = full_path_from_dirfsp_atname(talloc_tos(),
-					dstfsp,
-					new_smb_fname);
+						      dstfsp,
+						      new_smb_fname);
 	if (full_fname_new == NULL) {
 		TALLOC_FREE(full_fname_old);
 		return -1;
 	}
 
-	DBG_DEBUG("[CEPH] link(%p, %s, %s)\n", handle,
-			full_fname_old->base_name,
-			full_fname_new->base_name);
+	DBG_DEBUG("[CEPH] link(%p, %s, %s)\n",
+		  handle,
+		  full_fname_old->base_name,
+		  full_fname_new->base_name);
 
 	result = ceph_link(handle->data,
-				full_fname_old->base_name,
-				full_fname_new->base_name);
+			   full_fname_old->base_name,
+			   full_fname_new->base_name);
 	DBG_DEBUG("[CEPH] link(...) = %d\n", result);
 	TALLOC_FREE(full_fname_old);
 	TALLOC_FREE(full_fname_new);
@@ -1311,17 +1429,17 @@ static int cephwrap_linkat(struct vfs_handle_struct *handle,
 }
 
 static int cephwrap_mknodat(struct vfs_handle_struct *handle,
-		files_struct *dirfsp,
-		const struct smb_filename *smb_fname,
-		mode_t mode,
-		SMB_DEV_T dev)
+			    files_struct *dirfsp,
+			    const struct smb_filename *smb_fname,
+			    mode_t mode,
+			    SMB_DEV_T dev)
 {
 	struct smb_filename *full_fname = NULL;
 	int result = -1;
 
 	full_fname = full_path_from_dirfsp_atname(talloc_tos(),
-						dirfsp,
-						smb_fname);
+						  dirfsp,
+						  smb_fname);
 	if (full_fname == NULL) {
 		return -1;
 	}
@@ -1339,9 +1457,10 @@ static int cephwrap_mknodat(struct vfs_handle_struct *handle,
  * This is a simple version of real-path ... a better version is needed to
  * ask libceph about symbolic links.
  */
-static struct smb_filename *cephwrap_realpath(struct vfs_handle_struct *handle,
-				TALLOC_CTX *ctx,
-				const struct smb_filename *smb_fname)
+static struct smb_filename *cephwrap_realpath(
+	struct vfs_handle_struct *handle,
+	TALLOC_CTX *ctx,
+	const struct smb_filename *smb_fname)
 {
 	char *result = NULL;
 	const char *path = smb_fname->base_name;
@@ -1353,15 +1472,21 @@ static struct smb_filename *cephwrap_realpath(struct vfs_handle_struct *handle,
 		r = asprintf(&result, "%s", path);
 	} else if ((len >= 2) && (path[0] == '.') && (path[1] == '/')) {
 		if (len == 2) {
-			r = asprintf(&result, "%s",
-					handle->conn->cwd_fsp->fsp_name->base_name);
+			r = asprintf(
+				&result,
+				"%s",
+				handle->conn->cwd_fsp->fsp_name->base_name);
 		} else {
-			r = asprintf(&result, "%s/%s",
-					handle->conn->cwd_fsp->fsp_name->base_name, &path[2]);
+			r = asprintf(&result,
+				     "%s/%s",
+				     handle->conn->cwd_fsp->fsp_name->base_name,
+				     &path[2]);
 		}
 	} else {
-		r = asprintf(&result, "%s/%s",
-				handle->conn->cwd_fsp->fsp_name->base_name, path);
+		r = asprintf(&result,
+			     "%s/%s",
+			     handle->conn->cwd_fsp->fsp_name->base_name,
+			     path);
 	}
 
 	if (r < 0) {
@@ -1369,31 +1494,24 @@ static struct smb_filename *cephwrap_realpath(struct vfs_handle_struct *handle,
 	}
 
 	DBG_DEBUG("[CEPH] realpath(%p, %s) = %s\n", handle, path, result);
-	result_fname = synthetic_smb_fname(ctx,
-				result,
-				NULL,
-				NULL,
-				0,
-				0);
+	result_fname = synthetic_smb_fname(ctx, result, NULL, NULL, 0, 0);
 	SAFE_FREE(result);
 	return result_fname;
 }
 
-
 static int cephwrap_fchflags(struct vfs_handle_struct *handle,
-			struct files_struct *fsp,
-			unsigned int flags)
+			     struct files_struct *fsp,
+			     unsigned int flags)
 {
 	errno = ENOSYS;
 	return -1;
 }
 
-static NTSTATUS cephwrap_get_real_filename_at(
-	struct vfs_handle_struct *handle,
-	struct files_struct *dirfsp,
-	const char *name,
-	TALLOC_CTX *mem_ctx,
-	char **found_name)
+static NTSTATUS cephwrap_get_real_filename_at(struct vfs_handle_struct *handle,
+					      struct files_struct *dirfsp,
+					      const char *name,
+					      TALLOC_CTX *mem_ctx,
+					      char **found_name)
 {
 	/*
 	 * Don't fall back to get_real_filename so callers can differentiate
@@ -1402,10 +1520,9 @@ static NTSTATUS cephwrap_get_real_filename_at(
 	return NT_STATUS_NOT_SUPPORTED;
 }
 
-static const char *cephwrap_connectpath(
-	struct vfs_handle_struct *handle,
-	const struct files_struct *dirfsp,
-	const struct smb_filename *smb_fname)
+static const char *cephwrap_connectpath(struct vfs_handle_struct *handle,
+					const struct files_struct *dirfsp,
+					const struct smb_filename *smb_fname)
 {
 	return handle->conn->connectpath;
 }
@@ -1414,11 +1531,21 @@ static const char *cephwrap_connectpath(
  Extended attribute operations.
 *****************************************************************/
 
-static ssize_t cephwrap_fgetxattr(struct vfs_handle_struct *handle, struct files_struct *fsp, const char *name, void *value, size_t size)
+static ssize_t cephwrap_fgetxattr(struct vfs_handle_struct *handle,
+				  struct files_struct *fsp,
+				  const char *name,
+				  void *value,
+				  size_t size)
 {
 	int ret;
-	DBG_DEBUG("[CEPH] fgetxattr(%p, %p, %s, %p, %llu)\n", handle, fsp, name, value, llu(size));
-	ret = ceph_fgetxattr(handle->data, fsp_get_io_fd(fsp), name, value, size);
+	DBG_DEBUG("[CEPH] fgetxattr(%p, %p, %s, %p, %llu)\n",
+		  handle,
+		  fsp,
+		  name,
+		  value,
+		  llu(size));
+	ret = ceph_fgetxattr(
+		handle->data, fsp_get_io_fd(fsp), name, value, size);
 	DBG_DEBUG("[CEPH] fgetxattr(...) = %d\n", ret);
 	if (ret < 0) {
 		WRAP_RETURN(ret);
@@ -1426,27 +1553,33 @@ static ssize_t cephwrap_fgetxattr(struct vfs_handle_struct *handle, struct files
 	return (ssize_t)ret;
 }
 
-static ssize_t cephwrap_flistxattr(struct vfs_handle_struct *handle, struct files_struct *fsp, char *list, size_t size)
+static ssize_t cephwrap_flistxattr(struct vfs_handle_struct *handle,
+				   struct files_struct *fsp,
+				   char *list,
+				   size_t size)
 {
 	int ret;
 	DBG_DEBUG("[CEPH] flistxattr(%p, %p, %p, %llu)\n",
-		  handle, fsp, list, llu(size));
+		  handle,
+		  fsp,
+		  list,
+		  llu(size));
 	if (!fsp->fsp_flags.is_pathref) {
 		/*
 		 * We can use an io_fd to list xattrs.
 		 */
 		ret = ceph_flistxattr(handle->data,
-					fsp_get_io_fd(fsp),
-					list,
-					size);
+				      fsp_get_io_fd(fsp),
+				      list,
+				      size);
 	} else {
 		/*
 		 * This is no longer a handle based call.
 		 */
 		ret = ceph_listxattr(handle->data,
-					fsp->fsp_name->base_name,
-					list,
-					size);
+				     fsp->fsp_name->base_name,
+				     list,
+				     size);
 	}
 	DBG_DEBUG("[CEPH] flistxattr(...) = %d\n", ret);
 	if (ret < 0) {
@@ -1455,7 +1588,9 @@ static ssize_t cephwrap_flistxattr(struct vfs_handle_struct *handle, struct file
 	return (ssize_t)ret;
 }
 
-static int cephwrap_fremovexattr(struct vfs_handle_struct *handle, struct files_struct *fsp, const char *name)
+static int cephwrap_fremovexattr(struct vfs_handle_struct *handle,
+				 struct files_struct *fsp,
+				 const char *name)
 {
 	int ret;
 	DBG_DEBUG("[CEPH] fremovexattr(%p, %p, %s)\n", handle, fsp, name);
@@ -1469,59 +1604,74 @@ static int cephwrap_fremovexattr(struct vfs_handle_struct *handle, struct files_
 		 * This is no longer a handle based call.
 		 */
 		ret = ceph_removexattr(handle->data,
-					fsp->fsp_name->base_name,
-					name);
+				       fsp->fsp_name->base_name,
+				       name);
 	}
 	DBG_DEBUG("[CEPH] fremovexattr(...) = %d\n", ret);
 	WRAP_RETURN(ret);
 }
 
-static int cephwrap_fsetxattr(struct vfs_handle_struct *handle, struct files_struct *fsp, const char *name, const void *value, size_t size, int flags)
+static int cephwrap_fsetxattr(struct vfs_handle_struct *handle,
+			      struct files_struct *fsp,
+			      const char *name,
+			      const void *value,
+			      size_t size,
+			      int flags)
 {
 	int ret;
-	DBG_DEBUG("[CEPH] fsetxattr(%p, %p, %s, %p, %llu, %d)\n", handle, fsp, name, value, llu(size), flags);
+	DBG_DEBUG("[CEPH] fsetxattr(%p, %p, %s, %p, %llu, %d)\n",
+		  handle,
+		  fsp,
+		  name,
+		  value,
+		  llu(size),
+		  flags);
 	if (!fsp->fsp_flags.is_pathref) {
 		/*
 		 * We can use an io_fd to set xattrs.
 		 */
 		ret = ceph_fsetxattr(handle->data,
-				fsp_get_io_fd(fsp),
-				name,
-				value,
-				size,
-				flags);
+				     fsp_get_io_fd(fsp),
+				     name,
+				     value,
+				     size,
+				     flags);
 	} else {
 		/*
 		 * This is no longer a handle based call.
 		 */
 		ret = ceph_setxattr(handle->data,
-				fsp->fsp_name->base_name,
-				name,
-				value,
-				size,
-				flags);
+				    fsp->fsp_name->base_name,
+				    name,
+				    value,
+				    size,
+				    flags);
 	}
 	DBG_DEBUG("[CEPH] fsetxattr(...) = %d\n", ret);
 	WRAP_RETURN(ret);
 }
 
-static bool cephwrap_aio_force(struct vfs_handle_struct *handle, struct files_struct *fsp)
+static bool cephwrap_aio_force(struct vfs_handle_struct *handle,
+			       struct files_struct *fsp)
 {
 
 	/*
 	 * We do not support AIO yet.
 	 */
 
-	DBG_DEBUG("[CEPH] cephwrap_aio_force(%p, %p) = false (errno = ENOTSUP)\n", handle, fsp);
+	DBG_DEBUG(
+		"[CEPH] cephwrap_aio_force(%p, %p) = false (errno = ENOTSUP)\n",
+		handle,
+		fsp);
 	errno = ENOTSUP;
 	return false;
 }
 
 static NTSTATUS cephwrap_create_dfs_pathat(struct vfs_handle_struct *handle,
-				struct files_struct *dirfsp,
-				const struct smb_filename *smb_fname,
-				const struct referral *reflist,
-				size_t referral_count)
+					   struct files_struct *dirfsp,
+					   const struct smb_filename *smb_fname,
+					   const struct referral *reflist,
+					   size_t referral_count)
 {
 	TALLOC_CTX *frame = talloc_stackframe();
 	NTSTATUS status = NT_STATUS_NO_MEMORY;
@@ -1530,34 +1680,30 @@ static NTSTATUS cephwrap_create_dfs_pathat(struct vfs_handle_struct *handle,
 	struct smb_filename *full_fname = NULL;
 
 	full_fname = full_path_from_dirfsp_atname(talloc_tos(),
-						dirfsp,
-						smb_fname);
+						  dirfsp,
+						  smb_fname);
 	if (full_fname == NULL) {
 		goto out;
 	}
 
 	/* Form the msdfs_link contents */
-	msdfs_link = msdfs_link_string(frame,
-					reflist,
-					referral_count);
+	msdfs_link = msdfs_link_string(frame, reflist, referral_count);
 	if (msdfs_link == NULL) {
 		goto out;
 	}
 
-	ret = ceph_symlink(handle->data,
-			msdfs_link,
-			full_fname->base_name);
+	ret = ceph_symlink(handle->data, msdfs_link, full_fname->base_name);
 	if (ret == 0) {
 		status = NT_STATUS_OK;
 	} else {
 		status = map_nt_error_from_unix(-ret);
-        }
+	}
 
-  out:
+out:
 
 	DBG_DEBUG("[CEPH] create_dfs_pathat(%s) = %s\n",
-			full_fname != NULL ? full_fname->base_name : "",
-			nt_errstr(status));
+		  full_fname != NULL ? full_fname->base_name : "",
+		  nt_errstr(status));
 
 	TALLOC_FREE(frame);
 	return status;
@@ -1573,11 +1719,11 @@ static NTSTATUS cephwrap_create_dfs_pathat(struct vfs_handle_struct *handle,
  */
 
 static NTSTATUS cephwrap_read_dfs_pathat(struct vfs_handle_struct *handle,
-				TALLOC_CTX *mem_ctx,
-				struct files_struct *dirfsp,
-				struct smb_filename *smb_fname,
-				struct referral **ppreflist,
-				size_t *preferral_count)
+					 TALLOC_CTX *mem_ctx,
+					 struct files_struct *dirfsp,
+					 struct smb_filename *smb_fname,
+					 struct referral **ppreflist,
+					 size_t *preferral_count)
 {
 	NTSTATUS status = NT_STATUS_NO_MEMORY;
 	size_t bufsize;
@@ -1631,63 +1777,60 @@ static NTSTATUS cephwrap_read_dfs_pathat(struct vfs_handle_struct *handle,
 		goto err;
 	}
 
-        referral_len = ceph_readlink(handle->data,
-                                full_fname->base_name,
-                                link_target,
-                                bufsize - 1);
-        if (referral_len < 0) {
+	referral_len = ceph_readlink(handle->data,
+				     full_fname->base_name,
+				     link_target,
+				     bufsize - 1);
+	if (referral_len < 0) {
 		/* ceph errors are -errno. */
 		if (-referral_len == EINVAL) {
-			DBG_INFO("%s is not a link.\n",
-				full_fname->base_name);
+			DBG_INFO("%s is not a link.\n", full_fname->base_name);
 			status = NT_STATUS_OBJECT_TYPE_MISMATCH;
 		} else {
-	                status = map_nt_error_from_unix(-referral_len);
+			status = map_nt_error_from_unix(-referral_len);
 			DBG_ERR("Error reading "
 				"msdfs link %s: %s\n",
 				full_fname->base_name,
-			strerror(errno));
+				strerror(errno));
 		}
-                goto err;
-        }
-        link_target[referral_len] = '\0';
+		goto err;
+	}
+	link_target[referral_len] = '\0';
 
-        DBG_INFO("%s -> %s\n",
-                        full_fname->base_name,
-                        link_target);
+	DBG_INFO("%s -> %s\n", full_fname->base_name, link_target);
 
-        if (!strnequal(link_target, "msdfs:", 6)) {
-                status = NT_STATUS_OBJECT_TYPE_MISMATCH;
-                goto err;
-        }
+	if (!strnequal(link_target, "msdfs:", 6)) {
+		status = NT_STATUS_OBJECT_TYPE_MISMATCH;
+		goto err;
+	}
 
-        if (ppreflist == NULL && preferral_count == NULL) {
-                /* Early return for checking if this is a DFS link. */
+	if (ppreflist == NULL && preferral_count == NULL) {
+		/* Early return for checking if this is a DFS link. */
 		TALLOC_FREE(full_fname);
 		init_stat_ex_from_ceph_statx(&smb_fname->st, &stx);
-                return NT_STATUS_OK;
-        }
+		return NT_STATUS_OK;
+	}
 
-        ok = parse_msdfs_symlink(mem_ctx,
-                        lp_msdfs_shuffle_referrals(SNUM(handle->conn)),
-                        link_target,
-                        ppreflist,
-                        preferral_count);
+	ok = parse_msdfs_symlink(mem_ctx,
+				 lp_msdfs_shuffle_referrals(SNUM(handle->conn)),
+				 link_target,
+				 ppreflist,
+				 preferral_count);
 
-        if (ok) {
+	if (ok) {
 		init_stat_ex_from_ceph_statx(&smb_fname->st, &stx);
-                status = NT_STATUS_OK;
-        } else {
-                status = NT_STATUS_NO_MEMORY;
-        }
+		status = NT_STATUS_OK;
+	} else {
+		status = NT_STATUS_NO_MEMORY;
+	}
 
-  err:
+err:
 
-        if (link_target != link_target_buf) {
-                TALLOC_FREE(link_target);
-        }
+	if (link_target != link_target_buf) {
+		TALLOC_FREE(link_target);
+	}
 	TALLOC_FREE(full_fname);
-        return status;
+	return status;
 }
 
 static struct vfs_fn_pointers ceph_fns = {
@@ -1774,6 +1917,5 @@ static struct vfs_fn_pointers ceph_fns = {
 static_decl_vfs;
 NTSTATUS vfs_ceph_init(TALLOC_CTX *ctx)
 {
-	return smb_register_vfs(SMB_VFS_INTERFACE_VERSION,
-				"ceph", &ceph_fns);
+	return smb_register_vfs(SMB_VFS_INTERFACE_VERSION, "ceph", &ceph_fns);
 }
