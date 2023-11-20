@@ -281,9 +281,17 @@ static void metrics_handler(struct evhttp_request *req, void *arg)
 		return;
 	}
 
-	smbprofile_collect_tdb(tdb, magic, &stats);
+	ret = smbprofile_collect_tdb(tdb, magic, &stats);
 
 	tdb_close(tdb);
+
+	evbuffer_add_printf(
+		state.buf,
+		"# HELP smb_worker_smbd_num Number of worker smbds "
+		"serving clients\n"
+		"# TYPE smb_worker_smbd_num gauge\n"
+		"smb_worker_smbd_num %d\n",
+		ret - 1);	/* parent is not a worker */
 
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display)
