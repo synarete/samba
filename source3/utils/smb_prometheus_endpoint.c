@@ -96,32 +96,6 @@ static void export_basic(const char *name,
 	return;
 }
 
-static void export_iobytes_total(const char *name,
-				 const struct smbprofile_stats_iobytes *val,
-				 struct export_state *state)
-{
-	bool is_smb2;
-
-	is_smb2 = (strncmp(name, "smb2_", 5) == 0);
-	if (is_smb2) {
-		if (!state->sent_help_smb2_request_total) {
-			evbuffer_add_printf(
-				state->buf,
-				"# HELP smb_smb2_request_total Number of "
-				"SMB2 requests\n"
-				"# TYPE smb_smb2_request_total counter\n");
-			state->sent_help_smb2_request_total = true;
-		}
-
-		evbuffer_add_printf(
-			state->buf,
-			"smb_smb2_request_total { operation=\"%s\" } "
-			"%" PRIu64 "\n",
-			name + 5,
-			val->count);
-	}
-}
-
 static void export_iobytes_inbytes(const char *name,
 				   const struct smbprofile_stats_iobytes *val,
 				   struct export_state *state)
@@ -308,11 +282,7 @@ static void metrics_handler(struct evhttp_request *req, void *arg)
 		export_basic(#name, &stats.values.name##_stats, &state); \
 	} while (0);
 #define SMBPROFILE_STATS_BYTES(name)
-#define SMBPROFILE_STATS_IOBYTES(name)                                     \
-	do {                                                               \
-		export_iobytes_total(                                      \
-	           #name, &stats.values.name##_stats, &state);             \
-	} while (0);
+#define SMBPROFILE_STATS_IOBYTES(name)
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
 	SMBPROFILE_STATS_ALL_SECTIONS
