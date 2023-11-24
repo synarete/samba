@@ -209,6 +209,7 @@ static void metrics_handler(struct evhttp_request *req, void *arg)
 	struct tdb_context *tdb = NULL;
 	struct profile_stats stats = {.magic = 0};
 	uint64_t magic;
+	size_t num_workers;
 	int ret;
 
 	evhttp_add_header(req->output_headers,
@@ -255,7 +256,7 @@ static void metrics_handler(struct evhttp_request *req, void *arg)
 		return;
 	}
 
-	ret = smbprofile_collect_tdb(tdb, magic, &stats);
+	num_workers = smbprofile_collect_tdb(tdb, magic, &stats);
 
 	tdb_close(tdb);
 
@@ -264,8 +265,8 @@ static void metrics_handler(struct evhttp_request *req, void *arg)
 		"# HELP smb_worker_smbd_num Number of worker smbds "
 		"serving clients\n"
 		"# TYPE smb_worker_smbd_num gauge\n"
-		"smb_worker_smbd_num %d\n",
-		ret - 1);	/* parent is not a worker */
+		"smb_worker_smbd_num %zu\n",
+		num_workers);
 
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display)
