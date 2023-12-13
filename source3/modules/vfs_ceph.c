@@ -31,6 +31,7 @@
  */
 
 #include "includes.h"
+#include "auth.h"
 #include "smbd/smbd.h"
 #include "system/filesys.h"
 #include <dirent.h>
@@ -176,7 +177,8 @@ static int cephmount_select_fs(struct ceph_mount_info *mnt, const char *fsname)
 #endif
 }
 
-static struct ceph_mount_info *cephmount_mount_fs(const int snum)
+static struct ceph_mount_info *cephmount_mount_fs(const int snum,
+				const struct security_unix_token *unix_token)
 {
 	int ret;
 	char buf[256];
@@ -231,6 +233,39 @@ static struct ceph_mount_info *cephmount_mount_fs(const int snum)
 		}
 	}
 
+	DBG_DEBUG("[CEPH] calling: ceph_init\n");
+	ret = ceph_init(mnt);
+	if (ret != 0) {
+		goto err_cm_release;
+	}
+
+	if (unix_token != NULL) {
+		struct UserPerm *userperm = NULL;
+
+		DBG_DEBUG("[CEPH] calling: ceph_userperm_new "
+			  "uid=%u gid=%u ngroups=%u\n",
+			  unix_token->uid,
+			  unix_token->gid,
+			  unix_token->ngroups);
+		userperm = ceph_userperm_new(unix_token->uid,
+					     unix_token->gid,
+					     (int)unix_token->ngroups,
+					     unix_token->groups);
+		if (userperm == NULL) {
+			ret = -ENOMEM;
+			goto err_cm_release;
+		}
+		DBG_DEBUG("[CEPH] calling: ceph_mount_perms_set\n");
+		ret = ceph_mount_perms_set(mnt, userperm);
+
+		DBG_DEBUG("[CEPH] calling: ceph_userperm_destroy\n");
+		ceph_userperm_destroy(userperm);
+
+		if (ret != 0) {
+			goto err_cm_release;
+		}
+	}
+
 	DBG_DEBUG("[CEPH] calling: ceph_mount\n");
 	ret = ceph_mount(mnt, NULL);
 	if (ret >= 0) {
@@ -264,6 +299,7 @@ static int cephwrap_connect(struct vfs_handle_struct *handle,
 	struct ceph_mount_info *cmount = NULL;
 	int snum = SNUM(handle->conn);
 	char *cookie = cephmount_get_cookie(handle, snum);
+
 	if (cookie == NULL) {
 		return -1;
 	}
@@ -273,7 +309,7 @@ static int cephwrap_connect(struct vfs_handle_struct *handle,
 		goto connect_ok;
 	}
 
-	cmount = cephmount_mount_fs(snum);
+	cmount = cephmount_mount_fs(snum, handle->conn->session_info->unix_token);
 	if (cmount == NULL) {
 		ret = -1;
 		goto connect_fail;
