@@ -219,6 +219,8 @@ static struct ceph_mount_info *cephmount_mount_fs(const int snum)
 	if (ret < 0) {
 		goto err_cm_release;
 	}
+
+
 	/*
 	 * select a cephfs file system to use:
 	 * In ceph, multiple file system support has been stable since 'pacific'.
