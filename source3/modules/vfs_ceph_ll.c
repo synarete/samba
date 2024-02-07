@@ -1148,17 +1148,12 @@ static int vfs_ceph_igetd(struct vfs_handle_struct *handle,
 			  const struct files_struct *dirfsp,
 			  struct vfs_ceph_iref *iref)
 {
-	int ret = -1;
+	const struct smb_filename *fsp_name = dirfsp->fsp_name;
 
 	if (fsp_get_pathref_fd(dirfsp) == AT_FDCWD) {
-		ret = vfs_ceph_iget(handle, ".", 0, iref);
-	} else {
-		ret = vfs_ceph_iget(handle,
-				    dirfsp->fsp_name->base_name,
-				    0,
-				    iref);
+		fsp_name = handle->conn->cwd_fsp->fsp_name;
 	}
-	return ret;
+	return vfs_ceph_iget(handle, fsp_name->base_name, 0, iref);
 }
 
 static void vfs_ceph_iput(struct vfs_handle_struct *handle,
@@ -1357,7 +1352,7 @@ static int vfs_ceph_openat(struct vfs_handle_struct *handle,
 	}
 
 	if (o_flags & O_CREAT) {
-		CEPH_DBG("create: dino=%ld name=%s mode=%o o_flags=0x%x",
+		CEPH_DBG("create: dino=%ld name=%s mode=%o o_flags=0%o",
 			 diref.ino,
 			 smb_fname->base_name,
 			 mode,
@@ -1392,7 +1387,7 @@ static int vfs_ceph_openat(struct vfs_handle_struct *handle,
 			 smb_fname->base_name,
 			 iref.ino);
 
-		CEPH_DBG("open: ino=%ld o_flags=0x%x", iref.ino, o_flags);
+		CEPH_DBG("open: ino=%ld o_flags=0%o", iref.ino, o_flags);
 		ret = vfs_ceph_ll_open(handle, &iref, o_flags, cfh);
 		if (ret < 0) {
 			goto out;
