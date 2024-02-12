@@ -53,6 +53,18 @@ static int status_code(int ret)
 	return ret;
 }
 
+static DIR *dstatus_code(struct ceph_dir_result *cdir_res, int ret)
+{
+	DIR *dirp = NULL;
+
+	if (ret < 0) {
+		update_errno(ret);
+	} else {
+		dirp = (DIR *)cdir_res;
+	}
+	return dirp;
+}
+
 /* Ceph parameters */
 static const char *vfs_ceph_param_of(int snum,
 				     const char *option,
@@ -312,6 +324,68 @@ static int vfs_ceph_ll_walk(const struct vfs_handle_struct *handle,
 	return ret;
 }
 
+static int vfs_ceph_ll_mkdir(const struct vfs_handle_struct *handle,
+			     const struct vfs_ceph_iref *diref,
+			     const char *name,
+			     mode_t mode,
+			     struct vfs_ceph_iref *iref)
+{
+	struct ceph_statx stx = {.stx_ino = 0};
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_mkdir(cmount_of(handle),
+			    diref->inode,
+			    name,
+			    mode,
+			    &iref->inode,
+			    &stx,
+			    CEPH_STATX_INO,
+			    0,
+			    perms);
+	iref->ino = (long)stx.stx_ino;
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
+static int vfs_ceph_ll_opendir(const struct vfs_handle_struct *handle,
+			       const struct vfs_ceph_iref *iref,
+			       struct ceph_dir_result **dirpp)
+{
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_opendir(cmount_of(handle), iref->inode, dirpp, perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
+static struct dirent *vfs_ceph_ll_readdir(const struct vfs_handle_struct *hndl,
+					  struct ceph_dir_result *dirp)
+{
+	return ceph_readdir(cmount_of(hndl), dirp);
+}
+
+static void vfs_ceph_ll_rewinddir(const struct vfs_handle_struct *handle,
+				  struct ceph_dir_result *dirp)
+{
+	ceph_rewinddir(cmount_of(handle), dirp);
+}
+
+static int vfs_ceph_ll_releasedir(const struct vfs_handle_struct *handle,
+				  struct ceph_dir_result *dirp)
+{
+	return ceph_ll_releasedir(cmount_of(handle), dirp);
+}
+
 static int vfs_ceph_ll_statfs(const struct vfs_handle_struct *handle,
 			      const struct vfs_ceph_iref *iref,
 			      struct statvfs *stbuf)
@@ -463,6 +537,25 @@ static int vfs_ceph_iget_by_fname(struct vfs_handle_struct *handle,
 	return ret;
 }
 
+static int vfs_ceph_igetd(struct vfs_handle_struct *handle,
+			  const struct files_struct *dirfsp,
+			  struct vfs_ceph_iref *iref)
+{
+	const struct smb_filename *fsp_name = NULL;
+	int ret = -1;
+
+	if (fsp_get_pathref_fd(dirfsp) == AT_FDCWD) {
+		fsp_name = handle->conn->cwd_fsp->fsp_name;
+		CEPH_DBG("igetd: AT_FDCWD: %s", fsp_name->base_name);
+		ret = vfs_ceph_iget(handle, ".", 0, iref);
+	} else {
+		fsp_name = dirfsp->fsp_name;
+		CEPH_DBG("igetd: %s", fsp_name->base_name);
+		ret = vfs_ceph_iget(handle, fsp_name->base_name, 0, iref);
+	}
+	return ret;
+}
+
 static void vfs_ceph_iput(struct vfs_handle_struct *handle,
 			  struct vfs_ceph_iref *iref)
 {
@@ -518,6 +611,83 @@ static uint32_t vfs_ceph_fs_capabilities(struct vfs_handle_struct *handle,
 	return FILE_CASE_SENSITIVE_SEARCH | FILE_CASE_PRESERVED_NAMES;
 }
 
+/* Directory operations */
+static DIR *vfs_ceph_fdopendir(struct vfs_handle_struct *handle,
+			       struct files_struct *fsp,
+			       const char *mask,
+			       uint32_t attributes)
+{
+	struct vfs_ceph_iref diref = {0};
+	struct ceph_dir_result *dirp = NULL;
+	int ret = 0;
+
+	ret = vfs_ceph_igetd(handle, fsp, &diref);
+	if (ret != 0) {
+		dstatus_code(NULL, ret);
+	}
+	CEPH_DBG("fdopendir: %s ino=%ld", fsp->fsp_name->base_name, diref.ino);
+	ret = vfs_ceph_ll_opendir(handle, &diref, &dirp);
+	vfs_ceph_iput(handle, &diref);
+	CEPH_DBGRET(ret);
+	return dstatus_code(dirp, ret);
+}
+
+static struct dirent *vfs_ceph_readdir(struct vfs_handle_struct *handle,
+				       struct files_struct *dirfsp,
+				       DIR *dirp)
+{
+	struct dirent *de = NULL;
+
+	CEPH_DBG("readdir: %s", dirfsp->fsp_name->base_name);
+	de = vfs_ceph_ll_readdir(handle, (struct ceph_dir_result *)dirp);
+	return de;
+}
+
+static void vfs_ceph_rewinddir(struct vfs_handle_struct *handle, DIR *dirp)
+{
+	vfs_ceph_ll_rewinddir(handle, (struct ceph_dir_result *)dirp);
+}
+
+static int vfs_ceph_mkdirat(struct vfs_handle_struct *handle,
+			    files_struct *dirfsp,
+			    const struct smb_filename *smb_fname,
+			    mode_t mode)
+{
+	struct vfs_ceph_iref diref = {0};
+	struct vfs_ceph_iref iref = {0};
+	int ret = -1;
+
+	ret = vfs_ceph_igetd(handle, dirfsp, &diref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("mkdirat: %s dino=%ld name=%s mode=0%o",
+		 dirfsp->fsp_name->base_name,
+		 diref.ino,
+		 smb_fname->base_name,
+		 mode);
+	ret = vfs_ceph_ll_mkdir(handle,
+				&diref,
+				smb_fname->base_name,
+				mode,
+				&iref);
+	vfs_ceph_iput(handle, &iref);
+	vfs_ceph_iput(handle, &diref);
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_closedir(struct vfs_handle_struct *handle, DIR *dirp)
+{
+	int ret = -1;
+
+	CEPH_DBG("releasedir: dirp=%p", dirp);
+	ret = vfs_ceph_ll_releasedir(handle, (struct ceph_dir_result *)dirp);
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
 /* VFS ceph_ll hooks */
 static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* Disk operations */
@@ -526,6 +696,12 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.disk_free_fn = vfs_ceph_disk_free,
 	.statvfs_fn = vfs_ceph_statvfs,
 	.fs_capabilities_fn = vfs_ceph_fs_capabilities,
+	/* Directory operations */
+	.fdopendir_fn = vfs_ceph_fdopendir,
+	.readdir_fn = vfs_ceph_readdir,
+	.rewind_dir_fn = vfs_ceph_rewinddir,
+	.mkdirat_fn = vfs_ceph_mkdirat,
+	.closedir_fn = vfs_ceph_closedir,
 };
 
 static_decl_vfs;
