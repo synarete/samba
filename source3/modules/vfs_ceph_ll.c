@@ -266,7 +266,51 @@ static int snum_of(const struct vfs_handle_struct *handle)
 	return cme->snum;
 }
 
+/* Ceph user-credentials */
+static struct UserPerm *vfs_ceph_userperm_new(
+	const struct vfs_handle_struct *handle)
+{
+	const struct security_unix_token *unix_token = NULL;
+
+	unix_token = handle->conn->session_info->unix_token;
+	return ceph_userperm_new(unix_token->uid,
+				 unix_token->gid,
+				 unix_token->ngroups,
+				 unix_token->groups);
+}
+
+static void vfs_ceph_userperm_del(struct UserPerm *perms)
+{
+	if (perms != NULL) {
+		ceph_userperm_destroy(perms);
+	}
+}
+
 /* Ceph low-level wrappers */
+static int vfs_ceph_ll_walk(const struct vfs_handle_struct *handle,
+			    const char *name,
+			    struct Inode **pin,
+			    struct ceph_statx *stx,
+			    unsigned int want,
+			    unsigned int flags)
+{
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_walk(cmount_of(handle),
+			   name,
+			   pin,
+			   stx,
+			   want,
+			   flags,
+			   perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
 
 static int vfs_ceph_ll_statfs(const struct vfs_handle_struct *handle,
 			      const struct vfs_ceph_iref *iref,
@@ -376,6 +420,96 @@ static uint64_t vfs_ceph_disk_free(struct vfs_handle_struct *handle,
 	return *dfree;
 }
 
+static int vfs_ceph_iget(struct vfs_handle_struct *handle,
+			 const char *name,
+			 unsigned int flags,
+			 struct vfs_ceph_iref *iref)
+{
+	struct ceph_statx stx = {.stx_ino = 0, .stx_mode = 0};
+	struct Inode *inode = NULL;
+	int ret = -1;
+
+	ret = vfs_ceph_ll_walk(handle,
+			       name,
+			       &inode,
+			       &stx,
+			       CEPH_STATX_INO | CEPH_STATX_MODE,
+			       flags);
+	if (ret != 0) {
+		return ret;
+	}
+	iref->inode = inode;
+	iref->ino = (long)stx.stx_ino;
+	CEPH_DBG("iget: %s ino=%ld mode=0%o",
+		 name,
+		 (long)stx.stx_ino,
+		 (int)stx.stx_mode);
+	return 0;
+}
+
+static int vfs_ceph_iget_by_fname(struct vfs_handle_struct *handle,
+				  const struct smb_filename *smb_fname,
+				  struct vfs_ceph_iref *iref)
+{
+	const char *name = smb_fname->base_name;
+	const char *cwd = ceph_getcwd(cmount_of(handle));
+	int ret = -1;
+
+	if (!strcmp(name, cwd)) {
+		ret = vfs_ceph_iget(handle, "./", 0, iref);
+	} else {
+		ret = vfs_ceph_iget(handle, name, 0, iref);
+	}
+	return ret;
+}
+
+static void vfs_ceph_iput(struct vfs_handle_struct *handle,
+			  struct vfs_ceph_iref *iref)
+{
+	if (iref->inode != NULL) {
+		CEPH_DBG("iput: ino=%ld", iref->ino);
+		ceph_ll_put(cmount_of(handle), iref->inode);
+		iref->inode = NULL;
+	}
+}
+
+static void statvfs_to_smb(const struct statvfs *stvfs,
+			   struct vfs_statvfs_struct *out_stvfs)
+{
+	out_stvfs->OptimalTransferSize = stvfs->f_frsize;
+	out_stvfs->BlockSize = stvfs->f_bsize;
+	out_stvfs->TotalBlocks = stvfs->f_blocks;
+	out_stvfs->BlocksAvail = stvfs->f_bfree;
+	out_stvfs->UserBlocksAvail = stvfs->f_bavail;
+	out_stvfs->TotalFileNodes = stvfs->f_files;
+	out_stvfs->FreeFileNodes = stvfs->f_ffree;
+	out_stvfs->FsIdentifier = stvfs->f_fsid;
+}
+
+static int vfs_ceph_statvfs(struct vfs_handle_struct *handle,
+			    const struct smb_filename *smb_fname,
+			    struct vfs_statvfs_struct *out_stvfs)
+{
+	struct statvfs stvfs = {0};
+	struct vfs_ceph_iref iref = {0};
+	int ret = -1;
+
+	ret = vfs_ceph_iget_by_fname(handle, smb_fname, &iref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("statvfs: %s ino=%ld", smb_fname->base_name, iref.ino);
+	ret = vfs_ceph_ll_statfs(handle, &iref, &stvfs);
+	if (ret != 0) {
+		goto out;
+	}
+	statvfs_to_smb(&stvfs, out_stvfs);
+out:
+	vfs_ceph_iput(handle, &iref);
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
 static uint32_t vfs_ceph_fs_capabilities(struct vfs_handle_struct *handle,
 					 enum timestamp_set_resolution *res)
 {
@@ -390,6 +524,7 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.connect_fn = vfs_ceph_connect,
 	.disconnect_fn = vfs_ceph_disconnect,
 	.disk_free_fn = vfs_ceph_disk_free,
+	.statvfs_fn = vfs_ceph_statvfs,
 	.fs_capabilities_fn = vfs_ceph_fs_capabilities,
 };
 
