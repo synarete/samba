@@ -1645,6 +1645,24 @@ int main(void) {
                           "disabling the Ceph VFS module altogether with the "
                           "next major Samba version. It is highly recommended "
                           "to update to a more recent/active version of Ceph.")
+            conf.DEFINE('HAVE_CEPH_LL', '1')
+            for api in ['ceph_ll_close', 'ceph_ll_create', 'ceph_ll_fallocate',
+                        'ceph_ll_fsync', 'ceph_ll_getattr', 'ceph_ll_getxattr',
+                        'ceph_ll_link', 'ceph_ll_listxattr', 'ceph_ll_lookup',
+                        'ceph_ll_lookup_inode', 'ceph_ll_lookup_root',
+                        'ceph_ll_lseek', 'ceph_ll_mkdir', 'ceph_ll_mknod',
+                        'ceph_ll_open', 'ceph_ll_opendir', 'ceph_ll_put',
+                        'ceph_ll_read', 'ceph_ll_readlink',
+                        'ceph_ll_releasedir', 'ceph_ll_removexattr',
+                        'ceph_ll_rename', 'ceph_ll_rmdir', 'ceph_ll_setattr',
+                        'ceph_ll_setxattr', 'ceph_ll_statfs', 'ceph_ll_symlink',
+                        'ceph_ll_unlink', 'ceph_ll_walk', 'ceph_ll_write']:
+                if not conf.CHECK_FUNCS_IN(api, 'cephfs',
+                                           headers='cephfs/libcephfs.h'):
+                    Logs.warn("Installed Ceph version does not support required "
+                              "libcephfs' low-level APIs.")
+                    conf.undefine('HAVE_CEPH_LL')
+                    break
         else:
             Logs.warn('''Ceph support disabled due to --without-acl-support
                       or lack of ceph_statx support''')
@@ -1918,6 +1936,9 @@ int main(void) {
         # addition to vfs_ceph. Still, only enable vfs_ceph_snapshots builds
         # if we're building with libcephfs for now.
         default_shared_modules.extend(['vfs_ceph_snapshots'])
+
+    if conf.CONFIG_SET("HAVE_CEPH_LL"):
+        default_shared_modules.extend(['vfs_ceph2'])
 
     if conf.CONFIG_SET('HAVE_GLUSTERFS'):
         default_shared_modules.extend(['vfs_glusterfs'])
