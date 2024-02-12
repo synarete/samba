@@ -266,6 +266,15 @@ static int snum_of(const struct vfs_handle_struct *handle)
 	return cme->snum;
 }
 
+/* Ceph low-level wrappers */
+
+static int vfs_ceph_ll_statfs(const struct vfs_handle_struct *handle,
+			      const struct vfs_ceph_iref *iref,
+			      struct statvfs *stbuf)
+{
+	return ceph_ll_statfs(cmount_of(handle), iref->inode, stbuf);
+}
+
 /* Disk operations */
 static int vfs_ceph_connect(struct vfs_handle_struct *handle,
 			    const char *service,
@@ -345,11 +354,43 @@ static void vfs_ceph_disconnect(struct vfs_handle_struct *handle)
 	}
 }
 
+static uint64_t vfs_ceph_disk_free(struct vfs_handle_struct *handle,
+				   const struct smb_filename *smb_fname,
+				   uint64_t *bsize,
+				   uint64_t *dfree,
+				   uint64_t *dsize)
+{
+	struct statvfs stv = {0};
+	const struct vfs_ceph_mnt_entry *cme = handle->data;
+	int ret = -1;
+
+	CEPH_DBG("disk_free: rootdir-ino=%ld", cme->rootdir.ino);
+	ret = vfs_ceph_ll_statfs(handle, &cme->rootdir, &stv);
+	if (ret != 0) {
+		update_errno(ret);
+		return (uint64_t)(-1);
+	}
+	*bsize = (uint64_t)stv.f_bsize;
+	*dfree = (uint64_t)stv.f_bavail;
+	*dsize = (uint64_t)stv.f_blocks;
+	return *dfree;
+}
+
+static uint32_t vfs_ceph_fs_capabilities(struct vfs_handle_struct *handle,
+					 enum timestamp_set_resolution *res)
+{
+	*res = TIMESTAMP_SET_NT_OR_BETTER;
+
+	return FILE_CASE_SENSITIVE_SEARCH | FILE_CASE_PRESERVED_NAMES;
+}
+
 /* VFS ceph_ll hooks */
 static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* Disk operations */
 	.connect_fn = vfs_ceph_connect,
 	.disconnect_fn = vfs_ceph_disconnect,
+	.disk_free_fn = vfs_ceph_disk_free,
+	.fs_capabilities_fn = vfs_ceph_fs_capabilities,
 };
 
 static_decl_vfs;
