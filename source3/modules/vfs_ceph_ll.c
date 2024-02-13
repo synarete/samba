@@ -146,6 +146,20 @@ static struct vfs_ceph_mnt_entry *vfs_ceph_mnt_lookup(const char *cookie)
 	return NULL;
 }
 
+static int vfs_ceph_mnt_next_fd(struct vfs_ceph_mnt_entry *cme)
+{
+	/*
+	 * The file-descriptor numbering which are reported back to VFS layer
+	 * are nothing but debug-hints. Using numbers within a large range of
+	 * [1000, 1001000], thus the chances of (annoying but harmless)
+	 * collision are low.
+	 */
+	uint64_t next;
+
+	next = (cme->fd_index++ % 1000000) + 1000;
+	return (int)next;
+}
+
 static void vfs_ceph_mnt_update(struct vfs_ceph_mnt_entry *cme, int n)
 {
 	cme->count += n;
@@ -278,6 +292,75 @@ static int snum_of(const struct vfs_handle_struct *handle)
 	return cme->snum;
 }
 
+/* Ceph file-handles via fsp-extension */
+struct vfs_ceph_fh {
+	const struct vfs_ceph_mnt_entry *cme;
+	struct vfs_ceph_iref iref;
+	struct Fh *fh;
+	int fd;
+};
+
+static int vfs_ceph_release_fh(struct vfs_ceph_fh *cfh)
+{
+	int ret = 0;
+
+	if (cfh->fh != NULL) {
+		CEPH_DBG("close: ino=%ld fd=%d ret=%d",
+			 cfh->iref.ino,
+			 cfh->fd,
+			 ret);
+		ret = ceph_ll_close(cfh->cme->cmount, cfh->fh);
+		CEPH_DBGRET(ret);
+		cfh->fh = NULL;
+		cfh->fd = -1;
+	}
+	if (cfh->iref.inode != NULL) {
+		CEPH_DBG("put: ino=%ld", cfh->iref.ino);
+		ceph_ll_put(cfh->cme->cmount, cfh->iref.inode);
+		cfh->iref.inode = NULL;
+		cfh->iref.ino = 0;
+	}
+	return ret;
+}
+
+static void vfs_ceph_fsp_ext_destroy_cb(void *p_data)
+{
+	vfs_ceph_release_fh((struct vfs_ceph_fh *)p_data);
+}
+
+static struct vfs_ceph_fh *vfs_ceph_add_fh(struct vfs_handle_struct *handle,
+					   files_struct *fsp)
+{
+	struct vfs_ceph_mnt_entry *cme = handle->data;
+	struct vfs_ceph_fh *cfh = NULL;
+
+	cfh = VFS_ADD_FSP_EXTENSION(handle,
+				    fsp,
+				    struct vfs_ceph_fh,
+				    vfs_ceph_fsp_ext_destroy_cb);
+	if (cfh != NULL) {
+		cfh->fd = vfs_ceph_mnt_next_fd(cme);
+		cfh->cme = cme;
+	}
+	return cfh;
+}
+
+static void vfs_ceph_remove_fh(struct vfs_handle_struct *handle,
+			       files_struct *fsp)
+{
+	CEPH_DBG("remove_fh: %s", fsp->fsp_name->base_name);
+	VFS_REMOVE_FSP_EXTENSION(handle, fsp);
+}
+
+static int vfs_ceph_fetch_fh(struct vfs_handle_struct *handle,
+			     files_struct *fsp,
+			     struct vfs_ceph_fh **out_cfh)
+{
+	CEPH_DBG("fetch_fh: %s", fsp->fsp_name->base_name);
+	*out_cfh = VFS_FETCH_FSP_EXTENSION(handle, fsp);
+	return (*out_cfh == NULL) ? -EBADF : 0;
+}
+
 /* Ceph user-credentials */
 static struct UserPerm *vfs_ceph_userperm_new(
 	const struct vfs_handle_struct *handle)
@@ -391,6 +474,82 @@ static int vfs_ceph_ll_statfs(const struct vfs_handle_struct *handle,
 			      struct statvfs *stbuf)
 {
 	return ceph_ll_statfs(cmount_of(handle), iref->inode, stbuf);
+}
+
+static int vfs_ceph_ll_create(const struct vfs_handle_struct *handle,
+			      const struct vfs_ceph_iref *parent,
+			      const char *name,
+			      mode_t mode,
+			      int oflags,
+			      struct vfs_ceph_fh *cfh)
+{
+	struct ceph_statx stx = {.stx_ino = 0};
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_create(cmount_of(handle),
+			     parent->inode,
+			     name,
+			     mode,
+			     oflags,
+			     &cfh->iref.inode,
+			     &cfh->fh,
+			     &stx,
+			     CEPH_STATX_INO,
+			     0,
+			     perms);
+	cfh->iref.ino = (long)stx.stx_ino;
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
+static int vfs_ceph_ll_lookup(const struct vfs_handle_struct *handle,
+			      const struct vfs_ceph_iref *parent,
+			      const char *name,
+			      struct vfs_ceph_iref *iref)
+{
+	struct ceph_statx stx = {.stx_ino = 0};
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_lookup(cmount_of(handle),
+			     parent->inode,
+			     name,
+			     &iref->inode,
+			     &stx,
+			     CEPH_STATX_INO,
+			     0,
+			     perms);
+	iref->ino = (long)stx.stx_ino;
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
+static int vfs_ceph_ll_open(const struct vfs_handle_struct *handle,
+			    const struct vfs_ceph_iref *iref,
+			    int flags,
+			    struct vfs_ceph_fh *cfh)
+{
+	struct ceph_mount_info *cmount = cmount_of(handle);
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_open(cmount, iref->inode, flags, &cfh->fh, perms);
+	cfh->iref.ino = iref->ino;
+	vfs_ceph_userperm_del(perms);
+	return ret;
 }
 
 /* Disk operations */
@@ -688,6 +847,133 @@ static int vfs_ceph_closedir(struct vfs_handle_struct *handle, DIR *dirp)
 	return status_code(ret);
 }
 
+/* File operations */
+static int vfs_ceph_openat(struct vfs_handle_struct *handle,
+			   const struct files_struct *dirfsp,
+			   const struct smb_filename *smb_fname,
+			   files_struct *fsp,
+			   const struct vfs_open_how *how)
+{
+	struct vfs_ceph_iref diref = {0};
+	struct vfs_ceph_iref iref = {0};
+	struct vfs_ceph_fh *cfh = NULL;
+	int o_flags = how->flags;
+	int mode = how->mode;
+	bool have_opath = false;
+	bool became_root = false;
+	int ret = -ENOMEM;
+
+	if (how->resolve != 0) {
+		return status_code(-ENOSYS);
+	}
+	if (smb_fname->stream_name) {
+		return status_code(-ENOENT);
+	}
+	cfh = vfs_ceph_add_fh(handle, fsp);
+	if (cfh == NULL) {
+		goto out;
+	}
+
+#ifdef O_PATH
+	have_opath = true;
+	if (fsp->fsp_flags.is_pathref) {
+		o_flags |= O_PATH;
+	}
+#endif
+
+	if (fsp->fsp_flags.is_pathref && !have_opath) {
+		become_root();
+		became_root = true;
+	}
+
+	ret = vfs_ceph_igetd(handle, dirfsp, &diref);
+	if (ret != 0) {
+		goto out;
+	}
+
+	if (o_flags & O_CREAT) {
+		CEPH_DBG("create: dino=%ld name=%s mode=%o o_flags=0%o",
+			 diref.ino,
+			 smb_fname->base_name,
+			 mode,
+			 o_flags);
+		ret = vfs_ceph_ll_create(handle,
+					 &diref,
+					 smb_fname->base_name,
+					 mode,
+					 o_flags,
+					 cfh);
+		if (ret < 0) {
+			goto out;
+		}
+		CEPH_DBG("create-ok: %s ino=%ld fd=%d",
+			 smb_fname->base_name,
+			 cfh->iref.ino,
+			 cfh->fd);
+
+	} else {
+		CEPH_DBG("lookup: dino=%ld name=%s",
+			 diref.ino,
+			 smb_fname->base_name);
+		ret = vfs_ceph_ll_lookup(handle,
+					 &diref,
+					 smb_fname->base_name,
+					 &iref);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("lookup-ok: dino=%ld name=%s ino=%ld",
+			 diref.ino,
+			 smb_fname->base_name,
+			 iref.ino);
+
+		CEPH_DBG("open: ino=%ld o_flags=0%o", iref.ino, o_flags);
+		ret = vfs_ceph_ll_open(handle, &iref, o_flags, cfh);
+		if (ret < 0) {
+			goto out;
+		}
+		/* take ownership on inode */
+		cfh->iref.inode = iref.inode;
+		cfh->iref.ino = iref.ino;
+		iref.inode = NULL;
+		CEPH_DBG("open-ok: %s ino=%ld fd=%d",
+			 smb_fname->base_name,
+			 cfh->iref.ino,
+			 cfh->fd);
+	}
+	ret = cfh->fd;
+
+out:
+	if (became_root) {
+		unbecome_root();
+	}
+	vfs_ceph_iput(handle, &iref);
+	vfs_ceph_iput(handle, &diref);
+	fsp->fsp_flags.have_proc_fds = false;
+	if (ret < 0) {
+		vfs_ceph_remove_fh(handle, fsp);
+	}
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_close(struct vfs_handle_struct *handle, files_struct *fsp)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	int ret = -1;
+
+	CEPH_DBG("close: %s", fsp->fsp_name->base_name);
+	ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		goto out;
+	}
+	ret = vfs_ceph_release_fh(cfh);
+	vfs_ceph_remove_fh(handle, fsp);
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
 /* VFS ceph_ll hooks */
 static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* Disk operations */
@@ -702,6 +988,9 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.rewind_dir_fn = vfs_ceph_rewinddir,
 	.mkdirat_fn = vfs_ceph_mkdirat,
 	.closedir_fn = vfs_ceph_closedir,
+	/* File operations */
+	.openat_fn = vfs_ceph_openat,
+	.close_fn = vfs_ceph_close,
 };
 
 static_decl_vfs;
