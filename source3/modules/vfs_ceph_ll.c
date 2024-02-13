@@ -2101,6 +2101,104 @@ out:
 	return status_code(ret);
 }
 
+static bool vfs_ceph_lock(struct vfs_handle_struct *handle,
+			  files_struct *fsp,
+			  int op,
+			  off_t off,
+			  off_t len,
+			  int type)
+{
+	/* TODO: is it possible to map to ceph_ll_getlk/ceph_ll_setlk ? */
+	CEPH_DBG("%s op=%d off=%jd len=%jd type=%d",
+		 fsp->fsp_name->base_name,
+		 op,
+		 (intmax_t)off,
+		 (intmax_t)len,
+		 type);
+	return true;
+}
+
+static int vfs_ceph_fcntl(vfs_handle_struct *handle,
+			  files_struct *fsp,
+			  int cmd,
+			  va_list cmd_arg)
+{
+	int ret = 0;
+
+	/*
+	 * SMB_VFS_FCNTL() is currently only called by vfs_set_blocking() to
+	 * clear O_NONBLOCK, etc for LOCK_MAND and FIFOs. Ignore it.
+	 */
+	if (cmd == F_GETFL) {
+		ret = 0;
+	} else if (cmd == F_SETFL) {
+		va_list dup_cmd_arg;
+		int opt;
+
+		va_copy(dup_cmd_arg, cmd_arg);
+		opt = va_arg(dup_cmd_arg, int);
+		va_end(dup_cmd_arg);
+		if (opt != 0) {
+			CEPH_ERR("unexpected fcntl SETFL: opt=%d", opt);
+			ret = -EINVAL;
+		}
+	} else {
+		CEPH_ERR("unexpected fcntl: cmd=%d", cmd);
+		ret = -EINVAL;
+	}
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+/*
+ * This is a simple version of real-path ... a better version is needed to
+ * ask libcephfs about symbolic links.
+ */
+static struct smb_filename *vfs_ceph_realpath(struct vfs_handle_struct *handle,
+					      TALLOC_CTX *ctx,
+					      const struct smb_filename *fname)
+{
+	const struct smb_filename *fsp_name = handle->conn->cwd_fsp->fsp_name;
+	const char *path = fname->base_name;
+	const size_t len = strlen(path);
+	char *rpath = NULL;
+	struct smb_filename *result_fname = NULL;
+
+	if (len && (path[0] == '/')) {
+		rpath = talloc_asprintf(ctx, "%s", path);
+	} else if ((len >= 2) && (path[0] == '.') && (path[1] == '/')) {
+		if (len == 2) {
+			rpath = talloc_asprintf(ctx, "%s", fsp_name->base_name);
+		} else {
+			rpath = talloc_asprintf(ctx,
+						"%s/%s",
+						fsp_name->base_name,
+						path + 2);
+		}
+	} else {
+		rpath = talloc_asprintf(ctx,
+					"%s/%s",
+					fsp_name->base_name,
+					path);
+	}
+
+	if (rpath == NULL) {
+		return NULL;
+	}
+
+	CEPH_DBG("path=%s rpath=%s", path, rpath);
+	result_fname = synthetic_smb_fname(ctx, rpath, NULL, NULL, 0, 0);
+	TALLOC_FREE(rpath);
+	return result_fname;
+}
+
+static const char *vfs_ceph_connectpath(struct vfs_handle_struct *handle,
+					const struct files_struct *dirfsp,
+					const struct smb_filename *smb_fname)
+{
+	return handle->conn->connectpath;
+}
+
 /* VFS ceph_ll hooks */
 static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* Disk operations */
@@ -2141,10 +2239,14 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.fntimes_fn = vfs_ceph_fntimes,
 	.ftruncate_fn = vfs_ceph_ftruncate,
 	.fallocate_fn = vfs_ceph_fallocate,
+	.lock_fn = vfs_ceph_lock,
+	.fcntl_fn = vfs_ceph_fcntl,
 	.symlinkat_fn = vfs_ceph_symlinkat,
 	.readlinkat_fn = vfs_ceph_readlinkat,
 	.linkat_fn = vfs_ceph_linkat,
 	.mknodat_fn = vfs_ceph_mknodat,
+	.realpath_fn = vfs_ceph_realpath,
+	.connectpath_fn = vfs_ceph_connectpath,
 };
 
 static_decl_vfs;
