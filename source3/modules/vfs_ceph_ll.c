@@ -594,6 +594,131 @@ static int vfs_ceph_ll_fsync(const struct vfs_handle_struct *handle,
 	return ceph_ll_fsync(cmount_of(handle), cfh->fh, syncdataonly);
 }
 
+static int vfs_ceph_ll_getattr(const struct vfs_handle_struct *handle,
+			       const struct vfs_ceph_iref *iref,
+			       struct ceph_statx *stx,
+			       unsigned int want,
+			       unsigned int flags)
+{
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_getattr(cmount_of(handle),
+			      iref->inode,
+			      stx,
+			      want,
+			      flags,
+			      perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
+#define SAMBA_STATX_ATTR_MASK (CEPH_STATX_BASIC_STATS | CEPH_STATX_BTIME)
+
+static void smb_stat_from_ceph_statx(SMB_STRUCT_STAT *st,
+				     const struct ceph_statx *stx)
+{
+	ZERO_STRUCTP(st);
+
+	st->st_ex_dev = stx->stx_dev;
+	st->st_ex_rdev = stx->stx_rdev;
+	st->st_ex_ino = stx->stx_ino;
+	st->st_ex_mode = stx->stx_mode;
+	st->st_ex_uid = stx->stx_uid;
+	st->st_ex_gid = stx->stx_gid;
+	st->st_ex_size = stx->stx_size;
+	st->st_ex_nlink = stx->stx_nlink;
+	st->st_ex_atime = stx->stx_atime;
+	st->st_ex_btime = stx->stx_btime;
+	st->st_ex_ctime = stx->stx_ctime;
+	st->st_ex_mtime = stx->stx_mtime;
+	st->st_ex_blksize = stx->stx_blksize;
+	st->st_ex_blocks = stx->stx_blocks;
+}
+
+static int vfs_ceph_ll_stat(struct vfs_handle_struct *handle,
+			    const struct vfs_ceph_iref *iref,
+			    SMB_STRUCT_STAT *st)
+{
+	struct ceph_statx stx = {0};
+	int ret = -1;
+
+	ret = vfs_ceph_ll_getattr(handle, iref, &stx, SAMBA_STATX_ATTR_MASK, 0);
+	if (ret == 0) {
+		smb_stat_from_ceph_statx(st, &stx);
+	}
+	return ret;
+}
+
+static int vfs_ceph_ll_setattr(const struct vfs_handle_struct *handle,
+			       const struct vfs_ceph_iref *iref,
+			       struct ceph_statx *stx,
+			       int mask)
+{
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_setattr(cmount_of(handle), iref->inode, stx, mask, perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
+static int vfs_ceph_ll_chmod(struct vfs_handle_struct *handle,
+			     const struct vfs_ceph_iref *iref,
+			     mode_t mode)
+{
+	struct ceph_statx stx = {.stx_mode = mode};
+
+	return vfs_ceph_ll_setattr(handle, iref, &stx, CEPH_STATX_MODE);
+}
+
+static int vfs_ceph_ll_chown(struct vfs_handle_struct *handle,
+			     const struct vfs_ceph_iref *iref,
+			     uid_t uid,
+			     gid_t gid)
+{
+	struct ceph_statx stx = {.stx_uid = uid, .stx_gid = gid};
+
+	return vfs_ceph_ll_setattr(handle,
+				   iref,
+				   &stx,
+				   CEPH_STATX_UID | CEPH_STATX_GID);
+}
+
+static int vfs_ceph_ll_utimes(struct vfs_handle_struct *handle,
+			      const struct vfs_ceph_iref *iref,
+			      const struct smb_file_time *ft)
+{
+	struct ceph_statx stx = {0};
+	int mask = 0;
+
+	if (!is_omit_timespec(&ft->atime)) {
+		stx.stx_atime = ft->atime;
+		mask |= CEPH_SETATTR_ATIME;
+	}
+	if (!is_omit_timespec(&ft->mtime)) {
+		stx.stx_mtime = ft->mtime;
+		mask |= CEPH_SETATTR_MTIME;
+	}
+	if (!is_omit_timespec(&ft->ctime)) {
+		stx.stx_ctime = ft->ctime;
+		mask |= CEPH_SETATTR_CTIME;
+	}
+	if (!is_omit_timespec(&ft->create_time)) {
+		stx.stx_btime = ft->create_time;
+		mask |= CEPH_SETATTR_BTIME;
+	}
+	return mask ? vfs_ceph_ll_setattr(handle, iref, &stx, mask) : 0;
+}
+
 /* Disk operations */
 static int vfs_ceph_connect(struct vfs_handle_struct *handle,
 			    const char *service,
@@ -736,6 +861,23 @@ static int vfs_ceph_iget_by_fname(struct vfs_handle_struct *handle,
 		ret = vfs_ceph_iget(handle, name, 0, iref);
 	}
 	return ret;
+}
+
+static int vfs_ceph_igetf(struct vfs_handle_struct *handle,
+			  const struct files_struct *fsp,
+			  struct vfs_ceph_iref *iref)
+{
+	return vfs_ceph_iget(handle, fsp->fsp_name->base_name, 0, iref);
+}
+
+static int vfs_ceph_igetl(struct vfs_handle_struct *handle,
+			  const struct smb_filename *smb_fname,
+			  struct vfs_ceph_iref *iref)
+{
+	return vfs_ceph_iget(handle,
+			     smb_fname->base_name,
+			     AT_SYMLINK_NOFOLLOW,
+			     iref);
 }
 
 static int vfs_ceph_igetd(struct vfs_handle_struct *handle,
@@ -1247,6 +1389,218 @@ static int vfs_ceph_fsync_recv(struct tevent_req *req,
 	return 0;
 }
 
+static int vfs_ceph_stat(struct vfs_handle_struct *handle,
+			 struct smb_filename *smb_fname)
+{
+	struct vfs_ceph_iref iref = {0};
+	int ret = -1;
+
+	if (smb_fname->stream_name) {
+		return status_code(-ENOENT);
+	}
+	ret = vfs_ceph_iget_by_fname(handle, smb_fname, &iref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("stat: ino=%ld", iref.ino);
+	ret = vfs_ceph_ll_stat(handle, &iref, &smb_fname->st);
+	vfs_ceph_iput(handle, &iref);
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_fstat(struct vfs_handle_struct *handle,
+			  files_struct *fsp,
+			  SMB_STRUCT_STAT *st)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	int ret = -1;
+
+	ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("stat: ino=%ld fd=%d", cfh->iref.ino, cfh->fd);
+	ret = vfs_ceph_ll_stat(handle, &cfh->iref, st);
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_lstat(struct vfs_handle_struct *handle,
+			  struct smb_filename *smb_fname)
+{
+	struct vfs_ceph_iref iref = {0};
+	int ret = -1;
+
+	if (smb_fname->stream_name) {
+		return status_code(-ENOENT);
+	}
+	ret = vfs_ceph_igetl(handle, smb_fname, &iref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("stat: ino=%ld", iref.ino);
+	ret = vfs_ceph_ll_stat(handle, &iref, &smb_fname->st);
+	vfs_ceph_iput(handle, &iref);
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_fstatat(struct vfs_handle_struct *handle,
+			    const struct files_struct *dirfsp,
+			    const struct smb_filename *smb_fname,
+			    SMB_STRUCT_STAT *st,
+			    int flags)
+{
+	struct vfs_ceph_iref diref = {0};
+	struct vfs_ceph_iref iref = {0};
+	int ret = -1;
+
+	if (dirfsp->fsp_name->stream_name || smb_fname->stream_name) {
+		return status_code(-ENOENT);
+	}
+	ret = vfs_ceph_igetd(handle, dirfsp, &diref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("lookup: dino=%ld name=%s", diref.ino, smb_fname->base_name);
+	ret = vfs_ceph_ll_lookup(handle, &diref, smb_fname->base_name, &iref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("stat: ino=%ld", iref.ino);
+	ret = vfs_ceph_ll_stat(handle, &iref, st);
+out:
+	vfs_ceph_iput(handle, &iref);
+	vfs_ceph_iput(handle, &diref);
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_fchmod(struct vfs_handle_struct *handle,
+			   files_struct *fsp,
+			   mode_t mode)
+{
+	int ret = -1;
+
+	if (!fsp->fsp_flags.is_pathref) {
+		struct vfs_ceph_fh *cfh = NULL;
+
+		ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("chmod: ino=%ld fd=%d mode=%o",
+			 cfh->iref.ino,
+			 cfh->fd,
+			 mode);
+		ret = vfs_ceph_ll_chmod(handle, &cfh->iref, mode);
+	} else {
+		struct vfs_ceph_iref iref = {0};
+
+		ret = vfs_ceph_igetf(handle, fsp, &iref);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("chmod: ino=%ld mode=%o", iref.ino, mode);
+		ret = vfs_ceph_ll_chmod(handle, &iref, mode);
+		vfs_ceph_iput(handle, &iref);
+	}
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_fchown(struct vfs_handle_struct *handle,
+			   files_struct *fsp,
+			   uid_t uid,
+			   gid_t gid)
+{
+	int ret = -1;
+
+	if (!fsp->fsp_flags.is_pathref) {
+		struct vfs_ceph_fh *cfh = NULL;
+
+		ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("chown: ino=%ld fd=%d uid=%d gid=%d",
+			 cfh->iref.ino,
+			 cfh->fd,
+			 uid,
+			 gid);
+		ret = vfs_ceph_ll_chown(handle, &cfh->iref, uid, gid);
+	} else {
+		struct vfs_ceph_iref iref = {0};
+
+		ret = vfs_ceph_igetf(handle, fsp, &iref);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("chown: ino=%ld uid=%d gid=%d", iref.ino, uid, gid);
+		ret = vfs_ceph_ll_chown(handle, &iref, uid, gid);
+		vfs_ceph_iput(handle, &iref);
+	}
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_lchown(struct vfs_handle_struct *handle,
+			   const struct smb_filename *smb_fname,
+			   uid_t uid,
+			   gid_t gid)
+{
+	struct vfs_ceph_iref iref = {0};
+	int ret = -1;
+
+	ret = vfs_ceph_igetl(handle, smb_fname, &iref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("chown: ino=%ld uid=%d gid=%d", iref.ino, uid, gid);
+	ret = vfs_ceph_ll_chown(handle, &iref, uid, gid);
+	vfs_ceph_iput(handle, &iref);
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_fntimes(struct vfs_handle_struct *handle,
+			    files_struct *fsp,
+			    struct smb_file_time *ft)
+{
+	int ret = -1;
+
+	if (!fsp->fsp_flags.is_pathref) {
+		struct vfs_ceph_fh *cfh = NULL;
+
+		ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("utimes: ino=%ld fd=%d", cfh->iref.ino, cfh->fd);
+		ret = vfs_ceph_ll_utimes(handle, &cfh->iref, ft);
+	} else {
+		struct vfs_ceph_iref iref = {0};
+
+		ret = vfs_ceph_igetf(handle, fsp, &iref);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("utimes: ino=%ld", iref.ino);
+		ret = vfs_ceph_ll_utimes(handle, &iref, ft);
+		vfs_ceph_iput(handle, &iref);
+	}
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
 /* VFS ceph_ll hooks */
 static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* Disk operations */
@@ -1273,6 +1627,14 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.lseek_fn = vfs_ceph_lseek,
 	.fsync_send_fn = vfs_ceph_fsync_send,
 	.fsync_recv_fn = vfs_ceph_fsync_recv,
+	.stat_fn = vfs_ceph_stat,
+	.fstat_fn = vfs_ceph_fstat,
+	.lstat_fn = vfs_ceph_lstat,
+	.fstatat_fn = vfs_ceph_fstatat,
+	.fchmod_fn = vfs_ceph_fchmod,
+	.fchown_fn = vfs_ceph_fchown,
+	.lchown_fn = vfs_ceph_lchown,
+	.fntimes_fn = vfs_ceph_fntimes,
 };
 
 static_decl_vfs;
