@@ -1601,6 +1601,27 @@ out:
 	return status_code(ret);
 }
 
+static int vfs_ceph_chdir(struct vfs_handle_struct *handle,
+			  const struct smb_filename *smb_fname)
+{
+	int ret = -1;
+
+	CEPH_DBG("chdir: %s", smb_fname->base_name);
+	ret = ceph_chdir(cmount_of(handle), smb_fname->base_name);
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static struct smb_filename *vfs_ceph_getwd(struct vfs_handle_struct *handle,
+					   TALLOC_CTX *ctx)
+{
+	const char *cwd = NULL;
+
+	cwd = ceph_getcwd(cmount_of(handle));
+	CEPH_DBG("getwd: %s", cwd);
+	return synthetic_smb_fname(ctx, cwd, NULL, NULL, 0, 0);
+}
+
 /* VFS ceph_ll hooks */
 static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* Disk operations */
@@ -1634,6 +1655,8 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.fchmod_fn = vfs_ceph_fchmod,
 	.fchown_fn = vfs_ceph_fchown,
 	.lchown_fn = vfs_ceph_lchown,
+	.chdir_fn = vfs_ceph_chdir,
+	.getwd_fn = vfs_ceph_getwd,
 	.fntimes_fn = vfs_ceph_fntimes,
 };
 
