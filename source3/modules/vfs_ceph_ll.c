@@ -74,6 +74,15 @@ static long lstatus_code(long ret)
 	return ret;
 }
 
+static long xstatus_code(long ret)
+{
+	if (ret < 0) {
+		update_errno((int)ret);
+		ret = -1;
+	}
+	return ret;
+}
+
 /* Ceph parameters */
 static const char *vfs_ceph_param_of(int snum,
 				     const char *option,
@@ -884,6 +893,89 @@ static int vfs_ceph_ll_unlink(const struct vfs_handle_struct *handle,
 		return -ENOMEM;
 	}
 	ret = ceph_ll_unlink(cmount_of(handle), iref->inode, name, perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
+static int vfs_ceph_ll_getxattr(const struct vfs_handle_struct *handle,
+				const struct vfs_ceph_iref *iref,
+				const char *name,
+				void *value,
+				size_t size)
+{
+	struct ceph_mount_info *cmount = cmount_of(handle);
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_getxattr(cmount, iref->inode, name, value, size, perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
+static int vfs_ceph_ll_setxattr(const struct vfs_handle_struct *handle,
+				const struct vfs_ceph_iref *iref,
+				const char *name,
+				const void *value,
+				size_t size,
+				int flags)
+{
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_setxattr(cmount_of(handle),
+			       iref->inode,
+			       name,
+			       value,
+			       size,
+			       flags,
+			       perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
+static int vfs_ceph_ll_listxattr(const struct vfs_handle_struct *handle,
+				 const struct vfs_ceph_iref *iref,
+				 char *list,
+				 size_t buf_size,
+				 size_t *list_size)
+{
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_listxattr(cmount_of(handle),
+				iref->inode,
+				list,
+				buf_size,
+				list_size,
+				perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
+static int vfs_ceph_ll_removexattr(const struct vfs_handle_struct *handle,
+				   const struct vfs_ceph_iref *iref,
+				   const char *name)
+{
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_removexattr(cmount_of(handle), iref->inode, name, perms);
 	vfs_ceph_userperm_del(perms);
 	return ret;
 }
@@ -2199,6 +2291,180 @@ static const char *vfs_ceph_connectpath(struct vfs_handle_struct *handle,
 	return handle->conn->connectpath;
 }
 
+/* Extended-attributes operations */
+
+static ssize_t vfs_ceph_fgetxattr(struct vfs_handle_struct *handle,
+				  struct files_struct *fsp,
+				  const char *name,
+				  void *val,
+				  size_t size)
+{
+	int ret = -1;
+
+	if (!fsp->fsp_flags.is_pathref) {
+		struct vfs_ceph_fh *cfh = NULL;
+
+		ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("getxattr: ino=%ld fd=%d name=%s",
+			 cfh->iref.ino,
+			 cfh->fd,
+			 name);
+		ret = vfs_ceph_ll_getxattr(handle, &cfh->iref, name, val, size);
+	} else {
+		struct vfs_ceph_iref iref = {0};
+
+		ret = vfs_ceph_igetf(handle, fsp, &iref);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("getxattr: ino=%ld name=%s", iref.ino, name);
+		ret = vfs_ceph_ll_getxattr(handle, &iref, name, val, size);
+		vfs_ceph_iput(handle, &iref);
+	}
+
+	if (ret >= 0) {
+		CEPH_DBG("getxattr: in-size=%zu out-size=%d", size, ret);
+	}
+out:
+	CEPH_DBGRET(ret);
+	return xstatus_code(ret);
+}
+
+static ssize_t vfs_ceph_flistxattr(struct vfs_handle_struct *handle,
+				   struct files_struct *fsp,
+				   char *list,
+				   size_t size)
+{
+	size_t list_size = 0;
+	int ret = -1;
+
+	if (!fsp->fsp_flags.is_pathref) {
+		struct vfs_ceph_fh *cfh = NULL;
+
+		ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("listxattr: ino=%ld fd=%d", cfh->iref.ino, cfh->fd);
+		ret = vfs_ceph_ll_listxattr(handle,
+					    &cfh->iref,
+					    list,
+					    size,
+					    &list_size);
+	} else {
+		struct vfs_ceph_iref iref = {0};
+
+		ret = vfs_ceph_igetf(handle, fsp, &iref);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("listxattr: ino=%ld", iref.ino);
+		ret = vfs_ceph_ll_listxattr(handle,
+					    &iref,
+					    list,
+					    size,
+					    &list_size);
+		vfs_ceph_iput(handle, &iref);
+	}
+
+	if (ret >= 0) {
+		CEPH_DBG("listxattr: size=%zu list_size=%zu", size, list_size);
+	}
+out:
+	CEPH_DBGRET(ret);
+	return lstatus_code(ret ? ret : (ssize_t)list_size);
+}
+
+static int vfs_ceph_fremovexattr(struct vfs_handle_struct *handle,
+				 struct files_struct *fsp,
+				 const char *name)
+{
+	int ret = -1;
+
+	if (!fsp->fsp_flags.is_pathref) {
+		struct vfs_ceph_fh *cfh = NULL;
+
+		ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("removexattr: ino=%ld fd=%d name=%s",
+			 cfh->iref.ino,
+			 cfh->fd,
+			 name);
+		ret = vfs_ceph_ll_removexattr(handle, &cfh->iref, name);
+	} else {
+		struct vfs_ceph_iref iref = {0};
+
+		ret = vfs_ceph_igetf(handle, fsp, &iref);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("removexattr: ino=%ld name=%s", iref.ino, name);
+		ret = vfs_ceph_ll_removexattr(handle, &iref, name);
+		vfs_ceph_iput(handle, &iref);
+	}
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_fsetxattr(struct vfs_handle_struct *handle,
+			      struct files_struct *fsp,
+			      const char *name,
+			      const void *value,
+			      size_t size,
+			      int flags)
+{
+	int ret = -1;
+
+	if (!fsp->fsp_flags.is_pathref) {
+		struct vfs_ceph_fh *cfh = NULL;
+
+		ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("setxattr: ino=%ld fd=%d name=%s size=%zu flags=%x",
+			 cfh->iref.ino,
+			 cfh->fd,
+			 name,
+			 size,
+			 flags);
+		ret = vfs_ceph_ll_setxattr(handle,
+					   &cfh->iref,
+					   name,
+					   value,
+					   size,
+					   flags);
+	} else {
+		struct vfs_ceph_iref iref = {0};
+
+		ret = vfs_ceph_igetf(handle, fsp, &iref);
+		if (ret != 0) {
+			goto out;
+		}
+		CEPH_DBG("setxattr: ino=%ld name=%s size=%zu flags=%x",
+			 iref.ino,
+			 name,
+			 size,
+			 flags);
+		ret = vfs_ceph_ll_setxattr(handle,
+					   &iref,
+					   name,
+					   value,
+					   size,
+					   flags);
+		vfs_ceph_iput(handle, &iref);
+	}
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
 /* VFS ceph_ll hooks */
 static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* Disk operations */
@@ -2247,6 +2513,11 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.mknodat_fn = vfs_ceph_mknodat,
 	.realpath_fn = vfs_ceph_realpath,
 	.connectpath_fn = vfs_ceph_connectpath,
+	/* Extended-attributes operations. */
+	.fgetxattr_fn = vfs_ceph_fgetxattr,
+	.flistxattr_fn = vfs_ceph_flistxattr,
+	.fremovexattr_fn = vfs_ceph_fremovexattr,
+	.fsetxattr_fn = vfs_ceph_fsetxattr,
 };
 
 static_decl_vfs;
