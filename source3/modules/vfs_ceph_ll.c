@@ -605,6 +605,36 @@ static int vfs_ceph_ll_create(const struct vfs_handle_struct *handle,
 	return ret;
 }
 
+static int vfs_ceph_ll_mknod(const struct vfs_handle_struct *handle,
+			     const struct vfs_ceph_iref *parent,
+			     const char *name,
+			     mode_t mode,
+			     dev_t rdev,
+			     struct vfs_ceph_iref *iref)
+{
+	struct ceph_statx stx = {.stx_ino = 0};
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_mknod(cmount_of(handle),
+			    parent->inode,
+			    name,
+			    mode,
+			    rdev,
+			    &iref->inode,
+			    &stx,
+			    CEPH_STATX_INO,
+			    0,
+			    perms);
+	iref->ino = (long)stx.stx_ino;
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
 static int vfs_ceph_ll_lookup(const struct vfs_handle_struct *handle,
 			      const struct vfs_ceph_iref *parent,
 			      const char *name,
@@ -1982,6 +2012,38 @@ out:
 	return status_code(ret);
 }
 
+static int vfs_ceph_mknodat(struct vfs_handle_struct *handle,
+			    files_struct *dirfsp,
+			    const struct smb_filename *smb_fname,
+			    mode_t mode,
+			    SMB_DEV_T dev)
+{
+	struct vfs_ceph_iref diref = {0};
+	struct vfs_ceph_iref iref = {0};
+	int ret = -1;
+
+	ret = vfs_ceph_igetd(handle, dirfsp, &diref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("mknod: dino=%ld name=%s mode=%o dev=%ld",
+		 diref.ino,
+		 smb_fname->base_name,
+		 mode,
+		 (long)dev);
+	ret = vfs_ceph_ll_mknod(handle,
+				&diref,
+				smb_fname->base_name,
+				mode,
+				dev,
+				&iref);
+	vfs_ceph_iput(handle, &iref);
+	vfs_ceph_iput(handle, &diref);
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
 static int vfs_ceph_symlinkat(struct vfs_handle_struct *handle,
 			      const struct smb_filename *link_target,
 			      struct files_struct *dirfsp,
@@ -2082,6 +2144,7 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.symlinkat_fn = vfs_ceph_symlinkat,
 	.readlinkat_fn = vfs_ceph_readlinkat,
 	.linkat_fn = vfs_ceph_linkat,
+	.mknodat_fn = vfs_ceph_mknodat,
 };
 
 static_decl_vfs;
