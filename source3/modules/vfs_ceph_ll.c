@@ -65,6 +65,15 @@ static DIR *dstatus_code(struct ceph_dir_result *cdir_res, int ret)
 	return dirp;
 }
 
+static long lstatus_code(long ret)
+{
+	if (ret < 0) {
+		update_errno((int)ret);
+		ret = -1;
+	}
+	return ret;
+}
+
 /* Ceph parameters */
 static const char *vfs_ceph_param_of(int snum,
 				     const char *option,
@@ -552,6 +561,32 @@ static int vfs_ceph_ll_open(const struct vfs_handle_struct *handle,
 	return ret;
 }
 
+static off_t vfs_ceph_ll_lseek(const struct vfs_handle_struct *handle,
+			       const struct vfs_ceph_fh *cfh,
+			       off_t offset,
+			       int whence)
+{
+	return ceph_ll_lseek(cmount_of(handle), cfh->fh, offset, whence);
+}
+
+static int vfs_ceph_ll_read(const struct vfs_handle_struct *handle,
+			    const struct vfs_ceph_fh *cfh,
+			    int64_t off,
+			    uint64_t len,
+			    char *buf)
+{
+	return ceph_ll_read(cmount_of(handle), cfh->fh, off, len, buf);
+}
+
+static int vfs_ceph_ll_write(const struct vfs_handle_struct *handle,
+			     const struct vfs_ceph_fh *cfh,
+			     int64_t off,
+			     uint64_t len,
+			     const char *data)
+{
+	return ceph_ll_write(cmount_of(handle), cfh->fh, off, len, data);
+}
+
 /* Disk operations */
 static int vfs_ceph_connect(struct vfs_handle_struct *handle,
 			    const char *service,
@@ -974,6 +1009,195 @@ out:
 	return status_code(ret);
 }
 
+static ssize_t vfs_ceph_pread(struct vfs_handle_struct *handle,
+			      files_struct *fsp,
+			      void *data,
+			      size_t len,
+			      off_t off)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	int ret = -1;
+
+	ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("read: ino=%ld fd=%d off=%jd len=%zu",
+		 cfh->iref.ino,
+		 cfh->fd,
+		 (intmax_t)off,
+		 len);
+	ret = vfs_ceph_ll_read(handle, cfh, off, len, data);
+out:
+	CEPH_DBGRET(ret);
+	return lstatus_code(ret);
+}
+
+/* Fake up an async ceph read by calling the synchronous API */
+struct vfs_ceph_pread_state {
+	struct vfs_aio_state vfs_aio_state;
+	ssize_t bytes_read;
+};
+
+static struct tevent_req *vfs_ceph_pread_send(struct vfs_handle_struct *handle,
+					      TALLOC_CTX *mem_ctx,
+					      struct tevent_context *ev,
+					      struct files_struct *fsp,
+					      void *data,
+					      size_t len,
+					      off_t off)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	struct tevent_req *req = NULL;
+	struct vfs_ceph_pread_state *state = NULL;
+	int ret = -1;
+
+	ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		update_errno(ret);
+		return NULL;
+	}
+	req = tevent_req_create(mem_ctx, &state, struct vfs_ceph_pread_state);
+	if (req == NULL) {
+		return NULL;
+	}
+
+	CEPH_DBG("read: ino=%ld fd=%d off=%jd len=%zu",
+		 cfh->iref.ino,
+		 cfh->fd,
+		 (intmax_t)off,
+		 len);
+	ret = vfs_ceph_ll_read(handle, cfh, off, len, data);
+	if (ret < 0) {
+		tevent_req_error(req, -ret);
+		return tevent_req_post(req, ev);
+	}
+	state->bytes_read = ret;
+	tevent_req_done(req);
+	return tevent_req_post(req, ev);
+}
+
+static ssize_t vfs_ceph_pread_recv(struct tevent_req *req,
+				   struct vfs_aio_state *vfs_aio_state)
+{
+	struct vfs_ceph_pread_state *state = NULL;
+
+	if (tevent_req_is_unix_error(req, &vfs_aio_state->error)) {
+		return -1;
+	}
+	state = tevent_req_data(req, struct vfs_ceph_pread_state);
+	CEPH_DBG("bytes_read=%zd error=%d",
+		 state->bytes_read,
+		 state->vfs_aio_state.error);
+	*vfs_aio_state = state->vfs_aio_state;
+	return state->bytes_read;
+}
+
+static ssize_t vfs_ceph_pwrite(struct vfs_handle_struct *handle,
+			       files_struct *fsp,
+			       const void *data,
+			       size_t len,
+			       off_t off)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	int ret = -1;
+
+	ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("write: ino=%ld fd=%d len=%zu off=%jd",
+		 cfh->iref.ino,
+		 cfh->fd,
+		 len,
+		 (intmax_t)off);
+	ret = vfs_ceph_ll_write(handle, cfh, off, len, data);
+out:
+	CEPH_DBGRET(ret);
+	return lstatus_code(ret);
+}
+
+/* Fake up an async ceph write by calling the synchronous API */
+
+struct vfs_ceph_pwrite_state {
+	struct vfs_aio_state vfs_aio_state;
+	ssize_t bytes_written;
+};
+
+static struct tevent_req *vfs_ceph_pwrite_send(struct vfs_handle_struct *handle,
+					       TALLOC_CTX *mem_ctx,
+					       struct tevent_context *ev,
+					       struct files_struct *fsp,
+					       const void *data,
+					       size_t len,
+					       off_t off)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	struct tevent_req *req = NULL;
+	struct vfs_ceph_pwrite_state *state = NULL;
+	int ret = -1;
+
+	ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		update_errno(ret);
+		return NULL;
+	}
+	req = tevent_req_create(mem_ctx, &state, struct vfs_ceph_pwrite_state);
+	if (req == NULL) {
+		return NULL;
+	}
+	CEPH_DBG("write: ino=%ld fd=%d len=%zu off=%jd",
+		 cfh->iref.ino,
+		 cfh->fd,
+		 len,
+		 (intmax_t)off);
+	ret = vfs_ceph_ll_write(handle, cfh, off, len, data);
+	if (ret < 0) {
+		update_errno(ret);
+		tevent_req_error(req, -ret);
+		return tevent_req_post(req, ev);
+	}
+	state->bytes_written = ret;
+	tevent_req_done(req);
+	return tevent_req_post(req, ev);
+}
+
+static ssize_t vfs_ceph_pwrite_recv(struct tevent_req *req,
+				    struct vfs_aio_state *vfs_aio_state)
+{
+	struct vfs_ceph_pwrite_state *state = NULL;
+
+	if (tevent_req_is_unix_error(req, &vfs_aio_state->error)) {
+		return -1;
+	}
+	state = tevent_req_data(req, struct vfs_ceph_pwrite_state);
+	*vfs_aio_state = state->vfs_aio_state;
+	return state->bytes_written;
+}
+
+static off_t vfs_ceph_lseek(struct vfs_handle_struct *handle,
+			    files_struct *fsp,
+			    off_t offset,
+			    int whence)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	int64_t ret = -1;
+
+	ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("lseek: ino=%ld fd=%d offset=%jd whence=%d",
+		 cfh->iref.ino,
+		 cfh->fd,
+		 (intmax_t)offset,
+		 whence);
+	ret = vfs_ceph_ll_lseek(handle, cfh, offset, whence);
+out:
+	CEPH_DBGRET(ret);
+	return lstatus_code(ret);
+}
+
 /* VFS ceph_ll hooks */
 static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* Disk operations */
@@ -991,6 +1215,13 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* File operations */
 	.openat_fn = vfs_ceph_openat,
 	.close_fn = vfs_ceph_close,
+	.pread_fn = vfs_ceph_pread,
+	.pread_send_fn = vfs_ceph_pread_send,
+	.pread_recv_fn = vfs_ceph_pread_recv,
+	.pwrite_fn = vfs_ceph_pwrite,
+	.pwrite_send_fn = vfs_ceph_pwrite_send,
+	.pwrite_recv_fn = vfs_ceph_pwrite_recv,
+	.lseek_fn = vfs_ceph_lseek,
 };
 
 static_decl_vfs;
