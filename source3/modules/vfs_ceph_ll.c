@@ -444,6 +444,27 @@ static int vfs_ceph_ll_mkdir(const struct vfs_handle_struct *handle,
 	return ret;
 }
 
+static int vfs_ceph_ll_link(const struct vfs_handle_struct *handle,
+			    const struct vfs_ceph_iref *diref,
+			    const char *name,
+			    const struct vfs_ceph_iref *iref)
+{
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_link(cmount_of(handle),
+			   iref->inode,
+			   diref->inode,
+			   name,
+			   perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
 static int vfs_ceph_ll_opendir(const struct vfs_handle_struct *handle,
 			       const struct vfs_ceph_iref *iref,
 			       struct ceph_dir_result **dirpp)
@@ -476,6 +497,29 @@ static int vfs_ceph_ll_releasedir(const struct vfs_handle_struct *handle,
 				  struct ceph_dir_result *dirp)
 {
 	return ceph_ll_releasedir(cmount_of(handle), dirp);
+}
+
+static int vfs_ceph_ll_rename(const struct vfs_handle_struct *handle,
+			      const struct vfs_ceph_iref *parent,
+			      const char *name,
+			      const struct vfs_ceph_iref *newparent,
+			      const char *newname)
+{
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_rename(cmount_of(handle),
+			     parent->inode,
+			     name,
+			     parent->inode,
+			     newname,
+			     perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
 }
 
 static int vfs_ceph_ll_statfs(const struct vfs_handle_struct *handle,
@@ -735,6 +779,38 @@ static int vfs_ceph_ll_fallocate(const struct vfs_handle_struct *handle,
 				 int64_t len)
 {
 	return ceph_ll_fallocate(cmount_of(handle), cfh->fh, mode, off, len);
+}
+
+static int vfs_ceph_ll_rmdir(const struct vfs_handle_struct *handle,
+			     const struct vfs_ceph_iref *diref,
+			     const char *name)
+{
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_rmdir(cmount_of(handle), diref->inode, name, perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
+}
+
+static int vfs_ceph_ll_unlink(const struct vfs_handle_struct *handle,
+			      const struct vfs_ceph_iref *iref,
+			      const char *name)
+{
+	struct UserPerm *perms = NULL;
+	int ret = -1;
+
+	perms = vfs_ceph_userperm_new(handle);
+	if (perms == NULL) {
+		return -ENOMEM;
+	}
+	ret = ceph_ll_unlink(cmount_of(handle), iref->inode, name, perms);
+	vfs_ceph_userperm_del(perms);
+	return ret;
 }
 
 /* Disk operations */
@@ -1365,6 +1441,44 @@ out:
 	return lstatus_code(ret);
 }
 
+static int vfs_ceph_renameat(struct vfs_handle_struct *handle,
+			     files_struct *srcfsp,
+			     const struct smb_filename *smb_fname_src,
+			     files_struct *dstfsp,
+			     const struct smb_filename *smb_fname_dst)
+{
+	struct vfs_ceph_iref src_diref = {0};
+	struct vfs_ceph_iref dst_diref = {0};
+	int ret = -1;
+
+	if (smb_fname_src->stream_name || smb_fname_dst->stream_name) {
+		return status_code(-ENOENT);
+	}
+	ret = vfs_ceph_igetd(handle, srcfsp, &src_diref);
+	if (ret != 0) {
+		goto out;
+	}
+	ret = vfs_ceph_igetd(handle, dstfsp, &dst_diref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("rename: dino=%ld name=%s new-dino=%ld newname=%s",
+		 src_diref.ino,
+		 smb_fname_src->base_name,
+		 dst_diref.ino,
+		 smb_fname_dst->base_name);
+	ret = vfs_ceph_ll_rename(handle,
+				 &src_diref,
+				 smb_fname_src->base_name,
+				 &dst_diref,
+				 smb_fname_dst->base_name);
+out:
+	vfs_ceph_iput(handle, &src_diref);
+	vfs_ceph_iput(handle, &dst_diref);
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
 static struct tevent_req *vfs_ceph_fsync_send(struct vfs_handle_struct *handle,
 					      TALLOC_CTX *mem_ctx,
 					      struct tevent_context *ev,
@@ -1494,6 +1608,38 @@ static int vfs_ceph_fstatat(struct vfs_handle_struct *handle,
 out:
 	vfs_ceph_iput(handle, &iref);
 	vfs_ceph_iput(handle, &diref);
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_unlinkat(struct vfs_handle_struct *handle,
+			     struct files_struct *dirfsp,
+			     const struct smb_filename *smb_fname,
+			     int flags)
+{
+	struct vfs_ceph_iref diref = {0};
+	int ret = -1;
+
+	if (smb_fname->stream_name) {
+		return status_code(-ENOENT);
+	}
+	ret = vfs_ceph_igetd(handle, dirfsp, &diref);
+	if (ret != 0) {
+		goto out;
+	}
+	if (flags & AT_REMOVEDIR) {
+		CEPH_DBG("rmdir: dino=%ld name=%s",
+			 diref.ino,
+			 smb_fname->base_name);
+		ret = vfs_ceph_ll_rmdir(handle, &diref, smb_fname->base_name);
+	} else {
+		CEPH_DBG("unlink: dino=%ld name=%s",
+			 diref.ino,
+			 smb_fname->base_name);
+		ret = vfs_ceph_ll_unlink(handle, &diref, smb_fname->base_name);
+	}
+	vfs_ceph_iput(handle, &diref);
+out:
 	CEPH_DBGRET(ret);
 	return status_code(ret);
 }
@@ -1737,6 +1883,60 @@ out:
 	return status_code(ret);
 }
 
+static int vfs_ceph_linkat(struct vfs_handle_struct *handle,
+			   files_struct *srcfsp,
+			   const struct smb_filename *cur_smb_fname,
+			   files_struct *dstfsp,
+			   const struct smb_filename *new_smb_fname,
+			   int flags)
+{
+	struct vfs_ceph_iref cur_diref = {0};
+	struct vfs_ceph_iref new_diref = {0};
+	struct vfs_ceph_iref iref = {0};
+	int ret = -1;
+
+	if (cur_smb_fname->stream_name || new_smb_fname->stream_name) {
+		return status_code(-ENOENT);
+	}
+	CEPH_DBG("%s", srcfsp->fsp_name->base_name);
+	ret = vfs_ceph_igetd(handle, srcfsp, &cur_diref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("%s", dstfsp->fsp_name->base_name);
+	ret = vfs_ceph_igetd(handle, dstfsp, &new_diref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("lookup: dino=%ld name=%s",
+		 cur_diref.ino,
+		 cur_smb_fname->base_name);
+	ret = vfs_ceph_ll_lookup(handle,
+				 &cur_diref,
+				 cur_smb_fname->base_name,
+				 &iref);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("link: dino=%ld name=%s ino=%ld",
+		 new_diref.ino,
+		 new_smb_fname->base_name,
+		 iref.ino);
+	ret = vfs_ceph_ll_link(handle,
+			       &new_diref,
+			       new_smb_fname->base_name,
+			       &iref);
+	if (ret != 0) {
+		goto out;
+	}
+out:
+	vfs_ceph_iput(handle, &iref);
+	vfs_ceph_iput(handle, &new_diref);
+	vfs_ceph_iput(handle, &cur_diref);
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
 /* VFS ceph_ll hooks */
 static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* Disk operations */
@@ -1761,12 +1961,14 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.pwrite_send_fn = vfs_ceph_pwrite_send,
 	.pwrite_recv_fn = vfs_ceph_pwrite_recv,
 	.lseek_fn = vfs_ceph_lseek,
+	.renameat_fn = vfs_ceph_renameat,
 	.fsync_send_fn = vfs_ceph_fsync_send,
 	.fsync_recv_fn = vfs_ceph_fsync_recv,
 	.stat_fn = vfs_ceph_stat,
 	.fstat_fn = vfs_ceph_fstat,
 	.lstat_fn = vfs_ceph_lstat,
 	.fstatat_fn = vfs_ceph_fstatat,
+	.unlinkat_fn = vfs_ceph_unlinkat,
 	.fchmod_fn = vfs_ceph_fchmod,
 	.fchown_fn = vfs_ceph_fchown,
 	.lchown_fn = vfs_ceph_lchown,
@@ -1775,6 +1977,7 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.fntimes_fn = vfs_ceph_fntimes,
 	.ftruncate_fn = vfs_ceph_ftruncate,
 	.fallocate_fn = vfs_ceph_fallocate,
+	.linkat_fn = vfs_ceph_linkat,
 };
 
 static_decl_vfs;
