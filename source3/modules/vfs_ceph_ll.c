@@ -719,6 +719,24 @@ static int vfs_ceph_ll_utimes(struct vfs_handle_struct *handle,
 	return mask ? vfs_ceph_ll_setattr(handle, iref, &stx, mask) : 0;
 }
 
+static int vfs_ceph_ll_truncate(struct vfs_handle_struct *handle,
+				const struct vfs_ceph_iref *iref,
+				uint64_t size)
+{
+	struct ceph_statx stx = {.stx_size = size};
+
+	return vfs_ceph_ll_setattr(handle, iref, &stx, CEPH_SETATTR_SIZE);
+}
+
+static int vfs_ceph_ll_fallocate(const struct vfs_handle_struct *handle,
+				 const struct vfs_ceph_fh *cfh,
+				 int mode,
+				 int64_t off,
+				 int64_t len)
+{
+	return ceph_ll_fallocate(cmount_of(handle), cfh->fh, mode, off, len);
+}
+
 /* Disk operations */
 static int vfs_ceph_connect(struct vfs_handle_struct *handle,
 			    const char *service,
@@ -1622,6 +1640,103 @@ static struct smb_filename *vfs_ceph_getwd(struct vfs_handle_struct *handle,
 	return synthetic_smb_fname(ctx, cwd, NULL, NULL, 0, 0);
 }
 
+static int vfs_ceph_ftruncate_allocate(struct vfs_handle_struct *handle,
+				       files_struct *fsp,
+				       off_t len)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	SMB_STRUCT_STAT *pst = &fsp->fsp_name->st;
+	off_t size = 0;
+	int ret = -1;
+
+	ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		goto out;
+	}
+	ret = vfs_ceph_ll_stat(handle, &cfh->iref, pst);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("stat-ret: ino=%ld mode=0%o",
+		 (long)pst->st_ex_ino,
+		 pst->st_ex_mode);
+
+#ifdef S_ISFIFO
+	if (S_ISFIFO(pst->st_ex_mode)) {
+		return 0;
+	}
+#endif
+	size = pst->st_ex_size;
+	if (size > len) {
+		CEPH_DBG("truncate: ino=%ld fd=%d len=%jd",
+			 cfh->iref.ino,
+			 cfh->fd,
+			 (intmax_t)len);
+		ret = vfs_ceph_ll_truncate(handle, &cfh->iref, len);
+	} else if (size < len) {
+		len = len - size;
+		CEPH_DBG("fallocate: ino=%ld fd=%d off=%jd len=%jd",
+			 cfh->iref.ino,
+			 cfh->fd,
+			 (intmax_t)size,
+			 (intmax_t)len);
+		ret = vfs_ceph_ll_fallocate(handle, cfh, 0, size, len);
+	}
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_ftruncate(struct vfs_handle_struct *handle,
+			      files_struct *fsp,
+			      off_t off)
+{
+	const struct vfs_ceph_mnt_entry *cme = handle->data;
+	struct vfs_ceph_fh *cfh = NULL;
+	int ret = -1;
+
+	if (cme->strict_allocate) {
+		return vfs_ceph_ftruncate_allocate(handle, fsp, off);
+	}
+	ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("truncate: ino=%ld fd=%d off=%jd",
+		 cfh->iref.ino,
+		 cfh->fd,
+		 (intmax_t)off);
+	ret = vfs_ceph_ll_truncate(handle, &cfh->iref, (uint64_t)off);
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
+static int vfs_ceph_fallocate(struct vfs_handle_struct *handle,
+			      struct files_struct *fsp,
+			      uint32_t mode,
+			      off_t off,
+			      off_t len)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	int ret = -1;
+
+	ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		goto out;
+	}
+	CEPH_DBG("fallocate: ino=%ld fd=%d mode=%x off=%jd len=%jd",
+		 cfh->iref.ino,
+		 cfh->fd,
+		 mode,
+		 (intmax_t)off,
+		 (intmax_t)len);
+	ret = vfs_ceph_ll_fallocate(handle, cfh, mode, off, len);
+out:
+	CEPH_DBGRET(ret);
+	return status_code(ret);
+}
+
 /* VFS ceph_ll hooks */
 static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* Disk operations */
@@ -1658,6 +1773,8 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.chdir_fn = vfs_ceph_chdir,
 	.getwd_fn = vfs_ceph_getwd,
 	.fntimes_fn = vfs_ceph_fntimes,
+	.ftruncate_fn = vfs_ceph_ftruncate,
+	.fallocate_fn = vfs_ceph_fallocate,
 };
 
 static_decl_vfs;
