@@ -587,6 +587,13 @@ static int vfs_ceph_ll_write(const struct vfs_handle_struct *handle,
 	return ceph_ll_write(cmount_of(handle), cfh->fh, off, len, data);
 }
 
+static int vfs_ceph_ll_fsync(const struct vfs_handle_struct *handle,
+			     const struct vfs_ceph_fh *cfh,
+			     int syncdataonly)
+{
+	return ceph_ll_fsync(cmount_of(handle), cfh->fh, syncdataonly);
+}
+
 /* Disk operations */
 static int vfs_ceph_connect(struct vfs_handle_struct *handle,
 			    const char *service,
@@ -1198,6 +1205,48 @@ out:
 	return lstatus_code(ret);
 }
 
+static struct tevent_req *vfs_ceph_fsync_send(struct vfs_handle_struct *handle,
+					      TALLOC_CTX *mem_ctx,
+					      struct tevent_context *ev,
+					      files_struct *fsp)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	struct tevent_req *req = NULL;
+	struct vfs_aio_state *state = NULL;
+	int ret = -1;
+
+	ret = vfs_ceph_fetch_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		update_errno(ret);
+		return NULL;
+	}
+	req = tevent_req_create(mem_ctx, &state, struct vfs_aio_state);
+	if (req == NULL) {
+		return NULL;
+	}
+	CEPH_DBG("fsync: ino=%ld fd=%d", cfh->iref.ino, cfh->fd);
+	ret = vfs_ceph_ll_fsync(handle, cfh, 0);
+	if (ret != 0) {
+		tevent_req_error(req, -ret);
+		return tevent_req_post(req, ev);
+	}
+	tevent_req_done(req);
+	return tevent_req_post(req, ev);
+}
+
+static int vfs_ceph_fsync_recv(struct tevent_req *req,
+			       struct vfs_aio_state *vfs_aio_state)
+{
+	struct vfs_aio_state *state = tevent_req_data(req,
+						      struct vfs_aio_state);
+
+	if (tevent_req_is_unix_error(req, &vfs_aio_state->error)) {
+		return -1;
+	}
+	*vfs_aio_state = *state;
+	return 0;
+}
+
 /* VFS ceph_ll hooks */
 static struct vfs_fn_pointers vfs_ceph_fns = {
 	/* Disk operations */
@@ -1222,6 +1271,8 @@ static struct vfs_fn_pointers vfs_ceph_fns = {
 	.pwrite_send_fn = vfs_ceph_pwrite_send,
 	.pwrite_recv_fn = vfs_ceph_pwrite_recv,
 	.lseek_fn = vfs_ceph_lseek,
+	.fsync_send_fn = vfs_ceph_fsync_send,
+	.fsync_recv_fn = vfs_ceph_fsync_recv,
 };
 
 static_decl_vfs;
