@@ -106,12 +106,6 @@ static const char *vfs_ceph_param_fsname(int snum, const char *def)
 	return vfs_ceph_param_of(snum, "filesystem", def);
 }
 
-/* Ceph's inode + ino-number */
-struct vfs_ceph_iref {
-	struct Inode *inode;
-	long ino; /* for debug printing */
-};
-
 /* Ceph mounts */
 
 struct vfs_ceph_mnt_entry {
@@ -119,7 +113,6 @@ struct vfs_ceph_mnt_entry {
 	struct vfs_ceph_mnt_entry *prev;
 	char *cookie;
 	struct ceph_mount_info *cmount;
-	struct vfs_ceph_iref rootdir;
 	uint64_t fd_index;
 	int snum;
 	int count;
@@ -276,13 +269,6 @@ static int vfs_ceph_mount_fs(struct vfs_ceph_mnt_entry *cme)
 		goto mount_fail;
 	}
 
-	/* bind local root-dir */
-	CEPH_DBG("ceph_ll_lookup_root: cmount=%p", cmount);
-	cme->rootdir.ino = CEPH_INO_ROOT;
-	ret = ceph_ll_lookup_root(cmount, &cme->rootdir.inode);
-	if (ret != 0) {
-		goto mount_fail;
-	}
 	cme->cmount = cmount;
 	cme->strict_allocate = lp_strict_allocate(cme->snum);
 
@@ -310,9 +296,15 @@ static int snum_of(const struct vfs_handle_struct *handle)
 	return cme->snum;
 }
 
+/* Ceph's inode + ino-number */
+struct vfs_ceph_iref {
+	struct Inode *inode;
+	uint64_t ino; /* for debug printing */
+};
+
 /* Ceph file-handles via fsp-extension */
 struct vfs_ceph_fh {
-	const struct vfs_ceph_mnt_entry *cme;
+	struct vfs_ceph_mnt_entry *cme;
 	struct vfs_ceph_iref iref;
 	struct Fh *fh;
 	int fd;
@@ -323,7 +315,7 @@ static int vfs_ceph_release_fh(struct vfs_ceph_fh *cfh)
 	int ret = 0;
 
 	if (cfh->fh != NULL) {
-		CEPH_DBG("close: ino=%ld fd=%d ret=%d",
+		CEPH_DBG("close: ino=%" PRIu64 " fd=%d ret=%d",
 			 cfh->iref.ino,
 			 cfh->fd,
 			 ret);
@@ -333,10 +325,9 @@ static int vfs_ceph_release_fh(struct vfs_ceph_fh *cfh)
 		cfh->fd = -1;
 	}
 	if (cfh->iref.inode != NULL) {
-		CEPH_DBG("put: ino=%ld", cfh->iref.ino);
+		CEPH_DBG("put: ino=%" PRIu64, cfh->iref.ino);
 		ceph_ll_put(cfh->cme->cmount, cfh->iref.inode);
 		cfh->iref.inode = NULL;
-		cfh->iref.ino = 0;
 	}
 	return ret;
 }
@@ -357,8 +348,8 @@ static struct vfs_ceph_fh *vfs_ceph_add_fh(struct vfs_handle_struct *handle,
 				    struct vfs_ceph_fh,
 				    vfs_ceph_fsp_ext_destroy_cb);
 	if (cfh != NULL) {
-		cfh->fd = vfs_ceph_mnt_next_fd(cme);
 		cfh->cme = cme;
+		cfh->fd = -1;
 	}
 	return cfh;
 }
@@ -400,6 +391,15 @@ static void vfs_ceph_userperm_del(struct UserPerm *perms)
 }
 
 /* Ceph low-level wrappers */
+static int vfs_ceph_ll_lookup_inode(const struct vfs_handle_struct *handle,
+				    uint64_t inoval,
+				    Inode **pout)
+{
+	struct inodeno_t ino = {.val = inoval};
+
+	return ceph_ll_lookup_inode(cmount_of(handle), ino, pout);
+}
+
 static int vfs_ceph_ll_walk(const struct vfs_handle_struct *handle,
 			    const char *name,
 			    struct Inode **pin,
@@ -433,6 +433,7 @@ static int vfs_ceph_ll_mkdir(const struct vfs_handle_struct *handle,
 {
 	struct ceph_statx stx = {.stx_ino = 0};
 	struct UserPerm *perms = NULL;
+	struct Inode *inode = NULL;
 	int ret = -1;
 
 	perms = vfs_ceph_userperm_new(handle);
@@ -443,12 +444,15 @@ static int vfs_ceph_ll_mkdir(const struct vfs_handle_struct *handle,
 			    diref->inode,
 			    name,
 			    mode,
-			    &iref->inode,
+			    &inode,
 			    &stx,
 			    CEPH_STATX_INO,
 			    0,
 			    perms);
-	iref->ino = (long)stx.stx_ino;
+	if (ret == 0) {
+		iref->inode = inode;
+		iref->ino = stx.stx_ino;
+	}
 	vfs_ceph_userperm_del(perms);
 	return ret;
 }
@@ -524,7 +528,7 @@ static int vfs_ceph_ll_rename(const struct vfs_handle_struct *handle,
 	ret = ceph_ll_rename(cmount_of(handle),
 			     parent->inode,
 			     name,
-			     parent->inode,
+			     newparent->inode,
 			     newname,
 			     perms);
 	vfs_ceph_userperm_del(perms);
@@ -563,6 +567,7 @@ static int vfs_ceph_ll_symlink(const struct vfs_handle_struct *handle,
 {
 	struct ceph_statx stx = {.stx_ino = 0};
 	struct UserPerm *perms = NULL;
+	struct Inode *inode = NULL;
 	int ret = -1;
 
 	perms = vfs_ceph_userperm_new(handle);
@@ -573,12 +578,15 @@ static int vfs_ceph_ll_symlink(const struct vfs_handle_struct *handle,
 			      iref->inode,
 			      name,
 			      value,
-			      &out_iref->inode,
+			      &inode,
 			      &stx,
 			      CEPH_STATX_INO,
 			      0,
 			      perms);
-	out_iref->ino = (long)stx.stx_ino;
+	if (ret == 0) {
+		out_iref->inode = inode;
+		out_iref->ino = stx.stx_ino;
+	}
 	vfs_ceph_userperm_del(perms);
 	return ret;
 }
@@ -592,6 +600,8 @@ static int vfs_ceph_ll_create(const struct vfs_handle_struct *handle,
 {
 	struct ceph_statx stx = {.stx_ino = 0};
 	struct UserPerm *perms = NULL;
+	struct Inode *inode = NULL;
+	struct Fh *fh = NULL;
 	int ret = -1;
 
 	perms = vfs_ceph_userperm_new(handle);
@@ -603,13 +613,18 @@ static int vfs_ceph_ll_create(const struct vfs_handle_struct *handle,
 			     name,
 			     mode,
 			     oflags,
-			     &cfh->iref.inode,
-			     &cfh->fh,
+			     &inode,
+			     &fh,
 			     &stx,
 			     CEPH_STATX_INO,
 			     0,
 			     perms);
-	cfh->iref.ino = (long)stx.stx_ino;
+	if (ret == 0) {
+		cfh->iref.inode = inode;
+		cfh->iref.ino = (long)stx.stx_ino;
+		cfh->fh = fh;
+		cfh->fd = vfs_ceph_mnt_next_fd(cfh->cme); /* debug only */
+	}
 	vfs_ceph_userperm_del(perms);
 	return ret;
 }
@@ -623,6 +638,7 @@ static int vfs_ceph_ll_mknod(const struct vfs_handle_struct *handle,
 {
 	struct ceph_statx stx = {.stx_ino = 0};
 	struct UserPerm *perms = NULL;
+	struct Inode *inode = NULL;
 	int ret = -1;
 
 	perms = vfs_ceph_userperm_new(handle);
@@ -634,12 +650,15 @@ static int vfs_ceph_ll_mknod(const struct vfs_handle_struct *handle,
 			    name,
 			    mode,
 			    rdev,
-			    &iref->inode,
+			    &inode,
 			    &stx,
 			    CEPH_STATX_INO,
 			    0,
 			    perms);
-	iref->ino = (long)stx.stx_ino;
+	if (ret == 0) {
+		iref->inode = inode;
+		iref->ino = stx.stx_ino;
+	}
 	vfs_ceph_userperm_del(perms);
 	return ret;
 }
@@ -651,6 +670,7 @@ static int vfs_ceph_ll_lookup(const struct vfs_handle_struct *handle,
 {
 	struct ceph_statx stx = {.stx_ino = 0};
 	struct UserPerm *perms = NULL;
+	struct Inode *inode = NULL;
 	int ret = -1;
 
 	perms = vfs_ceph_userperm_new(handle);
@@ -660,31 +680,37 @@ static int vfs_ceph_ll_lookup(const struct vfs_handle_struct *handle,
 	ret = ceph_ll_lookup(cmount_of(handle),
 			     parent->inode,
 			     name,
-			     &iref->inode,
+			     &inode,
 			     &stx,
 			     CEPH_STATX_INO,
 			     0,
 			     perms);
-	iref->ino = (long)stx.stx_ino;
+	if (ret == 0) {
+		iref->inode = inode;
+		iref->ino = stx.stx_ino;
+	}
 	vfs_ceph_userperm_del(perms);
 	return ret;
 }
 
 static int vfs_ceph_ll_open(const struct vfs_handle_struct *handle,
-			    const struct vfs_ceph_iref *iref,
-			    int flags,
-			    struct vfs_ceph_fh *cfh)
+			    struct vfs_ceph_fh *cfh,
+			    int flags)
 {
 	struct ceph_mount_info *cmount = cmount_of(handle);
 	struct UserPerm *perms = NULL;
+	struct Fh *fh = NULL;
 	int ret = -1;
 
 	perms = vfs_ceph_userperm_new(handle);
 	if (perms == NULL) {
 		return -ENOMEM;
 	}
-	ret = ceph_ll_open(cmount, iref->inode, flags, &cfh->fh, perms);
-	cfh->iref.ino = iref->ino;
+	ret = ceph_ll_open(cmount, cfh->iref.inode, flags, &fh, perms);
+	if (ret == 0) {
+		cfh->fh = fh;
+		cfh->fd = vfs_ceph_mnt_next_fd(cfh->cme); /* debug only */
+	}
 	vfs_ceph_userperm_del(perms);
 	return ret;
 }
@@ -1066,11 +1092,15 @@ static uint64_t vfs_ceph_disk_free(struct vfs_handle_struct *handle,
 				   uint64_t *dsize)
 {
 	struct statvfs stv = {0};
-	const struct vfs_ceph_mnt_entry *cme = handle->data;
+	struct ceph_mount_info *cmount = cmount_of(handle);
+	struct Inode *inode = NULL;
 	int ret = -1;
 
-	CEPH_DBG("disk_free: rootdir-ino=%ld", cme->rootdir.ino);
-	ret = vfs_ceph_ll_statfs(handle, &cme->rootdir, &stv);
+	ret = ceph_ll_lookup_root(cmount, &inode);
+	if (ret == 0) {
+		ret = ceph_ll_statfs(cmount, inode, &stv);
+		ceph_ll_put(cmount, inode);
+	}
 	if (ret != 0) {
 		update_errno(ret);
 		return (uint64_t)(-1);
@@ -1082,29 +1112,36 @@ static uint64_t vfs_ceph_disk_free(struct vfs_handle_struct *handle,
 }
 
 static int vfs_ceph_iget(struct vfs_handle_struct *handle,
+			 uint64_t ino,
 			 const char *name,
 			 unsigned int flags,
 			 struct vfs_ceph_iref *iref)
 {
-	struct ceph_statx stx = {.stx_ino = 0, .stx_mode = 0};
+	struct ceph_statx stx = {.stx_ino = 0};
 	struct Inode *inode = NULL;
 	int ret = -1;
 
-	ret = vfs_ceph_ll_walk(handle,
-			       name,
-			       &inode,
-			       &stx,
-			       CEPH_STATX_INO | CEPH_STATX_MODE,
-			       flags);
-	if (ret != 0) {
-		return ret;
+	if (ino >= CEPH_INO_ROOT) {
+		ret = vfs_ceph_ll_lookup_inode(handle, ino, &inode);
+		if (ret != 0) {
+			return ret;
+		}
+		iref->inode = inode;
+		iref->ino = ino;
+	} else {
+		ret = vfs_ceph_ll_walk(handle,
+				       name,
+				       &inode,
+				       &stx,
+				       CEPH_STATX_INO,
+				       flags);
+		if (ret != 0) {
+			return ret;
+		}
+		iref->inode = inode;
+		iref->ino = stx.stx_ino;
 	}
-	iref->inode = inode;
-	iref->ino = (long)stx.stx_ino;
-	CEPH_DBG("iget: %s ino=%ld mode=0%o",
-		 name,
-		 (long)stx.stx_ino,
-		 (int)stx.stx_mode);
+	CEPH_DBG("get-inode: %s ino=%" PRIu64, name, iref->ino);
 	return 0;
 }
 
@@ -1117,9 +1154,9 @@ static int vfs_ceph_iget_by_fname(struct vfs_handle_struct *handle,
 	int ret = -1;
 
 	if (!strcmp(name, cwd)) {
-		ret = vfs_ceph_iget(handle, "./", 0, iref);
+		ret = vfs_ceph_iget(handle, 0, "./", 0, iref);
 	} else {
-		ret = vfs_ceph_iget(handle, name, 0, iref);
+		ret = vfs_ceph_iget(handle, 0, name, 0, iref);
 	}
 	return ret;
 }
@@ -1128,7 +1165,11 @@ static int vfs_ceph_igetf(struct vfs_handle_struct *handle,
 			  const struct files_struct *fsp,
 			  struct vfs_ceph_iref *iref)
 {
-	return vfs_ceph_iget(handle, fsp->fsp_name->base_name, 0, iref);
+	return vfs_ceph_iget(handle,
+			     fsp->file_id.inode,
+			     fsp->fsp_name->base_name,
+			     0,
+			     iref);
 }
 
 static int vfs_ceph_igetl(struct vfs_handle_struct *handle,
@@ -1136,6 +1177,7 @@ static int vfs_ceph_igetl(struct vfs_handle_struct *handle,
 			  struct vfs_ceph_iref *iref)
 {
 	return vfs_ceph_iget(handle,
+			     0,
 			     smb_fname->base_name,
 			     AT_SYMLINK_NOFOLLOW,
 			     iref);
@@ -1145,17 +1187,18 @@ static int vfs_ceph_igetd(struct vfs_handle_struct *handle,
 			  const struct files_struct *dirfsp,
 			  struct vfs_ceph_iref *iref)
 {
-	const struct smb_filename *fsp_name = NULL;
 	int ret = -1;
 
 	if (fsp_get_pathref_fd(dirfsp) == AT_FDCWD) {
-		fsp_name = handle->conn->cwd_fsp->fsp_name;
-		CEPH_DBG("igetd: AT_FDCWD: %s", fsp_name->base_name);
-		ret = vfs_ceph_iget(handle, ".", 0, iref);
+		CEPH_DBG("igetd: AT_FDCWD: %s",
+			 handle->conn->cwd_fsp->fsp_name->base_name);
+		ret = vfs_ceph_iget(handle, 0, ".", 0, iref);
 	} else {
-		fsp_name = dirfsp->fsp_name;
-		CEPH_DBG("igetd: %s", fsp_name->base_name);
-		ret = vfs_ceph_iget(handle, fsp_name->base_name, 0, iref);
+		ret = vfs_ceph_iget(handle,
+				    dirfsp->file_id.inode,
+				    dirfsp->fsp_name->base_name,
+				    0,
+				    iref);
 	}
 	return ret;
 }
@@ -1164,7 +1207,7 @@ static void vfs_ceph_iput(struct vfs_handle_struct *handle,
 			  struct vfs_ceph_iref *iref)
 {
 	if (iref->inode != NULL) {
-		CEPH_DBG("iput: ino=%ld", iref->ino);
+		CEPH_DBG("put-inode: ino=%" PRIu64, iref->ino);
 		ceph_ll_put(cmount_of(handle), iref->inode);
 		iref->inode = NULL;
 	}
@@ -1195,7 +1238,7 @@ static int vfs_ceph_statvfs(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("statvfs: %s ino=%ld", smb_fname->base_name, iref.ino);
+	CEPH_DBG("statfs: ino=%" PRIu64, iref.ino);
 	ret = vfs_ceph_ll_statfs(handle, &iref, &stvfs);
 	if (ret != 0) {
 		goto out;
@@ -1229,7 +1272,7 @@ static DIR *vfs_ceph_fdopendir(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		dstatus_code(NULL, ret);
 	}
-	CEPH_DBG("fdopendir: %s ino=%ld", fsp->fsp_name->base_name, diref.ino);
+	CEPH_DBG("opendir: ino=%" PRIu64, diref.ino);
 	ret = vfs_ceph_ll_opendir(handle, &diref, &dirp);
 	vfs_ceph_iput(handle, &diref);
 	CEPH_DBGRET(ret);
@@ -1240,11 +1283,7 @@ static struct dirent *vfs_ceph_readdir(struct vfs_handle_struct *handle,
 				       struct files_struct *dirfsp,
 				       DIR *dirp)
 {
-	struct dirent *de = NULL;
-
-	CEPH_DBG("readdir: %s", dirfsp->fsp_name->base_name);
-	de = vfs_ceph_ll_readdir(handle, (struct ceph_dir_result *)dirp);
-	return de;
+	return vfs_ceph_ll_readdir(handle, (struct ceph_dir_result *)dirp);
 }
 
 static void vfs_ceph_rewinddir(struct vfs_handle_struct *handle, DIR *dirp)
@@ -1265,8 +1304,7 @@ static int vfs_ceph_mkdirat(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("mkdirat: %s dino=%ld name=%s mode=0%o",
-		 dirfsp->fsp_name->base_name,
+	CEPH_DBG("mkdirat: dino=%" PRIu64 " name=%s mode=0%o",
 		 diref.ino,
 		 smb_fname->base_name,
 		 mode);
@@ -1300,7 +1338,6 @@ static int vfs_ceph_openat(struct vfs_handle_struct *handle,
 			   const struct vfs_open_how *how)
 {
 	struct vfs_ceph_iref diref = {0};
-	struct vfs_ceph_iref iref = {0};
 	struct vfs_ceph_fh *cfh = NULL;
 	int o_flags = how->flags;
 	int mode = how->mode;
@@ -1314,6 +1351,8 @@ static int vfs_ceph_openat(struct vfs_handle_struct *handle,
 	if (smb_fname->stream_name) {
 		return status_code(-ENOENT);
 	}
+
+	CEPH_DBG("openat: %s", smb_fname->base_name);
 	cfh = vfs_ceph_add_fh(handle, fsp);
 	if (cfh == NULL) {
 		goto out;
@@ -1337,7 +1376,7 @@ static int vfs_ceph_openat(struct vfs_handle_struct *handle,
 	}
 
 	if (o_flags & O_CREAT) {
-		CEPH_DBG("create: dino=%ld name=%s mode=%o o_flags=0%o",
+		CEPH_DBG("create: dino=%" PRIu64 " name=%s mode=%o o_flags=0%o",
 			 diref.ino,
 			 smb_fname->base_name,
 			 mode,
@@ -1351,37 +1390,31 @@ static int vfs_ceph_openat(struct vfs_handle_struct *handle,
 		if (ret < 0) {
 			goto out;
 		}
-		CEPH_DBG("create-ok: %s ino=%ld fd=%d",
+		CEPH_DBG("create-ok: %s ino=%" PRIu64 " fd=%d",
 			 smb_fname->base_name,
 			 cfh->iref.ino,
 			 cfh->fd);
 
 	} else {
-		CEPH_DBG("lookup: dino=%ld name=%s",
+		CEPH_DBG("lookup: dino=%" PRIu64 " name=%s",
 			 diref.ino,
 			 smb_fname->base_name);
 		ret = vfs_ceph_ll_lookup(handle,
 					 &diref,
 					 smb_fname->base_name,
-					 &iref);
+					 &cfh->iref);
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("lookup-ok: dino=%ld name=%s ino=%ld",
-			 diref.ino,
-			 smb_fname->base_name,
-			 iref.ino);
 
-		CEPH_DBG("open: ino=%ld o_flags=0%o", iref.ino, o_flags);
-		ret = vfs_ceph_ll_open(handle, &iref, o_flags, cfh);
+		CEPH_DBG("open: ino=%" PRIu64 " o_flags=0%o",
+			 cfh->iref.ino,
+			 o_flags);
+		ret = vfs_ceph_ll_open(handle, cfh, o_flags);
 		if (ret < 0) {
 			goto out;
 		}
-		/* take ownership on inode */
-		cfh->iref.inode = iref.inode;
-		cfh->iref.ino = iref.ino;
-		iref.inode = NULL;
-		CEPH_DBG("open-ok: %s ino=%ld fd=%d",
+		CEPH_DBG("open-ok: %s ino=%" PRIu64 " fd=%d",
 			 smb_fname->base_name,
 			 cfh->iref.ino,
 			 cfh->fd);
@@ -1392,7 +1425,6 @@ out:
 	if (became_root) {
 		unbecome_root();
 	}
-	vfs_ceph_iput(handle, &iref);
 	vfs_ceph_iput(handle, &diref);
 	fsp->fsp_flags.have_proc_fds = false;
 	if (ret < 0) {
@@ -1432,7 +1464,7 @@ static ssize_t vfs_ceph_pread(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("read: ino=%ld fd=%d off=%jd len=%zu",
+	CEPH_DBG("read: ino=%" PRIu64 " fd=%d off=%jd len=%zu",
 		 cfh->iref.ino,
 		 cfh->fd,
 		 (intmax_t)off,
@@ -1472,7 +1504,7 @@ static struct tevent_req *vfs_ceph_pread_send(struct vfs_handle_struct *handle,
 		return NULL;
 	}
 
-	CEPH_DBG("read: ino=%ld fd=%d off=%jd len=%zu",
+	CEPH_DBG("read: ino=%" PRIu64 " fd=%d off=%jd len=%zu",
 		 cfh->iref.ino,
 		 cfh->fd,
 		 (intmax_t)off,
@@ -1516,7 +1548,7 @@ static ssize_t vfs_ceph_pwrite(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("write: ino=%ld fd=%d len=%zu off=%jd",
+	CEPH_DBG("write: ino=%" PRIu64 " fd=%d len=%zu off=%jd",
 		 cfh->iref.ino,
 		 cfh->fd,
 		 len,
@@ -1556,7 +1588,7 @@ static struct tevent_req *vfs_ceph_pwrite_send(struct vfs_handle_struct *handle,
 	if (req == NULL) {
 		return NULL;
 	}
-	CEPH_DBG("write: ino=%ld fd=%d len=%zu off=%jd",
+	CEPH_DBG("write: ino=%" PRIu64 " fd=%d len=%zu off=%jd",
 		 cfh->iref.ino,
 		 cfh->fd,
 		 len,
@@ -1597,7 +1629,7 @@ static off_t vfs_ceph_lseek(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("lseek: ino=%ld fd=%d offset=%jd whence=%d",
+	CEPH_DBG("lseek: ino=%" PRIu64 " fd=%d offset=%jd whence=%d",
 		 cfh->iref.ino,
 		 cfh->fd,
 		 (intmax_t)offset,
@@ -1629,7 +1661,8 @@ static int vfs_ceph_renameat(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("rename: dino=%ld name=%s new-dino=%ld newname=%s",
+	CEPH_DBG("rename: dino=%" PRIu64 " name=%s new-dino=%" PRIu64
+		 " newname=%s",
 		 src_diref.ino,
 		 smb_fname_src->base_name,
 		 dst_diref.ino,
@@ -1665,7 +1698,7 @@ static struct tevent_req *vfs_ceph_fsync_send(struct vfs_handle_struct *handle,
 	if (req == NULL) {
 		return NULL;
 	}
-	CEPH_DBG("fsync: ino=%ld fd=%d", cfh->iref.ino, cfh->fd);
+	CEPH_DBG("fsync: ino=%" PRIu64 " fd=%d", cfh->iref.ino, cfh->fd);
 	ret = vfs_ceph_ll_fsync(handle, cfh, 0);
 	if (ret != 0) {
 		tevent_req_error(req, -ret);
@@ -1701,7 +1734,7 @@ static int vfs_ceph_stat(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("stat: ino=%ld", iref.ino);
+	CEPH_DBG("stat: ino=%" PRIu64, iref.ino);
 	ret = vfs_ceph_ll_stat(handle, &iref, &smb_fname->st);
 	vfs_ceph_iput(handle, &iref);
 out:
@@ -1720,7 +1753,7 @@ static int vfs_ceph_fstat(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("stat: ino=%ld fd=%d", cfh->iref.ino, cfh->fd);
+	CEPH_DBG("stat: ino=%" PRIu64 " fd=%d", cfh->iref.ino, cfh->fd);
 	ret = vfs_ceph_ll_stat(handle, &cfh->iref, st);
 out:
 	CEPH_DBGRET(ret);
@@ -1740,7 +1773,7 @@ static int vfs_ceph_lstat(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("stat: ino=%ld", iref.ino);
+	CEPH_DBG("stat: ino=%" PRIu64, iref.ino);
 	ret = vfs_ceph_ll_stat(handle, &iref, &smb_fname->st);
 	vfs_ceph_iput(handle, &iref);
 out:
@@ -1765,12 +1798,14 @@ static int vfs_ceph_fstatat(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("lookup: dino=%ld name=%s", diref.ino, smb_fname->base_name);
+	CEPH_DBG("lookup: dino=%" PRIu64 " name=%s",
+		 diref.ino,
+		 smb_fname->base_name);
 	ret = vfs_ceph_ll_lookup(handle, &diref, smb_fname->base_name, &iref);
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("stat: ino=%ld", iref.ino);
+	CEPH_DBG("stat: ino=%" PRIu64, iref.ino);
 	ret = vfs_ceph_ll_stat(handle, &iref, st);
 out:
 	vfs_ceph_iput(handle, &iref);
@@ -1795,12 +1830,12 @@ static int vfs_ceph_unlinkat(struct vfs_handle_struct *handle,
 		goto out;
 	}
 	if (flags & AT_REMOVEDIR) {
-		CEPH_DBG("rmdir: dino=%ld name=%s",
+		CEPH_DBG("rmdir: dino=%" PRIu64 " name=%s",
 			 diref.ino,
 			 smb_fname->base_name);
 		ret = vfs_ceph_ll_rmdir(handle, &diref, smb_fname->base_name);
 	} else {
-		CEPH_DBG("unlink: dino=%ld name=%s",
+		CEPH_DBG("unlink: dino=%" PRIu64 " name=%s",
 			 diref.ino,
 			 smb_fname->base_name);
 		ret = vfs_ceph_ll_unlink(handle, &diref, smb_fname->base_name);
@@ -1824,7 +1859,7 @@ static int vfs_ceph_fchmod(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("chmod: ino=%ld fd=%d mode=%o",
+		CEPH_DBG("chmod: ino=%" PRIu64 " fd=%d mode=%o",
 			 cfh->iref.ino,
 			 cfh->fd,
 			 mode);
@@ -1836,7 +1871,7 @@ static int vfs_ceph_fchmod(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("chmod: ino=%ld mode=%o", iref.ino, mode);
+		CEPH_DBG("chmod: ino=%" PRIu64 " mode=%o", iref.ino, mode);
 		ret = vfs_ceph_ll_chmod(handle, &iref, mode);
 		vfs_ceph_iput(handle, &iref);
 	}
@@ -1859,7 +1894,7 @@ static int vfs_ceph_fchown(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("chown: ino=%ld fd=%d uid=%d gid=%d",
+		CEPH_DBG("chown: ino=%" PRIu64 " fd=%d uid=%d gid=%d",
 			 cfh->iref.ino,
 			 cfh->fd,
 			 uid,
@@ -1872,7 +1907,10 @@ static int vfs_ceph_fchown(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("chown: ino=%ld uid=%d gid=%d", iref.ino, uid, gid);
+		CEPH_DBG("chown: ino=%" PRIu64 " uid=%d gid=%d",
+			 iref.ino,
+			 uid,
+			 gid);
 		ret = vfs_ceph_ll_chown(handle, &iref, uid, gid);
 		vfs_ceph_iput(handle, &iref);
 	}
@@ -1893,7 +1931,7 @@ static int vfs_ceph_lchown(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("chown: ino=%ld uid=%d gid=%d", iref.ino, uid, gid);
+	CEPH_DBG("chown: ino=%" PRIu64 " uid=%d gid=%d", iref.ino, uid, gid);
 	ret = vfs_ceph_ll_chown(handle, &iref, uid, gid);
 	vfs_ceph_iput(handle, &iref);
 out:
@@ -1914,7 +1952,9 @@ static int vfs_ceph_fntimes(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("utimes: ino=%ld fd=%d", cfh->iref.ino, cfh->fd);
+		CEPH_DBG("utimes: ino=%" PRIu64 " fd=%d",
+			 cfh->iref.ino,
+			 cfh->fd);
 		ret = vfs_ceph_ll_utimes(handle, &cfh->iref, ft);
 	} else {
 		struct vfs_ceph_iref iref = {0};
@@ -1923,7 +1963,7 @@ static int vfs_ceph_fntimes(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("utimes: ino=%ld", iref.ino);
+		CEPH_DBG("utimes: ino=%" PRIu64, iref.ino);
 		ret = vfs_ceph_ll_utimes(handle, &iref, ft);
 		vfs_ceph_iput(handle, &iref);
 	}
@@ -1981,14 +2021,14 @@ static int vfs_ceph_ftruncate_allocate(struct vfs_handle_struct *handle,
 #endif
 	size = pst->st_ex_size;
 	if (size > len) {
-		CEPH_DBG("truncate: ino=%ld fd=%d len=%jd",
+		CEPH_DBG("truncate: ino=%" PRIu64 " fd=%d len=%jd",
 			 cfh->iref.ino,
 			 cfh->fd,
 			 (intmax_t)len);
 		ret = vfs_ceph_ll_truncate(handle, &cfh->iref, len);
 	} else if (size < len) {
 		len = len - size;
-		CEPH_DBG("fallocate: ino=%ld fd=%d off=%jd len=%jd",
+		CEPH_DBG("fallocate: ino=%" PRIu64 " fd=%d off=%jd len=%jd",
 			 cfh->iref.ino,
 			 cfh->fd,
 			 (intmax_t)size,
@@ -2015,7 +2055,7 @@ static int vfs_ceph_ftruncate(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("truncate: ino=%ld fd=%d off=%jd",
+	CEPH_DBG("truncate: ino=%" PRIu64 " fd=%d off=%jd",
 		 cfh->iref.ino,
 		 cfh->fd,
 		 (intmax_t)off);
@@ -2038,7 +2078,7 @@ static int vfs_ceph_fallocate(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("fallocate: ino=%ld fd=%d mode=%x off=%jd len=%jd",
+	CEPH_DBG("fallocate: ino=%" PRIu64 " fd=%d mode=%x off=%jd len=%jd",
 		 cfh->iref.ino,
 		 cfh->fd,
 		 mode,
@@ -2065,17 +2105,19 @@ static int vfs_ceph_linkat(struct vfs_handle_struct *handle,
 	if (cur_smb_fname->stream_name || new_smb_fname->stream_name) {
 		return status_code(-ENOENT);
 	}
-	CEPH_DBG("%s", srcfsp->fsp_name->base_name);
+	CEPH_DBG("linkat: src-name=%s dst-name=%s",
+		 srcfsp->fsp_name->base_name,
+		 dstfsp->fsp_name->base_name);
+
 	ret = vfs_ceph_igetd(handle, srcfsp, &cur_diref);
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("%s", dstfsp->fsp_name->base_name);
 	ret = vfs_ceph_igetd(handle, dstfsp, &new_diref);
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("lookup: dino=%ld name=%s",
+	CEPH_DBG("lookup: dino=%" PRIu64 " name=%s",
 		 cur_diref.ino,
 		 cur_smb_fname->base_name);
 	ret = vfs_ceph_ll_lookup(handle,
@@ -2085,7 +2127,7 @@ static int vfs_ceph_linkat(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("link: dino=%ld name=%s ino=%ld",
+	CEPH_DBG("link: dino=%" PRIu64 " name=%s ino=%" PRIu64,
 		 new_diref.ino,
 		 new_smb_fname->base_name,
 		 iref.ino);
@@ -2118,7 +2160,7 @@ static int vfs_ceph_mknodat(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("mknod: dino=%ld name=%s mode=%o dev=%ld",
+	CEPH_DBG("mknod: dino=%" PRIu64 " name=%s mode=%o dev=%ld",
 		 diref.ino,
 		 smb_fname->base_name,
 		 mode,
@@ -2149,7 +2191,7 @@ static int vfs_ceph_symlinkat(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("symlink: dino=%ld name=%s target=%s",
+	CEPH_DBG("symlink: dino=%" PRIu64 " name=%s target=%s",
 		 diref.ino,
 		 new_smb_fname->base_name,
 		 link_target->base_name);
@@ -2179,12 +2221,14 @@ static int vfs_ceph_readlinkat(struct vfs_handle_struct *handle,
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("lookup: dino=%ld name=%s", diref.ino, smb_fname->base_name);
+	CEPH_DBG("lookup: dino=%" PRIu64 " name=%s",
+		 diref.ino,
+		 smb_fname->base_name);
 	ret = vfs_ceph_ll_lookup(handle, &diref, smb_fname->base_name, &iref);
 	if (ret != 0) {
 		goto out;
 	}
-	CEPH_DBG("readlink: ino=%ld bufsz=%zu", iref.ino, bufsz);
+	CEPH_DBG("readlink: ino=%" PRIu64 " bufsz=%zu", iref.ino, bufsz);
 	ret = vfs_ceph_ll_readlink(handle, &iref, buf, bufsz);
 out:
 	vfs_ceph_iput(handle, &iref);
@@ -2308,7 +2352,7 @@ static ssize_t vfs_ceph_fgetxattr(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("getxattr: ino=%ld fd=%d name=%s",
+		CEPH_DBG("getxattr: ino=%" PRIu64 " fd=%d name=%s",
 			 cfh->iref.ino,
 			 cfh->fd,
 			 name);
@@ -2320,7 +2364,7 @@ static ssize_t vfs_ceph_fgetxattr(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("getxattr: ino=%ld name=%s", iref.ino, name);
+		CEPH_DBG("getxattr: ino=%" PRIu64 " name=%s", iref.ino, name);
 		ret = vfs_ceph_ll_getxattr(handle, &iref, name, val, size);
 		vfs_ceph_iput(handle, &iref);
 	}
@@ -2348,7 +2392,9 @@ static ssize_t vfs_ceph_flistxattr(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("listxattr: ino=%ld fd=%d", cfh->iref.ino, cfh->fd);
+		CEPH_DBG("listxattr: ino=%" PRIu64 " fd=%d",
+			 cfh->iref.ino,
+			 cfh->fd);
 		ret = vfs_ceph_ll_listxattr(handle,
 					    &cfh->iref,
 					    list,
@@ -2361,7 +2407,7 @@ static ssize_t vfs_ceph_flistxattr(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("listxattr: ino=%ld", iref.ino);
+		CEPH_DBG("listxattr: ino=%" PRIu64, iref.ino);
 		ret = vfs_ceph_ll_listxattr(handle,
 					    &iref,
 					    list,
@@ -2391,7 +2437,7 @@ static int vfs_ceph_fremovexattr(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("removexattr: ino=%ld fd=%d name=%s",
+		CEPH_DBG("removexattr: ino=%" PRIu64 " fd=%d name=%s",
 			 cfh->iref.ino,
 			 cfh->fd,
 			 name);
@@ -2403,7 +2449,9 @@ static int vfs_ceph_fremovexattr(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("removexattr: ino=%ld name=%s", iref.ino, name);
+		CEPH_DBG("removexattr: ino=%" PRIu64 " name=%s",
+			 iref.ino,
+			 name);
 		ret = vfs_ceph_ll_removexattr(handle, &iref, name);
 		vfs_ceph_iput(handle, &iref);
 	}
@@ -2428,7 +2476,8 @@ static int vfs_ceph_fsetxattr(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("setxattr: ino=%ld fd=%d name=%s size=%zu flags=%x",
+		CEPH_DBG("setxattr: ino=%" PRIu64
+			 " fd=%d name=%s size=%zu flags=0x%x",
 			 cfh->iref.ino,
 			 cfh->fd,
 			 name,
@@ -2447,7 +2496,8 @@ static int vfs_ceph_fsetxattr(struct vfs_handle_struct *handle,
 		if (ret != 0) {
 			goto out;
 		}
-		CEPH_DBG("setxattr: ino=%ld name=%s size=%zu flags=%x",
+		CEPH_DBG("setxattr: ino=%" PRIu64
+			 " name=%s size=%zu flags=0x%x",
 			 iref.ino,
 			 name,
 			 size,
