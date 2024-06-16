@@ -1626,6 +1626,14 @@ int main(void) {
             conf.CHECK_FUNCS_IN('ceph_statx ceph_openat', 'cephfs',
                                 headers='cephfs/libcephfs.h')):
             conf.DEFINE('HAVE_CEPH', '1')
+            conf.DEFINE('HAVE_CEPH_LL', '1')
+            for api in ['ceph_ll_lookup_root', 'ceph_ll_statfs']:
+                if not conf.CHECK_FUNCS_IN(api, 'cephfs',
+                                           headers='cephfs/libcephfs.h'):
+                    Logs.warn("Installed Ceph version does not support required "
+                              "libcephfs' low-level APIs.")
+                    conf.undefine('HAVE_CEPH_LL')
+                    break
         else:
             Logs.warn('''Ceph support disabled due to --without-acl-support
                       or lack of ceph_statx/ceph_openat support''')
@@ -1899,6 +1907,8 @@ int main(void) {
         # addition to vfs_ceph. Still, only enable vfs_ceph_snapshots builds
         # if we're building with libcephfs for now.
         default_shared_modules.extend(['vfs_ceph_snapshots'])
+
+    if conf.CONFIG_SET("HAVE_CEPH_LL"):
         default_shared_modules.extend(['vfs_ceph_new'])
 
     if conf.CONFIG_SET('HAVE_GLUSTERFS'):
