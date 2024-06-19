@@ -1633,7 +1633,8 @@ int main(void) {
                         'ceph_ll_close', 'ceph_ll_open',
                         'ceph_ll_releasedir', 'ceph_ll_opendir',
                         'ceph_ll_rmdir', 'ceph_ll_unlink',
-                        'ceph_ll_symlink', 'ceph_ll_readlink']:
+                        'ceph_ll_symlink', 'ceph_ll_readlink',
+                        'ceph_ll_read', 'ceph_ll_write']:
                 if not conf.CHECK_FUNCS_IN(api, 'cephfs',
                                            headers='cephfs/libcephfs.h'):
                     Logs.warn("Installed Ceph version does not support required "
