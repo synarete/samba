@@ -1635,7 +1635,8 @@ int main(void) {
                         'ceph_ll_rmdir', 'ceph_ll_unlink',
                         'ceph_ll_symlink', 'ceph_ll_readlink',
                         'ceph_ll_read', 'ceph_ll_write', 'ceph_ll_lseek',
-                        'ceph_ll_fsync', 'ceph_ll_fallocate', 'ceph_ll_link']:
+                        'ceph_ll_fsync', 'ceph_ll_fallocate', 'ceph_ll_link',
+                        'ceph_ll_rename']:
                 if not conf.CHECK_FUNCS_IN(api, 'cephfs',
                                            headers='cephfs/libcephfs.h'):
                     Logs.warn("Installed Ceph version does not support required "
