@@ -937,6 +937,20 @@ static int vfs_ceph_ll_readlinkat(const struct vfs_handle_struct *handle,
 				dircfh->uperm);
 }
 
+static int vfs_ceph_ll_readlink(const struct vfs_handle_struct *handle,
+				const struct vfs_ceph_fh *cfh,
+				char *buf,
+				size_t bsz)
+{
+	DBG_DEBUG("[ceph] ceph_ll_readlink: ino=%" PRIu64 "\n", cfh->iref.ino);
+
+	return ceph_ll_readlink(cmount_of(handle),
+				cfh->iref.inode,
+				buf,
+				bsz,
+				cfh->uperm);
+}
+
 static int vfs_ceph_ll_read(const struct vfs_handle_struct *handle,
 			    const struct vfs_ceph_fh *cfh,
 			    int64_t off,
@@ -2457,6 +2471,7 @@ static int vfs_ceph_readlinkat(struct vfs_handle_struct *handle,
 	int result = -1;
 	struct vfs_ceph_iref iref = {0};
 	struct vfs_ceph_fh *dircfh = NULL;
+	struct vfs_ceph_fh *cfh = NULL;
 
 	DBG_DEBUG("[CEPH] readlinkat(%p, %s, %p, %llu)\n",
 		  handle,
@@ -2464,21 +2479,31 @@ static int vfs_ceph_readlinkat(struct vfs_handle_struct *handle,
 		  buf,
 		  llu(bufsiz));
 
-	result = vfs_ceph_fetch_fh(handle, dirfsp, &dircfh);
-	if (result != 0) {
-		goto out;
+	if (strcmp(smb_fname->base_name, "") != 0) {
+		result = vfs_ceph_fetch_fh(handle, dirfsp, &dircfh);
+		if (result != 0) {
+			goto out;
+		}
+		result = vfs_ceph_ll_lookupat(handle,
+					      dircfh,
+					      smb_fname->base_name,
+					      &iref);
+		if (result != 0) {
+			goto out;
+		}
+		result = vfs_ceph_ll_readlinkat(handle,
+						dircfh,
+						&iref,
+						buf,
+						bufsiz);
+		vfs_ceph_iput(handle, &iref);
+	} else {
+		result = vfs_ceph_fetch_fh(handle, dirfsp, &cfh);
+		if (result != 0) {
+			goto out;
+		}
+		result = vfs_ceph_ll_readlink(handle, cfh, buf, bufsiz);
 	}
-	result = vfs_ceph_ll_lookupat(handle,
-				      dircfh,
-				      smb_fname->base_name,
-				      &iref);
-	if (result != 0) {
-		goto out;
-	}
-
-	result = vfs_ceph_ll_readlinkat(handle, dircfh, &iref, buf, bufsiz);
-
-	vfs_ceph_iput(handle, &iref);
 out:
 	DBG_DEBUG("[CEPH] readlinkat(...) = %d\n", result);
 	return status_code(result);
