@@ -314,24 +314,24 @@ static struct ceph_mount_info *cephmount_mount_fs(
 		  (config->conf_file == NULL ? "default path" : config->conf_file));
 	ret = config->ceph_conf_read_file_fn(mnt, config->conf_file);
 	if (ret) {
-		goto err_cm_release;
+		goto out_err;
 	}
 
 	DBG_DEBUG("[CEPH] calling: ceph_conf_get\n");
 	ret = config->ceph_conf_get_fn(mnt, "log file", buf, sizeof(buf));
 	if (ret < 0) {
-		goto err_cm_release;
+		goto out_err;
 	}
 
 	/* libcephfs disables POSIX ACL support by default, enable it... */
 	ret = config->ceph_conf_set_fn(mnt, "client_acl_type", "posix_acl");
 	if (ret < 0) {
-		goto err_cm_release;
+		goto out_err;
 	}
 	/* tell libcephfs to perform local permission checks */
 	ret = config->ceph_conf_set_fn(mnt, "fuse_default_permissions", "false");
 	if (ret < 0) {
-		goto err_cm_release;
+		goto out_err;
 	}
 	/*
 	 * select a cephfs file system to use:
@@ -341,28 +341,24 @@ static struct ceph_mount_info *cephmount_mount_fs(
 	if (config->fsname != NULL) {
 		ret = config->ceph_select_filesystem_fn(mnt, config->fsname);
 		if (ret < 0) {
-			goto err_cm_release;
+			goto out_err;
 		}
 	}
 
 	DBG_DEBUG("[CEPH] calling: ceph_mount\n");
 	ret = config->ceph_mount_fn(mnt, NULL);
-	if (ret >= 0) {
-		goto cm_done;
+	if (ret < 0) {
+		goto out_err;
 	}
 
-      err_cm_release:
-	config->ceph_release_fn(mnt);
-	mnt = NULL;
-	DBG_DEBUG("[CEPH] Error mounting fs: %s\n", strerror(-ret));
-      cm_done:
-	/*
-	 * Handle the error correctly. Ceph returns -errno.
-	 */
-	if (ret) {
-		errno = -ret;
-	}
+	DBG_DEBUG("[CEPH] mount done: mnt=%p\n", mnt);
 	return mnt;
+
+out_err:
+	config->ceph_release_fn(mnt);
+	DBG_DEBUG("[CEPH] Error mounting fs: %s\n", strerror(-ret));
+	errno = -ret;
+	return NULL;
 }
 
 #define CHECK_CEPH_FN(hnd, func) \
