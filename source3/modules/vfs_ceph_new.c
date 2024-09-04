@@ -5,6 +5,7 @@
    Copyright (C) Jeremy Allison 2007
    Copyright (C) Brian Chrisman 2011 <bchrisman@gmail.com>
    Copyright (C) Richard Sharpe 2011 <realrichardsharpe@gmail.com>
+   Copyright (C) Shachar Sharon 2024 <ssharon@redhat.com>
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -21,14 +22,62 @@
 */
 
 /*
- * This VFS only works with the libcephfs.so user-space client. It is not needed
- * if you are using the kernel client or the FUSE client.
- *
- * Add the following smb.conf parameter to each share that will be hosted on
- * Ceph:
- *
- *   vfs objects = [any others you need go here] ceph_new
- */
+  Overview
+  ========
+  Ceph is a free and open-source software-defined storage platform that
+  provides object, block and file storage on top a common distributed cluster
+  foundation. Ceph provides distributed operations without a single point of
+  failure and scalability to the exabyte level. CephFS is a POSIX-compliant
+  file-system built on top of Ceph’s distributed object store, RADOS. This VFS
+  only works with the libcephfs.so user-space client. It is not needed if you
+  are using the kernel client or the FUSE client.
+
+  Libcephfs provides two types of programmable APIs: normal and low-level. The
+  existing 'vfs_ceph.c' module uses the normal (path-based) APIs while this
+  module uses the low-level ones. Those low-level APIs operates via inode and
+  file-handle references, thus providing more fine grained granularity as well
+  as potential for better performance. The main advantages of using this
+  low-level interfaces are:
+
+    - Explicit user-credentials (libcephfs' UserPerms) per call.
+    - Faster operation via (cached) inode or file-handle.
+    - Improved resource consumption on libcephfs internal Client side.
+    - Asynchronous I/O (ceph_ll_nonblocking_readv_writev, not impl yet).
+
+  Howto
+  =====
+  Once you have an active Ceph cluster, create a new CephFS file-system by
+  following the Ceph's docs: https://docs.ceph.com/en/latest/cephfs/createfs/
+
+  Ensure that both cephfs client keyring and ceph conf file are up-to-date on
+  Samba server side:
+    $ ls /etc/ceph
+      ceph.client.CEPH_FSNAME.keyring  ceph.conf
+
+  Edit 'ceph.conf' on the Samba server side to align with samba's default
+  settings:
+    $ cat /etc/ceph/ceph.conf
+    [global]
+    fsid = FS_UUID
+    mon_host = [v2:IP_ADDR1:3300/0,v1:IP_ADDR1:6789/0] ...
+    # debug option (optional):
+    debug client = 0/0
+    log_to_file = true
+    log_flush_on_exit = true
+    log_file = /var/log/samba/log.libcephfs
+
+  Edit 'smb.conf' to use this module (last in vfs objects list):
+  $ cat /etc/samba/smb.conf
+  ...
+  [ceph-smbshare]
+  vfs objects = [any others you need go here] ceph_new
+  path = /
+  ceph_new: filesystem = CEPH_FSNAME
+  ceph_new: user_id = CEPH_CLINETID
+  ceph_new: config_file = /etc/ceph/ceph.conf
+
+  Start smb service.
+*/
 
 #include "includes.h"
 #include "smbd/smbd.h"
