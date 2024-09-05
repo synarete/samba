@@ -167,7 +167,8 @@ static int cephmount_cache_add(const char *cookie,
 	entry->mount = mount;
 	entry->count = 1;
 
-	DBG_DEBUG("[CEPH] adding mount cache entry for %s\n", entry->cookie);
+	DBG_DEBUG("[CEPH] adding mount cache entry: cookie='%s'\n",
+		  entry->cookie);
 	DLIST_ADD(cephmount_cached, entry);
 
 	*out_entry = entry;
@@ -201,12 +202,14 @@ static bool cephmount_cache_remove(struct cephmount_cached *entry)
 	cephmount_cache_change_ref(entry, -1);
 
 	if (entry->count) {
-		DBG_DEBUG("[CEPH] mount cache entry still in use %s\n",
-			  entry->cookie);
+		DBG_DEBUG("[CEPH] mount cache entry still in use: "
+			  "count=%" PRId32 " cookie='%s'\n",
+			  entry->count, entry->cookie);
 		return false;
 	}
 
-	DBG_DEBUG("[CEPH] removing mount cache entry for %s\n", entry->cookie);
+	DBG_DEBUG("[CEPH] removing mount cache entry: cookie='%s'\n",
+		  entry->cookie);
 	DLIST_REMOVE(cephmount_cached, entry);
 	talloc_free(entry);
 	return true;
@@ -236,34 +239,46 @@ static struct ceph_mount_info *cephmount_mount_fs(const int snum)
 	const char *conf_file = cephmount_lp_parm(snum, "config_file", NULL);
 	const char *user_id = cephmount_lp_parm(snum, "user_id", NULL);
 	const char *fsname = cephmount_lp_parm(snum, "filesystem", NULL);
+	const char *option = NULL;
+	const char *value = NULL;
 
-	DBG_DEBUG("[CEPH] calling: ceph_create\n");
+	DBG_DEBUG("[CEPH] calling ceph_create: user_id='%s'\n",
+		  user_id != NULL ? user_id : "");
 	ret = ceph_create(&mnt, user_id);
 	if (ret) {
 		errno = -ret;
 		return NULL;
 	}
 
-	DBG_DEBUG("[CEPH] calling: ceph_conf_read_file with %s\n",
+	DBG_DEBUG("[CEPH] calling ceph_conf_read_file: conf_file='%s'\n",
 		  (conf_file == NULL ? "default path" : conf_file));
 	ret = ceph_conf_read_file(mnt, conf_file);
 	if (ret) {
 		goto out_err;
 	}
 
-	DBG_DEBUG("[CEPH] calling: ceph_conf_get\n");
-	ret = ceph_conf_get(mnt, "log file", buf, sizeof(buf));
+	option = "log file";
+	DBG_DEBUG("[CEPH] calling ceph_conf_get: option='%s'\n", option);
+	ret = ceph_conf_get(mnt, option, buf, sizeof(buf));
 	if (ret < 0) {
 		goto out_err;
 	}
 
 	/* libcephfs disables POSIX ACL support by default, enable it... */
-	ret = ceph_conf_set(mnt, "client_acl_type", "posix_acl");
+	option = "client_acl_type";
+	value = "posix_acl";
+	DBG_DEBUG("[CEPH] calling ceph_conf_set: option='%s' value='%s'\n",
+		  option, value);
+	ret = ceph_conf_set(mnt, option, value);
 	if (ret < 0) {
 		goto out_err;
 	}
 	/* tell libcephfs to perform local permission checks */
-	ret = ceph_conf_set(mnt, "fuse_default_permissions", "false");
+	option = "fuse_default_permissions";
+	value = "false";
+	DBG_DEBUG("[CEPH] calling ceph_conf_set: option='%s' value='%s'\n",
+		  option, value);
+	ret = ceph_conf_set(mnt, option, value);
 	if (ret < 0) {
 		goto out_err;
 	}
@@ -273,24 +288,28 @@ static struct ceph_mount_info *cephmount_mount_fs(const int snum)
 	 * 'pacific'. Permit different shares to access different file systems.
 	 */
 	if (fsname != NULL) {
+		DBG_DEBUG("[CEPH] calling ceph_select_filesystem: "
+			  "fsname='%s'\n", fsname);
 		ret = ceph_select_filesystem(mnt, fsname);
 		if (ret < 0) {
 			goto out_err;
 		}
 	}
 
-	DBG_DEBUG("[CEPH] calling: ceph_mount\n");
+	DBG_DEBUG("[CEPH] calling ceph_mount: mnt=%p\n", mnt);
 	ret = ceph_mount(mnt, NULL);
 	if (ret < 0) {
 		goto out_err;
 	}
 
-	DBG_DEBUG("[CEPH] mount done: mnt=%p\n", mnt);
+	DBG_DEBUG("[CEPH] mount done: snum=%d\n", snum);
 	return mnt;
 
 out_err:
 	ceph_release(mnt);
-	DBG_DEBUG("[CEPH] Error mounting fs: %s\n", strerror(-ret));
+	DBG_ERR("[CEPH] mounting failed: user_id='%s' fsname='%s' %s",
+		(user_id != NULL) ? user_id : "",
+		(fsname != NULL) ? fsname : "", strerror(-ret));
 	errno = -ret;
 	return NULL;
 }
@@ -330,7 +349,8 @@ static int vfs_ceph_connect(struct vfs_handle_struct *handle,
 
 connect_ok:
 	handle->data = entry;
-	DBG_WARNING("Connection established with the server: %s\n", cookie);
+	DBG_INFO("[CEPH] connection established with the server: "
+		 "snum=%d cookie='%s'\n", snum, cookie);
 
 	/*
 	 * Unless we have an async implementation of getxattrat turn this off.
@@ -359,12 +379,14 @@ static void vfs_ceph_disconnect(struct vfs_handle_struct *handle)
 
 	ret = ceph_unmount(cmount);
 	if (ret < 0) {
-		DBG_ERR("[CEPH] failed to unmount: %s\n", strerror(-ret));
+		DBG_ERR("[CEPH] failed to unmount: snum=%d %s\n",
+			SNUM(handle->conn), strerror(-ret));
 	}
 
 	ret = ceph_release(cmount);
 	if (ret < 0) {
-		DBG_ERR("[CEPH] failed to release: %s\n", strerror(-ret));
+		DBG_ERR("[CEPH] failed to release: snum=%d %s\n",
+			SNUM(handle->conn), strerror(-ret));
 	}
 	handle->data = NULL;
 }
