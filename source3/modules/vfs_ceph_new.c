@@ -1411,7 +1411,7 @@ static int vfs_ceph_iget(const struct vfs_handle_struct *handle,
 	iref->inode = inode;
 	iref->ino = ino;
 	iref->owner = true;
-	DBG_DEBUG("[CEPH] get-inode: %s ino=%" PRIu64 "\n", name, iref->ino);
+	DBG_DEBUG("[ceph] iget: %s ino=%" PRIu64 "\n", name, iref->ino);
 	return 0;
 }
 
@@ -1838,7 +1838,12 @@ static struct tevent_req *vfs_ceph_pread_send(struct vfs_handle_struct *handle,
 	struct vfs_ceph_pread_state *state = NULL;
 	int ret = -1;
 
-	DBG_DEBUG("[CEPH] %s\n", __func__);
+	DBG_DEBUG("[CEPH] pread_send(%p, %p, %p, %zu, %zd)\n",
+		  handle,
+		  fsp,
+		  data,
+		  n,
+		  offset);
 	req = tevent_req_create(mem_ctx, &state, struct vfs_ceph_pread_state);
 	if (req == NULL) {
 		return NULL;
@@ -1869,7 +1874,7 @@ static ssize_t vfs_ceph_pread_recv(struct tevent_req *req,
 	struct vfs_ceph_pread_state *state =
 		tevent_req_data(req, struct vfs_ceph_pread_state);
 
-	DBG_DEBUG("[CEPH] %s\n", __func__);
+	DBG_DEBUG("[CEPH] pread_recv: bytes_read=%zd\n", state->bytes_read);
 	if (tevent_req_is_unix_error(req, &vfs_aio_state->error)) {
 		return -1;
 	}
@@ -1923,7 +1928,12 @@ static struct tevent_req *vfs_ceph_pwrite_send(struct vfs_handle_struct *handle,
 	struct vfs_ceph_pwrite_state *state = NULL;
 	int ret = -1;
 
-	DBG_DEBUG("[CEPH] %s\n", __func__);
+	DBG_DEBUG("[CEPH] pwrite_send(%p, %p, %p, %zu, %zd)\n",
+		  handle,
+		  fsp,
+		  data,
+		  n,
+		  offset);
 	req = tevent_req_create(mem_ctx, &state, struct vfs_ceph_pwrite_state);
 	if (req == NULL) {
 		return NULL;
@@ -1954,7 +1964,8 @@ static ssize_t vfs_ceph_pwrite_recv(struct tevent_req *req,
 	struct vfs_ceph_pwrite_state *state =
 		tevent_req_data(req, struct vfs_ceph_pwrite_state);
 
-	DBG_DEBUG("[CEPH] %s\n", __func__);
+	DBG_DEBUG("[CEPH] pwrite_recv: bytes_written=%zd\n",
+		  state->bytes_written);
 	if (tevent_req_is_unix_error(req, &vfs_aio_state->error)) {
 		return -1;
 	}
@@ -1970,7 +1981,8 @@ static off_t vfs_ceph_lseek(struct vfs_handle_struct *handle,
 	struct vfs_ceph_fh *cfh = NULL;
 	intmax_t result = 0;
 
-	DBG_DEBUG("[CEPH] vfs_ceph_lseek\n");
+	DBG_DEBUG(
+		"[CEPH] lseek(%p, %p, %zd, %d)\n", handle, fsp, offset, whence);
 	result = vfs_ceph_fetch_io_fh(handle, fsp, &cfh);
 	if (result != 0) {
 		goto out;
@@ -1991,7 +2003,13 @@ static ssize_t vfs_ceph_sendfile(struct vfs_handle_struct *handle,
 	/*
 	 * We cannot support sendfile because libcephfs is in user space.
 	 */
-	DBG_DEBUG("[CEPH] vfs_ceph_sendfile\n");
+	DBG_DEBUG("[CEPH] sendfile(%p, %d, %p, %p, %zd, %zu)\n",
+		  handle,
+		  tofd,
+		  fromfsp,
+		  hdr,
+		  offset,
+		  n);
 	errno = ENOTSUP;
 	return -1;
 }
@@ -2005,7 +2023,12 @@ static ssize_t vfs_ceph_recvfile(struct vfs_handle_struct *handle,
 	/*
 	 * We cannot support recvfile because libcephfs is in user space.
 	 */
-	DBG_DEBUG("[CEPH] vfs_ceph_recvfile\n");
+	DBG_DEBUG("[CEPH] recvfile(%p, %d, %p, %zd, %zu)\n",
+		  handle,
+		  fromfd,
+		  tofsp,
+		  offset,
+		  n);
 	errno = ENOTSUP;
 	return -1;
 }
@@ -2021,7 +2044,13 @@ static int vfs_ceph_renameat(struct vfs_handle_struct *handle,
 	struct vfs_ceph_fh *dst_dircfh = NULL;
 	int result = -1;
 
-	DBG_DEBUG("[CEPH] vfs_ceph_renameat\n");
+	DBG_DEBUG("[CEPH] renameat(%p, %p, %s, %p, %s)\n",
+		  handle,
+		  srcfsp,
+		  smb_fname_src->base_name,
+		  dst_dircfh,
+		  smb_fname_dst->base_name);
+
 	if (smb_fname_src->stream_name || smb_fname_dst->stream_name) {
 		errno = ENOENT;
 		return result;
@@ -2065,7 +2094,7 @@ static struct tevent_req *vfs_ceph_fsync_send(struct vfs_handle_struct *handle,
 	struct vfs_aio_state *state = NULL;
 	int ret = -1;
 
-	DBG_DEBUG("[CEPH] vfs_ceph_fsync_send\n");
+	DBG_DEBUG("[CEPH] fsync_send(%p, %p)\n", handle, fsp);
 
 	req = tevent_req_create(mem_ctx, &state, struct vfs_aio_state);
 	if (req == NULL) {
@@ -2098,7 +2127,9 @@ static int vfs_ceph_fsync_recv(struct tevent_req *req,
 	struct vfs_aio_state *state =
 		tevent_req_data(req, struct vfs_aio_state);
 
-	DBG_DEBUG("[CEPH] vfs_ceph_fsync_recv\n");
+	DBG_DEBUG("[CEPH] fsync_recv: error=%d duration=%" PRIu64 "\n",
+		  state->error,
+		  state->duration);
 
 	if (tevent_req_is_unix_error(req, &vfs_aio_state->error)) {
 		return -1;
@@ -2464,7 +2495,13 @@ static bool vfs_ceph_lock(struct vfs_handle_struct *handle,
 			  off_t count,
 			  int type)
 {
-	DBG_DEBUG("[CEPH] lock\n");
+	DBG_DEBUG("[CEPH] lock(%p, %p, %d, %zd, %zd, %d)\n",
+		  handle,
+		  fsp,
+		  op,
+		  offset,
+		  count,
+		  type);
 	return true;
 }
 
