@@ -153,6 +153,20 @@
 		</varlistentry>
 
 		<varlistentry>
+		<term>ceph_new:nonblocking_io = [ yes | no ]</term>
+		<listitem>
+		<para>
+			Allows one to use libcephfs non-blocking interface,
+			which improves performance upon concurrent I/O
+			workloads. Default: no.
+		</para>
+		<para>
+			Example: ceph_new:nonblocking_io = yes
+		</para>
+		</listitem>
+		</varlistentry>
+
+		<varlistentry>
 		<term>ceph_new:proxy = [ yes | no | auto ]</term>
 		<listitem>
 		<para>
