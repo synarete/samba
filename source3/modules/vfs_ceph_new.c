@@ -28,6 +28,7 @@
  * Ceph:
  *
  *   vfs objects = [any others you need go here] ceph_new
+    - Asynchronous I/O.
  */
 
 #include "includes.h"
@@ -39,6 +40,11 @@
 #include "smbprofile.h"
 #include "modules/posixacl_xattr.h"
 #include "lib/util/tevent_unix.h"
+#if HAVE_CEPH_NONBLOCKING_IO
+#include <semaphore.h>
+#include "smbd/globals.h"
+#include "lib/pthreadpool/pthreadpool_tevent.h"
+#endif
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_VFS
@@ -157,6 +163,9 @@ struct vfs_ceph_config {
 	CEPH_FN(ceph_version);
 	CEPH_FN(ceph_readdir);
 	CEPH_FN(ceph_rewinddir);
+#if HAVE_CEPH_NONBLOCKING_IO
+	CEPH_FN(ceph_ll_nonblocking_readv_writev);
+#endif
 };
 
 /*
@@ -405,6 +414,9 @@ static bool vfs_cephfs_load_lib(struct vfs_ceph_config *config)
 	CHECK_CEPH_FN(libhandle, ceph_version);
 	CHECK_CEPH_FN(libhandle, ceph_readdir);
 	CHECK_CEPH_FN(libhandle, ceph_rewinddir);
+#if HAVE_CEPH_NONBLOCKING_IO
+	CHECK_CEPH_FN(libhandle, ceph_ll_nonblocking_readv_writev);
+#endif
 
 	config->libhandle = libhandle;
 
@@ -1370,6 +1382,7 @@ static off_t vfs_ceph_ll_lseek(const struct vfs_handle_struct *handle,
 	return config->ceph_ll_lseek_fn(config->mount, cfh->fh, offset, whence);
 }
 
+#if !HAVE_CEPH_NONBLOCKING_IO
 static int vfs_ceph_ll_fsync(const struct vfs_handle_struct *handle,
 			     const struct vfs_ceph_fh *cfh,
 			     int syncdataonly)
@@ -1384,6 +1397,7 @@ static int vfs_ceph_ll_fsync(const struct vfs_handle_struct *handle,
 
 	return config->ceph_ll_fsync_fn(config->mount, cfh->fh, syncdataonly);
 }
+#endif
 
 static int vfs_ceph_ll_ftruncate(struct vfs_handle_struct *handle,
 				 const struct vfs_ceph_fh *cfh,
@@ -1713,6 +1727,30 @@ static int vfs_ceph_ll_fremovexattr(const struct vfs_handle_struct *handle,
 					      name,
 					      cfh->uperm);
 }
+
+#if HAVE_CEPH_NONBLOCKING_IO
+static int64_t vfs_ceph_ll_nonblocking_readv_writev(
+	const struct vfs_handle_struct *handle,
+	const struct vfs_ceph_fh *cfh,
+	struct ceph_ll_io_info *io_info)
+{
+	struct vfs_ceph_config *config = NULL;
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_config,
+				return -ENOMEM);
+
+	DBG_DEBUG("[ceph] ceph_ll_nonblocking_readv_writev: ino=%" PRIu64
+		  " fd=%d off=%jd\n",
+		  cfh->iref.ino,
+		  cfh->fd,
+		  io_info->off);
+
+	return config->ceph_ll_nonblocking_readv_writev_fn(config->mount,
+							   io_info);
+}
+#endif
 
 /* Ceph Inode-refernce get/put wrappers */
 static int vfs_ceph_iget(const struct vfs_handle_struct *handle,
@@ -2157,6 +2195,8 @@ out:
 	return lstatus_code(result);
 }
 
+#if !HAVE_CEPH_NONBLOCKING_IO
+
 struct vfs_ceph_pread_state {
 	ssize_t bytes_read;
 	struct vfs_aio_state vfs_aio_state;
@@ -2215,6 +2255,7 @@ static ssize_t vfs_ceph_pread_recv(struct tevent_req *req,
 	*vfs_aio_state = state->vfs_aio_state;
 	return state->bytes_read;
 }
+#endif /* !HAVE_CEPH_NONBLOCKING_IO */
 
 static ssize_t vfs_ceph_pwrite(struct vfs_handle_struct *handle,
 			       files_struct *fsp,
@@ -2241,6 +2282,8 @@ out:
 	DBG_DEBUG("[CEPH] pwrite(...) = %llu\n", llu(result));
 	return lstatus_code(result);
 }
+
+#if !HAVE_CEPH_NONBLOCKING_IO
 
 struct vfs_ceph_pwrite_state {
 	ssize_t bytes_written;
@@ -2300,6 +2343,7 @@ static ssize_t vfs_ceph_pwrite_recv(struct tevent_req *req,
 	*vfs_aio_state = state->vfs_aio_state;
 	return state->bytes_written;
 }
+#endif /* !HAVE_CEPH_NONBLOCKING_IO */
 
 static off_t vfs_ceph_lseek(struct vfs_handle_struct *handle,
 			    files_struct *fsp,
@@ -2390,6 +2434,7 @@ out:
 	return status_code(result);
 }
 
+#if !HAVE_CEPH_NONBLOCKING_IO
 /*
  * Fake up an async ceph fsync by calling the synchronous API.
  */
@@ -2445,6 +2490,7 @@ static int vfs_ceph_fsync_recv(struct tevent_req *req,
 	*vfs_aio_state = *state;
 	return 0;
 }
+#endif /* !HAVE_CEPH_NONBLOCKING_IO */
 
 static int vfs_ceph_stat(struct vfs_handle_struct *handle,
 			struct smb_filename *smb_fname)
@@ -3472,6 +3518,331 @@ out:
 	}
 	return status;
 }
+
+#if HAVE_CEPH_NONBLOCKING_IO
+
+struct vfs_ceph_aio_state {
+	struct ceph_ll_io_info io_info;
+	struct tevent_req *req;
+	struct tevent_context *ev;
+	const struct vfs_handle_struct *handle;
+	const struct vfs_ceph_fh *cfh;
+	struct iovec iov;
+	void *data;
+	size_t len;
+	off_t off;
+	bool write;
+	bool fsync;
+	ssize_t result;
+	sem_t sem;
+
+	struct vfs_aio_state vfs_aio_state;
+};
+
+static void vfs_ceph_aio_do(void *private_data);
+static void vfs_ceph_aio_done(struct tevent_req *subreq);
+static int vfs_ceph_aio_state_destructor(struct vfs_ceph_aio_state *state);
+
+static int vfs_ceph_aio_submit(struct vfs_ceph_aio_state *state)
+{
+	int64_t res = 0;
+
+	DBG_DEBUG("[CEPH] aio_submit: ino=%" PRIu64 " fd=%d off=%jd len=%ju\n",
+		  state->cfh->iref.ino,
+		  state->cfh->fd,
+		  state->off,
+		  state->len);
+
+	res = vfs_ceph_ll_nonblocking_readv_writev(state->handle,
+						   state->cfh,
+						   &state->io_info);
+	return (res < 0) ? (int)res : 0;
+}
+
+static void vfs_ceph_aio_complete(struct ceph_ll_io_info *io_info)
+{
+	struct vfs_ceph_aio_state *state = io_info->priv;
+	int ret;
+
+	state->result = state->io_info.result;
+	DBG_DEBUG("[CEPH] aio_complete: ino=%" PRIu64
+		  " fd=%d off=%jd len=%ju result=%jd\n",
+		  state->cfh->iref.ino,
+		  state->cfh->fd,
+		  state->off,
+		  state->len,
+		  state->result);
+
+	ret = sem_post(&state->sem);
+	SMB_ASSERT(ret == 0);
+}
+
+static void vfs_ceph_aio_wait(struct vfs_ceph_aio_state *state)
+{
+	int saved_errno = errno;
+	int ret;
+
+	ret = sem_wait(&state->sem);
+	while ((ret != 0) && (errno == EINTR)) {
+		ret = sem_wait(&state->sem);
+	}
+	SMB_ASSERT(ret == 0);
+	errno = saved_errno;
+}
+
+static struct tevent_req *vfs_ceph_aio_send(struct vfs_ceph_aio_state *state,
+					    struct tevent_req *req,
+					    struct tevent_context *ev)
+
+{
+	struct tevent_req *subreq = NULL;
+	int ret;
+
+	state->iov.iov_base = state->data;
+	state->iov.iov_len = state->len;
+	state->io_info.callback = vfs_ceph_aio_complete;
+	state->io_info.priv = state;
+	state->io_info.fh = state->cfh->fh;
+	state->io_info.iov = &state->iov;
+	state->io_info.iovcnt = 1;
+	state->io_info.off = state->off;
+	state->io_info.write = state->write;
+	state->io_info.fsync = state->fsync;
+	state->io_info.result = 0;
+
+	ret = sem_init(&state->sem, 0, 0);
+	if (ret != 0) {
+		tevent_req_error(req, -errno);
+		return tevent_req_post(req, ev);
+	}
+
+	subreq = pthreadpool_tevent_job_send(state,
+					     ev,
+					     state->handle->conn->sconn->pool,
+					     vfs_ceph_aio_do,
+					     state);
+	if (tevent_req_nomem(subreq, req)) {
+		return tevent_req_post(req, ev);
+	}
+	tevent_req_set_callback(subreq, vfs_ceph_aio_done, req);
+
+	talloc_set_destructor(state, vfs_ceph_aio_state_destructor);
+
+	return req;
+}
+
+static void vfs_ceph_aio_do(void *private_data)
+{
+	struct vfs_ceph_aio_state *state = NULL;
+	struct timespec start_time, end_time;
+	int ret = 0;
+
+	state = talloc_get_type_abort(private_data, struct vfs_ceph_aio_state);
+	PROFILE_TIMESTAMP(&start_time);
+	ret = vfs_ceph_aio_submit(state);
+	if (ret != 0) {
+		state->result = ret;
+		goto out;
+	}
+	vfs_ceph_aio_wait(state);
+out:
+	PROFILE_TIMESTAMP(&end_time);
+	state->vfs_aio_state.duration = nsec_time_diff(&end_time, &start_time);
+}
+
+static int vfs_ceph_aio_state_destructor(struct vfs_ceph_aio_state *state)
+{
+	return -1;
+}
+
+static void vfs_ceph_aio_done(struct tevent_req *subreq)
+{
+	struct tevent_req *req = NULL;
+	struct vfs_ceph_aio_state *state = NULL;
+	int ret = 0;
+
+	req = tevent_req_callback_data(subreq, struct tevent_req);
+	state = tevent_req_data(req, struct vfs_ceph_aio_state);
+	DBG_DEBUG("[CEPH] aio_done: ino=%" PRIu64
+		  " fd=%d off=%jd len=%ju result=%jd\n",
+		  state->cfh->iref.ino,
+		  state->cfh->fd,
+		  state->off,
+		  state->len,
+		  state->result);
+	sem_destroy(&state->sem);
+
+	ret = pthreadpool_tevent_job_recv(subreq);
+	TALLOC_FREE(subreq);
+	talloc_set_destructor(state, NULL);
+
+	if (ret != 0) {
+		tevent_req_error(req, ret);
+		return;
+	}
+
+	tevent_req_done(req);
+}
+
+static ssize_t vfs_ceph_aio_recv(struct tevent_req *req,
+				 struct vfs_aio_state *vfs_aio_state)
+{
+	struct vfs_ceph_aio_state *state = NULL;
+	ssize_t res = 0;
+
+	state = tevent_req_data(req, struct vfs_ceph_aio_state);
+	DBG_DEBUG("[CEPH] aio_recv: ino=%" PRIu64
+		  " fd=%d off=%jd len=%ju result=%ld\n",
+		  state->cfh->iref.ino,
+		  state->cfh->fd,
+		  state->off,
+		  state->len,
+		  state->result);
+
+	if (tevent_req_is_unix_error(req, &vfs_aio_state->error)) {
+		tevent_req_received(req);
+		return -1;
+	}
+
+	*vfs_aio_state = state->vfs_aio_state;
+	res = state->result;
+
+	tevent_req_received(req);
+	return res;
+}
+
+static struct tevent_req *vfs_ceph_pread_send(struct vfs_handle_struct *handle,
+					      TALLOC_CTX *mem_ctx,
+					      struct tevent_context *ev,
+					      struct files_struct *fsp,
+					      void *data,
+					      size_t n,
+					      off_t offset)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	struct tevent_req *req = NULL;
+	struct vfs_ceph_aio_state *state = NULL;
+	int ret = -1;
+
+	DBG_DEBUG("[CEPH] pread_send(%p, %p, %p, %zu, %zd)\n",
+		  handle,
+		  fsp,
+		  data,
+		  n,
+		  offset);
+
+	req = tevent_req_create(mem_ctx, &state, struct vfs_ceph_aio_state);
+	if (req == NULL) {
+		return NULL;
+	}
+
+	ret = vfs_ceph_fetch_io_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		tevent_req_error(req, -ret);
+		return tevent_req_post(req, ev);
+	}
+
+	state->req = req;
+	state->handle = handle;
+	state->cfh = cfh;
+	state->data = data;
+	state->len = n;
+	state->off = offset;
+	state->write = false;
+	return vfs_ceph_aio_send(state, req, ev);
+}
+
+static ssize_t vfs_ceph_pread_recv(struct tevent_req *req,
+				   struct vfs_aio_state *vfs_aio_state)
+{
+	return vfs_ceph_aio_recv(req, vfs_aio_state);
+}
+
+static struct tevent_req *vfs_ceph_pwrite_send(struct vfs_handle_struct *handle,
+					       TALLOC_CTX *mem_ctx,
+					       struct tevent_context *ev,
+					       struct files_struct *fsp,
+					       const void *data,
+					       size_t n,
+					       off_t offset)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	struct tevent_req *req = NULL;
+	struct vfs_ceph_aio_state *state = NULL;
+	int ret = -1;
+
+	DBG_DEBUG("[CEPH] pwrite_send(%p, %p, %p, %zu, %zd)\n",
+		  handle,
+		  fsp,
+		  data,
+		  n,
+		  offset);
+
+	req = tevent_req_create(mem_ctx, &state, struct vfs_ceph_aio_state);
+	if (req == NULL) {
+		return NULL;
+	}
+
+	ret = vfs_ceph_fetch_io_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		tevent_req_error(req, -ret);
+		return tevent_req_post(req, ev);
+	}
+
+	state->handle = handle;
+	state->cfh = cfh;
+	state->data = discard_const(data);
+	state->len = n;
+	state->off = offset;
+	state->write = true;
+	return vfs_ceph_aio_send(state, req, ev);
+}
+
+static ssize_t vfs_ceph_pwrite_recv(struct tevent_req *req,
+				    struct vfs_aio_state *vfs_aio_state)
+{
+	return vfs_ceph_aio_recv(req, vfs_aio_state);
+}
+
+static struct tevent_req *vfs_ceph_fsync_send(struct vfs_handle_struct *handle,
+					      TALLOC_CTX *mem_ctx,
+					      struct tevent_context *ev,
+					      files_struct *fsp)
+{
+	struct vfs_ceph_fh *cfh = NULL;
+	struct tevent_req *req = NULL;
+	struct vfs_ceph_aio_state *state = NULL;
+	int ret = -1;
+
+	DBG_DEBUG("[CEPH] fsync_send(%p, %p)\n", handle, fsp);
+
+	req = tevent_req_create(mem_ctx, &state, struct vfs_ceph_aio_state);
+	if (req == NULL) {
+		return NULL;
+	}
+
+	ret = vfs_ceph_fetch_io_fh(handle, fsp, &cfh);
+	if (ret != 0) {
+		tevent_req_error(req, -ret);
+		return tevent_req_post(req, ev);
+	}
+
+	state->handle = handle;
+	state->cfh = cfh;
+	state->data = NULL;
+	state->len = 0;
+	state->off = 0;
+	state->fsync = true;
+	return vfs_ceph_aio_send(state, req, ev);
+}
+
+static int vfs_ceph_fsync_recv(struct tevent_req *req,
+			       struct vfs_aio_state *vfs_aio_state)
+{
+	return vfs_ceph_aio_recv(req, vfs_aio_state);
+}
+
+#endif /* HAVE_CEPH_NONBLOCKING_IO */
 
 static struct vfs_fn_pointers ceph_new_fns = {
 	/* Disk operations */
