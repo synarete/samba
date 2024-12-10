@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
+<refentry id="samba-prometheus-exporter.8">
+<refentryinfo><date>2025-01-01</date></refentryinfo>
+
+<refmeta>
+	<refentrytitle>SAMBA_GPOUPDATE</refentrytitle>
+	<manvolnum>8</manvolnum>
+	<refmiscinfo class="source">Samba</refmiscinfo>
+	<refmiscinfo class="manual">System Administration tools</refmiscinfo>
+	<refmiscinfo class="version">4.8.0</refmiscinfo>
+</refmeta>
+
+<refnamediv>
+	<refname>samba-prometheus-exporter</refname>
+	<refpurpose>export samba stats as prometheus metrics</refpurpose>
+</refnamediv>
+
+<refsynopsisdiv>
+	<cmdsynopsis>
+		<command>samba-prometheus-exporter</command>
+	</cmdsynopsis>
+
+	<cmdsynopsis>
+		<command>samba-prometheus-exporter</command>
+		<arg choice="opt">
+		<replaceable>options</replaceable>
+		</arg>
+	</cmdsynopsis>
+
+</refsynopsisdiv>
+
+
+<refsect1>
+	<title>DESCRIPTION</title>
+	<para>This tool is part of the
+	<citerefentry><refentrytitle>samba</refentrytitle>
+	<manvolnum>1</manvolnum></citerefentry> suite.</para>
+
+	<para><command>samba-prometheus-exporter</command> is a Python utility
+	for exporting smbd internal stats and profile-counters as Prometheus
+	metrics. It converts 'smbstatus' JSON output into Prometheus metrics 
+	format over HTTP. When Samba is compiled and run with profiling enabled
+	it is also possible to export profile information as metrics.
+	</para>
+
+</refsect1>
+
+<refsect1>
+	<title>OPTIONS</title>
+
+<para><option>-h</option>, <option>--help</option>
+       show help message and exit</para>
+
+<para><option>-p </option>PORT, <option>--port</option>=<emphasis remap="I">PORT</emphasis>
+       Exporter's HTTP port number (default: 9922).</para>
+
+<para><option>-P</option>, <option>--profile</option>
+       Export profile counters as metrics.</para>
+
+</refsect1>
+
+<refsect1>
+	<title>AUTHOR</title>
+	<para>The original Samba software and related utilities were
+	created by Andrew Tridgell. Samba is now developed by the
+	Samba Team as an Open Source project similar to the way the
+	Linux kernel is developed.</para>
+</refsect1>
+
+</refentry>
