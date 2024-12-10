@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+# Copyright Shachar Sharon <ssharon@redhat.com> 2025
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import argparse
+import os
+import signal
+import sys
+
+# Find right direction when running from source tree
+sys.path.insert(0, "bin/python")
+
+# Make sure the script dies immediately when hitting control-C,
+# rather than raising KeyboardInterrupt.
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+# Disable "_created" metrics via env variable (old library)
+os.environ['PROMETHEUS_DISABLE_CREATED_SERIES'] = '1'
+
+from samba import prometheus_exporter
+
+
+def _parse_args():
+    parser = argparse.ArgumentParser(
+            description="Export Samba counters as Prometheus metrics",
+            )
+    parser.add_argument(
+            "-p",
+            "--port",
+            type=int,
+            help="Exporter's port number",
+            nargs="?",
+            default=prometheus_exporter.DEFAULT_PORT,
+            )
+    parser.add_argument(
+            "-P",
+            "--profile",
+            help="Run with profile-mode enabled",
+            action='store_true',
+            )
+    args = parser.parse_args()
+    return (args.port, args.profile)
+
+
+(portnum, profile) = _parse_args()
+prometheus_exporter.run_metrics_exporter(portnum, profile)

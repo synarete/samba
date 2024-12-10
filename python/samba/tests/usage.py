@@ -83,6 +83,8 @@ EXCLUDE_USAGE = {
     'python/samba/subunit/run.py',
     'bin/python/samba/subunit/run.py',
     'lib/compression/tests/scripts/three-byte-hash',
+    'bin/samba-prometheus-exporter',
+    'source4/scripting/bin/samba-prometheus-exporter',
 }
 
 EXCLUDE_HELP = {
