@@ -6,8 +6,8 @@ sbin_files = ''
 if bld.CONFIG_SET('AD_DC_BUILD_IS_ENABLED'):
     sbin_files = 'bin/samba_downgrade_db bin/samba_dnsupdate bin/samba_spnupdate bin/samba_upgradedns bin/samba_kcc '
 if not bld.env.disable_python:
-    sbin_files += 'bin/samba-gpupdate'
-    man_files = 'man/samba-gpupdate.8'
+    sbin_files += 'bin/samba-gpupdate bin/samba-prometheus-exporter '
+    man_files = 'man/samba-gpupdate.8 man/samba-prometheus-exporter.8'
 
 if sbin_files:
     bld.INSTALL_FILES('${SBINDIR}',

@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0
+
+import argparse
+import signal
+import sys
+
+# Find right direction when running from source tree
+sys.path.insert(0, "bin/python")
+
+# make sure the script dies immediately when hitting control-C,
+# rather than raising KeyboardInterrupt.
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+from samba import prometheus_exporter
+
+
+def _parse_args():
+    parser = argparse.ArgumentParser(
+            description="Export Samba counters as Prometheus metrics",
+            )
+    parser.add_argument(
+            "-p",
+            "--port",
+            type=int,
+            help="Exporter's port number",
+            nargs="?",
+            default=prometheus_exporter.DEFAULT_PORT,
+            )
+    parser.add_argument(
+            "-P",
+            "--profile",
+            help="Run with profile-mode enabled",
+            action='store_true',
+            )
+    args = parser.parse_args()
+    return (args.port, args.profile)
+
+
+(portnum, profile) = _parse_args()
+prometheus_exporter.run_metrics_exporter(portnum, profile)
