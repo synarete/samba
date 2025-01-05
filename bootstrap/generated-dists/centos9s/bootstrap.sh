@@ -103,6 +103,7 @@ dnf install -y \
     python3-libsemanage \
     python3-markdown \
     python3-policycoreutils \
+    python3-prometheus_client \
     python3-pyasn1 \
     python3-requests \
     python3-setproctitle \

@@ -159,6 +159,8 @@ PKGS = [
     ('', 'python3-libsemanage'),
     ('', 'python3-policycoreutils'),
 
+    ('python3-prometheus-client', 'python3-prometheus-client'),
+
     # perl
     ('libparse-yapp-perl', 'perl-Parse-Yapp'),
     ('perl-modules', ''),
@@ -534,6 +536,7 @@ RPM_DISTS = {
             'ShellCheck': '',
             'shfmt': '',
             'codespell': '',
+            'python3-prometheus-client': 'python3-prometheus_client',
         }
     },
     'centos9s': {
@@ -553,6 +556,7 @@ RPM_DISTS = {
             'codespell': '',
             'libcephfs-devel': '',  # not available anymore
             'curl': '',  # Use installed curl-minimal
+            'python3-prometheus-client': 'python3-prometheus_client',
         }
     },
     'fedora41': {
@@ -564,6 +568,7 @@ RPM_DISTS = {
             'perl-FindBin': '',
             'python3-iso8601': 'python3-dateutil',
             'libtracker-sparql-2.0-dev': '',  # only tracker 3.x is available
+            'python3-prometheus-client': 'python3-prometheus_client',
         }
     },
     'opensuse155': {
