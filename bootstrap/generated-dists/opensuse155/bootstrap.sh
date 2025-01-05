@@ -93,6 +93,7 @@ zypper --non-interactive install \
     python3-dnspython \
     python3-gpg \
     python3-policycoreutils \
+    python3-prometheus-client \
     python3-pyasn1 \
     python3-python-dateutil \
     python3-requests \
