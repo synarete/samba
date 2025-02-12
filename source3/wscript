@@ -1927,6 +1927,7 @@ int main(void) {
         # if we're building with libcephfs for now.
         default_shared_modules.extend(['vfs_ceph_snapshots'])
         default_shared_modules.extend(['vfs_ceph_new'])
+        default_shared_modules.extend(['vfs_ceph_iostat'])
 
     if conf.CONFIG_SET('HAVE_GLUSTERFS'):
         default_shared_modules.extend(['vfs_glusterfs'])
