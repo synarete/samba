@@ -48,6 +48,7 @@
 #include "conn_tdb.h"
 #include "serverid.h"
 #include "status_profile.h"
+#include "status_iostat.h"
 #include "status.h"
 #include "status_json.h"
 #include "smbd/notifyd/notifyd_db.h"
@@ -938,128 +939,123 @@ int main(int argc, const char *argv[])
 {
 	int c;
 	int profile_only = 0;
-	bool show_processes, show_locks, show_shares;
+	int iostat_only = 0;
+	bool show_processes, show_locks, show_shares, show_iostat;
 	bool show_notify = false;
 	poptContext pc = NULL;
 	struct traverse_state state = {0};
 	struct poptOption long_options[] = {
-		POPT_AUTOHELP
-		{
-			.longName   = "processes",
-			.shortName  = 'p',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'p',
-			.descrip    = "Show processes only",
+		POPT_AUTOHELP{
+			.longName = "processes",
+			.shortName = 'p',
+			.argInfo = POPT_ARG_NONE,
+			.arg = NULL,
+			.val = 'p',
+			.descrip = "Show processes only",
 		},
 		{
-			.longName   = "verbose",
-			.shortName  = 'v',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'v',
-			.descrip    = "Be verbose",
+			.longName = "verbose",
+			.shortName = 'v',
+			.argInfo = POPT_ARG_NONE,
+			.arg = NULL,
+			.val = 'v',
+			.descrip = "Be verbose",
 		},
 		{
-			.longName   = "locks",
-			.shortName  = 'L',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'L',
-			.descrip    = "Show locks only",
+			.longName = "locks",
+			.shortName = 'L',
+			.argInfo = POPT_ARG_NONE,
+			.arg = NULL,
+			.val = 'L',
+			.descrip = "Show locks only",
 		},
 		{
-			.longName   = "shares",
-			.shortName  = 'S',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'S',
-			.descrip    = "Show shares only",
+			.longName = "shares",
+			.shortName = 'S',
+			.argInfo = POPT_ARG_NONE,
+			.arg = NULL,
+			.val = 'S',
+			.descrip = "Show shares only",
 		},
 		{
-			.longName   = "notify",
-			.shortName  = 'N',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'N',
-			.descrip    = "Show notifies",
+			.longName = "notify",
+			.shortName = 'N',
+			.argInfo = POPT_ARG_NONE,
+			.arg = NULL,
+			.val = 'N',
+			.descrip = "Show notifies",
 		},
 		{
-			.longName   = "user",
-			.shortName  = 'u',
-			.argInfo    = POPT_ARG_STRING,
-			.arg        = &username,
-			.val        = 'u',
-			.descrip    = "Switch to user",
+			.longName = "user",
+			.shortName = 'u',
+			.argInfo = POPT_ARG_STRING,
+			.arg = &username,
+			.val = 'u',
+			.descrip = "Switch to user",
 		},
 		{
-			.longName   = "brief",
-			.shortName  = 'b',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'b',
-			.descrip    = "Be brief",
+			.longName = "brief",
+			.shortName = 'b',
+			.argInfo = POPT_ARG_NONE,
+			.arg = NULL,
+			.val = 'b',
+			.descrip = "Be brief",
 		},
 		{
-			.longName   = "profile",
-			.shortName  =     'P',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'P',
-			.descrip    = "Do profiling",
+			.longName = "profile",
+			.shortName = 'P',
+			.argInfo = POPT_ARG_NONE,
+			.arg = NULL,
+			.val = 'P',
+			.descrip = "Do profiling",
 		},
 		{
-			.longName   = "profile-rates",
-			.shortName  = 'R',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'R',
-			.descrip    = "Show call rates",
+			.longName = "profile-rates",
+			.shortName = 'R',
+			.argInfo = POPT_ARG_NONE,
+			.arg = NULL,
+			.val = 'R',
+			.descrip = "Show call rates",
 		},
 		{
-			.longName   = "byterange",
-			.shortName  = 'B',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'B',
-			.descrip    = "Include byte range locks"
+			.longName = "iostat",
+			.shortName = 'I',
+			.argInfo = POPT_ARG_NONE,
+			.arg = NULL,
+			.val = 'I',
+			.descrip = "Show VFS I/O stats",
 		},
-		{
-			.longName   = "numeric",
-			.shortName  = 'n',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'n',
-			.descrip    = "Numeric uid/gid"
-		},
-		{
-			.longName   = "json",
-			.shortName  = 'j',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'j',
-			.descrip    = "JSON output"
-		},
-		{
-			.longName   = "fast",
-			.shortName  = 'f',
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = 'f',
-			.descrip    = "Skip checks if processes still exist"
-		},
-		{
-			.longName   = "resolve-uids",
-			.shortName  = 0,
-			.argInfo    = POPT_ARG_NONE,
-			.arg        = NULL,
-			.val        = OPT_RESOLVE_UIDS,
-			.descrip    = "Try to resolve UIDs to usernames"
-		},
-		POPT_COMMON_SAMBA
-		POPT_COMMON_VERSION
-		POPT_TABLEEND
-	};
+		{.longName = "byterange",
+		 .shortName = 'B',
+		 .argInfo = POPT_ARG_NONE,
+		 .arg = NULL,
+		 .val = 'B',
+		 .descrip = "Include byte range locks"},
+		{.longName = "numeric",
+		 .shortName = 'n',
+		 .argInfo = POPT_ARG_NONE,
+		 .arg = NULL,
+		 .val = 'n',
+		 .descrip = "Numeric uid/gid"},
+		{.longName = "json",
+		 .shortName = 'j',
+		 .argInfo = POPT_ARG_NONE,
+		 .arg = NULL,
+		 .val = 'j',
+		 .descrip = "JSON output"},
+		{.longName = "fast",
+		 .shortName = 'f',
+		 .argInfo = POPT_ARG_NONE,
+		 .arg = NULL,
+		 .val = 'f',
+		 .descrip = "Skip checks if processes still exist"},
+		{.longName = "resolve-uids",
+		 .shortName = 0,
+		 .argInfo = POPT_ARG_NONE,
+		 .arg = NULL,
+		 .val = OPT_RESOLVE_UIDS,
+		 .descrip = "Try to resolve UIDs to usernames"},
+		POPT_COMMON_SAMBA POPT_COMMON_VERSION POPT_TABLEEND};
 	TALLOC_CTX *frame = talloc_stackframe();
 	int ret = 0;
 	struct messaging_context *msg_ctx = NULL;
@@ -1125,6 +1121,9 @@ int main(int argc, const char *argv[])
 		case 'B':
 			show_brl = true;
 			break;
+		case 'I':
+			iostat_only = c;
+			break;
 		case 'n':
 			numeric_only = true;
 			break;
@@ -1173,9 +1172,10 @@ int main(int argc, const char *argv[])
 
 	/* setup the flags based on the possible combincations */
 
-	show_processes = !(shares_only || locks_only || profile_only) || processes_only;
-	show_locks     = !(shares_only || processes_only || profile_only) || locks_only;
-	show_shares    = !(processes_only || locks_only || profile_only) || shares_only;
+	show_processes = !(shares_only || locks_only || profile_only || iostat_only) || processes_only;
+	show_locks     = !(shares_only || processes_only || profile_only || iostat_only) || locks_only;
+	show_shares    = !(processes_only || locks_only || profile_only || iostat_only) || shares_only;
+	show_iostat    = !(processes_only || locks_only || profile_only || shares_only) || iostat_only;
 
 	if ( username )
 		Ucrit_addUid( nametouid(username) );
@@ -1293,6 +1293,10 @@ int main(int argc, const char *argv[])
 	if (show_notify) {
 		prepare_notify(&state);
 		notify_walk(msg_ctx, print_notify_rec, &state);
+	}
+
+	if ( show_iostat ) {
+		status_iostat_dump(&state);
 	}
 
 done:
