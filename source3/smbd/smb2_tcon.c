@@ -385,33 +385,29 @@ static NTSTATUS smbd_smb2_tree_connect(struct smbd_smb2_request *req,
 	tcon->status = NT_STATUS_OK;
 
 	if (IS_PRINT(tcon->compat)) {
-		*out_share_type = SMB2_SHARE_TYPE_PRINT;
+		tcon->share_type = SMB2_SHARE_TYPE_PRINT;
 	} else if (IS_IPC(tcon->compat)) {
-		*out_share_type = SMB2_SHARE_TYPE_PIPE;
+		tcon->share_type = SMB2_SHARE_TYPE_PIPE;
 	} else {
-		*out_share_type = SMB2_SHARE_TYPE_DISK;
+		tcon->share_type = SMB2_SHARE_TYPE_DISK;
 	}
 
-	*out_share_flags = 0;
-
 	if (lp_msdfs_root(SNUM(tcon->compat)) && lp_host_msdfs()) {
-		*out_share_flags |= (SMB2_SHAREFLAG_DFS|SMB2_SHAREFLAG_DFS_ROOT);
-		*out_capabilities = SMB2_SHARE_CAP_DFS;
-	} else {
-		*out_capabilities = 0;
+		tcon->share_flags |= (SMB2_SHAREFLAG_DFS|SMB2_SHAREFLAG_DFS_ROOT);
+		tcon->capabilities = SMB2_SHARE_CAP_DFS;
 	}
 
 	switch(lp_csc_policy(SNUM(tcon->compat))) {
 	case CSC_POLICY_MANUAL:
 		break;
 	case CSC_POLICY_DOCUMENTS:
-		*out_share_flags |= SMB2_SHAREFLAG_AUTO_CACHING;
+		tcon->share_flags |= SMB2_SHAREFLAG_AUTO_CACHING;
 		break;
 	case CSC_POLICY_PROGRAMS:
-		*out_share_flags |= SMB2_SHAREFLAG_VDO_CACHING;
+		tcon->share_flags |= SMB2_SHAREFLAG_VDO_CACHING;
 		break;
 	case CSC_POLICY_DISABLE:
-		*out_share_flags |= SMB2_SHAREFLAG_NO_CACHING;
+		tcon->share_flags |= SMB2_SHAREFLAG_NO_CACHING;
 		break;
 	default:
 		break;
@@ -419,11 +415,11 @@ static NTSTATUS smbd_smb2_tree_connect(struct smbd_smb2_request *req,
 
 	if (lp_hide_unreadable(SNUM(tcon->compat)) ||
 	    lp_hide_unwriteable_files(SNUM(tcon->compat))) {
-		*out_share_flags |= SMB2_SHAREFLAG_ACCESS_BASED_DIRECTORY_ENUM;
+		tcon->share_flags |= SMB2_SHAREFLAG_ACCESS_BASED_DIRECTORY_ENUM;
 	}
 
 	if (encryption_desired) {
-		*out_share_flags |= SMB2_SHAREFLAG_ENCRYPT_DATA;
+		tcon->share_flags |= SMB2_SHAREFLAG_ENCRYPT_DATA;
 	}
 
 	/*
@@ -431,7 +427,7 @@ static NTSTATUS smbd_smb2_tree_connect(struct smbd_smb2_request *req,
 	 * behavior on a cluster...
 	 */
 	if (conn->protocol >= PROTOCOL_SMB3_00 &&
-	    *out_share_type == SMB2_SHARE_TYPE_DISK)
+	    tcon->share_type == SMB2_SHARE_TYPE_DISK)
 	{
 		bool persistent = false; /* persistent handles not implemented yet */
 		bool cluster = lp_clustering();
@@ -461,7 +457,7 @@ static NTSTATUS smbd_smb2_tree_connect(struct smbd_smb2_request *req,
 					"CONTINUOUS AVAILABILITY",
 					persistent);
 		if (announce) {
-			*out_capabilities |= SMB2_SHARE_CAP_CONTINUOUS_AVAILABILITY;
+			tcon->capabilities |= SMB2_SHARE_CAP_CONTINUOUS_AVAILABILITY;
 		}
 
 		/*
@@ -472,7 +468,7 @@ static NTSTATUS smbd_smb2_tree_connect(struct smbd_smb2_request *req,
 					"SCALE OUT",
 					scaleout);
 		if (announce) {
-			*out_capabilities |= SMB2_SHARE_CAP_SCALEOUT;
+			tcon->capabilities |= SMB2_SHARE_CAP_SCALEOUT;
 		}
 
 		/*
@@ -483,7 +479,7 @@ static NTSTATUS smbd_smb2_tree_connect(struct smbd_smb2_request *req,
 					"CLUSTER",
 					witness);
 		if (announce) {
-			*out_capabilities |= SMB2_SHARE_CAP_CLUSTER;
+			tcon->capabilities |= SMB2_SHARE_CAP_CLUSTER;
 		}
 
 		/*
@@ -500,10 +496,13 @@ static NTSTATUS smbd_smb2_tree_connect(struct smbd_smb2_request *req,
 						asymmetric);
 		}
 		if (announce) {
-			*out_capabilities |= SMB2_SHARE_CAP_ASYMMETRIC;
+			tcon->capabilities |= SMB2_SHARE_CAP_ASYMMETRIC;
 		}
 	}
 
+	*out_share_type = tcon->share_type;
+	*out_share_flags = tcon->share_flags;
+	*out_capabilities = tcon->capabilities;
 	*out_maximal_access = tcon->compat->share_access;
 
 	*out_tree_id = tcon->global->tcon_wire_id;
