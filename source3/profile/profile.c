@@ -46,18 +46,21 @@ void set_profile_level(int level, const struct server_id *src)
 	case 0:		/* turn off profiling */
 		smbprofile_state.config.do_count = false;
 		smbprofile_state.config.do_times = false;
+		smbprofile_state.config.do_persvc = false;
 		DEBUG(1,("INFO: Profiling turned OFF from pid %d\n",
 			 (int)procid_to_pid(src)));
 		break;
 	case 1:		/* turn on counter profiling only */
 		smbprofile_state.config.do_count = true;
 		smbprofile_state.config.do_times = false;
+		smbprofile_state.config.do_persvc = false;
 		DEBUG(1,("INFO: Profiling counts turned ON from pid %d\n",
 			 (int)procid_to_pid(src)));
 		break;
 	case 2:		/* turn on complete profiling */
 		smbprofile_state.config.do_count = true;
 		smbprofile_state.config.do_times = true;
+		smbprofile_state.config.do_persvc = true;
 		DEBUG(1,("INFO: Full profiling turned ON from pid %d\n",
 			 (int)procid_to_pid(src)));
 		break;
@@ -329,4 +332,44 @@ void smbprofile_collect(struct profile_stats *stats)
 	smbprofile_collect_tdb(smbprofile_state.internal.db->tdb,
 			       profile_p->magic,
 			       stats);
+}
+
+static struct profile_stats_persvc *smbprofile_persvc_lookup(int snum)
+{
+	struct profile_stats_persvc *persvc = NULL;
+	size_t slot;
+
+	if (!smbprofile_state.config.do_persvc) {
+		return NULL;
+	}
+
+	slot = (size_t)snum % ARRAY_SIZE(smbprofile_state.stats.persvc);
+	persvc = smbprofile_state.stats.persvc[slot];
+	while (persvc != NULL) {
+		if (persvc->snum == snum) {
+			return persvc;
+		}
+		persvc = persvc->next;
+	}
+	return NULL;
+}
+
+static inline void smbprofile_persvc_connect(const char *svc)
+{
+	struct profile_stats_persvc *persvc = NULL;
+	char *sname = NULL;
+	int snum = -1;
+
+	if (!smbprofile_state.config.do_persvc) {
+		return;
+	}
+	snum = find_service(talloc_tos(), svc, &sname);
+	if (snum == -1 || sname == NULL) {
+		return;
+	}
+	persvc = smbprofile_persvc_lookup(snum);
+	if (persvc != NULL) {
+		persvc->refcnt++;
+		return;
+	}
 }

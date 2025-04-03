@@ -462,6 +462,19 @@ struct profile_stats {
 	} \
 } while(0)
 
+struct profile_stats_service {
+	struct profile_stats stats;
+	char service[];
+};
+
+struct profile_stats_persvc {
+	struct profile_stats_persvc *prev;
+	struct profile_stats_persvc *next;
+	int snum;
+	int refcnt;
+	struct profile_stats_service svc_stats;
+};
+
 extern struct profile_stats *profile_p;
 
 struct smbprofile_global_state {
@@ -474,10 +487,12 @@ struct smbprofile_global_state {
 	struct {
 		bool do_count;
 		bool do_times;
+		bool do_persvc;
 	} config;
 
 	struct {
 		struct profile_stats global;
+		struct profile_stats_persvc *persvc[1000];
 	} stats;
 };
 
