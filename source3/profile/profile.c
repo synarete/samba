@@ -177,6 +177,7 @@ static void smbprofile_dump_timer(struct tevent_context *ev,
 				  void *private_data)
 {
 	smbprofile_dump(smbprofile_state.internal.sconn);
+	smbprofile_state.internal.timer_active--;
 }
 
 void smbprofile_dump_schedule_timer(void)
@@ -192,6 +193,7 @@ void smbprofile_dump_schedule_timer(void)
 				tv,
 				smbprofile_dump_timer,
 				NULL);
+	smbprofile_state.internal.timer_active++;
 }
 
 static int profile_stats_parser(TDB_DATA key, TDB_DATA value,

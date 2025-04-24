@@ -493,6 +493,7 @@ struct smbprofile_global_state {
 		struct tevent_context *ev;
 		struct tevent_timer *te;
 		struct smbd_server_connection *sconn;
+		int timer_active;
 	} internal;
 
 	struct {
@@ -518,6 +519,10 @@ static inline void smbprofile_dump_schedule(void)
 	}
 
 	if (unlikely(smbprofile_state.internal.ev == NULL)) {
+		return;
+	}
+
+	if (smbprofile_state.internal.timer_active > 0) {
 		return;
 	}
 
