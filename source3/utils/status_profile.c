@@ -77,6 +77,161 @@ static void print_buckets(struct traverse_state *state,
 }
 
 /*******************************************************************
+ dump the elements of the persvc profile structure
+  ******************************************************************/
+
+#define SMBPROFILE_STATS_PERSVC_SECTIONS                        \
+	SMBPROFILE_STATS_START                                  \
+                                                                \
+	SMBPROFILE_STATS_SECTION_START(syscall, "System Calls") \
+	SMBPROFILE_STATS_BASIC(syscall_opendir)                 \
+	SMBPROFILE_STATS_BASIC(syscall_fdopendir)               \
+	SMBPROFILE_STATS_BASIC(syscall_readdir)                 \
+	SMBPROFILE_STATS_BASIC(syscall_rewinddir)               \
+	SMBPROFILE_STATS_BASIC(syscall_mkdirat)                 \
+	SMBPROFILE_STATS_BASIC(syscall_closedir)                \
+	SMBPROFILE_STATS_BASIC(syscall_open)                    \
+	SMBPROFILE_STATS_BASIC(syscall_openat)                  \
+	SMBPROFILE_STATS_BASIC(syscall_createfile)              \
+	SMBPROFILE_STATS_BASIC(syscall_close)                   \
+	SMBPROFILE_STATS_BYTES(syscall_pread)                   \
+	SMBPROFILE_STATS_BYTES(syscall_asys_pread)              \
+	SMBPROFILE_STATS_BYTES(syscall_pwrite)                  \
+	SMBPROFILE_STATS_BYTES(syscall_asys_pwrite)             \
+	SMBPROFILE_STATS_BASIC(syscall_lseek)                   \
+	SMBPROFILE_STATS_BYTES(syscall_sendfile)                \
+	SMBPROFILE_STATS_BYTES(syscall_recvfile)                \
+	SMBPROFILE_STATS_BASIC(syscall_renameat)                \
+	SMBPROFILE_STATS_BYTES(syscall_asys_fsync)              \
+	SMBPROFILE_STATS_BASIC(syscall_stat)                    \
+	SMBPROFILE_STATS_BASIC(syscall_fstat)                   \
+	SMBPROFILE_STATS_BASIC(syscall_lstat)                   \
+	SMBPROFILE_STATS_BASIC(syscall_fstatat)                 \
+	SMBPROFILE_STATS_BASIC(syscall_get_alloc_size)          \
+	SMBPROFILE_STATS_BASIC(syscall_unlinkat)                \
+	SMBPROFILE_STATS_BASIC(syscall_chmod)                   \
+	SMBPROFILE_STATS_BASIC(syscall_fchmod)                  \
+	SMBPROFILE_STATS_BASIC(syscall_fchown)                  \
+	SMBPROFILE_STATS_BASIC(syscall_lchown)                  \
+	SMBPROFILE_STATS_BASIC(syscall_chdir)                   \
+	SMBPROFILE_STATS_BASIC(syscall_getwd)                   \
+	SMBPROFILE_STATS_BASIC(syscall_fntimes)                 \
+	SMBPROFILE_STATS_BASIC(syscall_ftruncate)               \
+	SMBPROFILE_STATS_BASIC(syscall_fallocate)               \
+	SMBPROFILE_STATS_BASIC(syscall_fcntl_lock)              \
+	SMBPROFILE_STATS_BASIC(syscall_fcntl)                   \
+	SMBPROFILE_STATS_BASIC(syscall_linux_setlease)          \
+	SMBPROFILE_STATS_BASIC(syscall_fcntl_getlock)           \
+	SMBPROFILE_STATS_BASIC(syscall_readlinkat)              \
+	SMBPROFILE_STATS_BASIC(syscall_symlinkat)               \
+	SMBPROFILE_STATS_BASIC(syscall_linkat)                  \
+	SMBPROFILE_STATS_BASIC(syscall_mknodat)                 \
+	SMBPROFILE_STATS_BASIC(syscall_realpath)                \
+	SMBPROFILE_STATS_BASIC(syscall_get_quota)               \
+	SMBPROFILE_STATS_BASIC(syscall_set_quota)               \
+	SMBPROFILE_STATS_BASIC(syscall_get_sd)                  \
+	SMBPROFILE_STATS_BASIC(syscall_set_sd)                  \
+	SMBPROFILE_STATS_BASIC(syscall_brl_lock)                \
+	SMBPROFILE_STATS_BASIC(syscall_brl_unlock)              \
+	SMBPROFILE_STATS_BASIC(syscall_brl_cancel)              \
+	SMBPROFILE_STATS_BYTES(syscall_asys_getxattrat)         \
+	SMBPROFILE_STATS_SECTION_END                            \
+                                                                \
+	SMBPROFILE_STATS_END
+
+static void status_profile_dump_persvc_stats(struct traverse_state *state,
+					     const char *secname,
+					     const struct profile_stats *pstats)
+{
+	const char *latest_section = NULL;
+
+#define __PRINT_FIELD_LINE(name, _stats, field)                           \
+	do {                                                              \
+		uintmax_t val = (uintmax_t)(*pstats).values._stats.field; \
+		if (!state->json_output) {                                \
+			d_printf("%s %-59s%20ju\n",                       \
+				 secname,                                 \
+				 name "_" #field ":",                     \
+				 val);                                    \
+		} else {                                                  \
+			add_profile_persvc_item_to_json(state,            \
+							secname,          \
+							latest_section,   \
+							name,             \
+							#field,           \
+							val);             \
+		}                                                         \
+	} while (0);
+#define SMBPROFILE_STATS_START
+#define SMBPROFILE_STATS_SECTION_START(name, display) \
+	do {                                          \
+		latest_section = display;             \
+		profile_separator(display, state);    \
+	} while (0);
+#define SMBPROFILE_STATS_COUNT(name)                            \
+	do {                                                    \
+		__PRINT_FIELD_LINE(#name, name##_stats, count); \
+	} while (0);
+#define SMBPROFILE_STATS_TIME(name)                            \
+	do {                                                   \
+		__PRINT_FIELD_LINE(#name, name##_stats, time); \
+	} while (0);
+#define SMBPROFILE_STATS_BASIC(name)                            \
+	do {                                                    \
+		__PRINT_FIELD_LINE(#name, name##_stats, count); \
+		__PRINT_FIELD_LINE(#name, name##_stats, time);  \
+	} while (0);
+#define SMBPROFILE_STATS_BYTES(name)                            \
+	do {                                                    \
+		__PRINT_FIELD_LINE(#name, name##_stats, count); \
+		__PRINT_FIELD_LINE(#name, name##_stats, time);  \
+		__PRINT_FIELD_LINE(#name, name##_stats, idle);  \
+		__PRINT_FIELD_LINE(#name, name##_stats, bytes); \
+	} while (0);
+#define SMBPROFILE_STATS_IOBYTES(name)                                       \
+	do {                                                                 \
+		__PRINT_FIELD_LINE(#name, name##_stats, count);              \
+		__PRINT_FIELD_LINE(#name, name##_stats, failed_count);       \
+		__PRINT_FIELD_LINE(#name, name##_stats, time);               \
+		print_buckets(state, #name, &(*pstats).values.name##_stats); \
+		__PRINT_FIELD_LINE(#name, name##_stats, idle);               \
+		__PRINT_FIELD_LINE(#name, name##_stats, inbytes);            \
+		__PRINT_FIELD_LINE(#name, name##_stats, outbytes);           \
+	} while (0);
+#define SMBPROFILE_STATS_SECTION_END
+#define SMBPROFILE_STATS_END
+	SMBPROFILE_STATS_PERSVC_SECTIONS
+#undef __PRINT_FIELD_LINE
+#undef SMBPROFILE_STATS_START
+#undef SMBPROFILE_STATS_SECTION_START
+#undef SMBPROFILE_STATS_COUNT
+#undef SMBPROFILE_STATS_TIME
+#undef SMBPROFILE_STATS_BASIC
+#undef SMBPROFILE_STATS_BYTES
+#undef SMBPROFILE_STATS_IOBYTES
+#undef SMBPROFILE_STATS_SECTION_END
+#undef SMBPROFILE_STATS_END
+}
+
+static int status_profile_dump_persvc_cb(const char *key,
+					 const struct profile_stats *stats,
+					 void *private_data)
+{
+	struct traverse_state *state = private_data;
+
+	status_profile_dump_persvc_stats(state, key, stats);
+	return 0;
+}
+
+static void status_profile_dump_persvc(struct traverse_state *state)
+{
+	if (!state->json_output) {
+		return;
+	}
+	smbprofile_persvc_collect(status_profile_dump_persvc_cb, state);
+}
+
+/*******************************************************************
  dump the elements of the profile structure
   ******************************************************************/
 bool status_profile_dump(bool verbose,
@@ -146,6 +301,7 @@ bool status_profile_dump(bool verbose,
 #undef SMBPROFILE_STATS_SECTION_END
 #undef SMBPROFILE_STATS_END
 
+	status_profile_dump_persvc(state);
 	return True;
 }
 
