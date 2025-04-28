@@ -750,7 +750,42 @@ void smbprofile_persvc_mkref(int snum, const char *svc);
 void smbprofile_persvc_unref(int snum);
 struct profile_stats *smbprofile_persvc_get(int snum);
 
+#define START_PROFILE_X(_snum, x)                                              \
+	struct smbprofile_stats_basic_async __profasync_##x = {};              \
+	struct smbprofile_stats_basic_async __profasync_persvc_##x = {};       \
+	_SMBPROFILE_BASIC_ASYNC_START(x##_stats, profile_p, __profasync_##x);  \
+	do {                                                                   \
+		struct profile_stats *persvc_##x = smbprofile_persvc_get(      \
+			_snum);                                                \
+		if (persvc_##x != NULL) {                                      \
+			_SMBPROFILE_BASIC_ASYNC_START(x##_stats,               \
+						      persvc_##x,              \
+						      __profasync_persvc_##x); \
+		}                                                              \
+	} while (0)
+
+#define END_PROFILE_X(x)                                            \
+	do {                                                        \
+		SMBPROFILE_BASIC_ASYNC_END(__profasync_##x);        \
+		SMBPROFILE_BASIC_ASYNC_END(__profasync_persvc_##x); \
+	} while (0)
+
+#define SMBPROFILE_BYTES_ASYNC_START_X(_name, _snum, _async, _bytes)      \
+	do {                                                              \
+		struct profile_stats *_px = smbprofile_persvc_get(_snum); \
+		if (_px != NULL) {                                        \
+			_SMBPROFILE_BYTES_ASYNC_START(_name##_stats,      \
+						      _px,                \
+						      _async,             \
+						      _bytes);            \
+		}                                                         \
+	} while (0)
+
 #else /* WITH_PROFILE */
+
+#define START_PROFILE_X(_snum, x)
+#define END_PROFILE_X(x)
+#define SMBPROFILE_BYTES_ASYNC_START_X(_name, _snum, _async, _bytes)
 
 static inline void smbprofile_persvc_mkref(int snum, const char *svc)
 {
