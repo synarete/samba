@@ -750,6 +750,17 @@ void smbprofile_persvc_mkref(int snum, const char *svc);
 void smbprofile_persvc_unref(int snum);
 struct profile_stats *smbprofile_persvc_get(int snum);
 
+int smbprofile_persvc_collect(int (*fn)(const char *key,
+					const struct profile_stats *stats,
+					void *private_data),
+			      void *private_data);
+
+int smbprofile_persvc_collect_tdb(struct tdb_context *tdb,
+				  int (*fn)(const char *,
+					    const struct profile_stats *,
+					    void *),
+				  void *userp);
+
 #define START_PROFILE_X(_snum, x)                                              \
 	struct smbprofile_stats_basic_async __profasync_##x = {};              \
 	struct smbprofile_stats_basic_async __profasync_persvc_##x = {};       \

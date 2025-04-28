@@ -562,3 +562,16 @@ static void smbprofile_persvc_dump(void)
 		persvc = next;
 	}
 }
+
+int smbprofile_persvc_collect(int (*fn)(const char *key,
+					const struct profile_stats *stats,
+					void *private_data),
+			      void *private_data)
+{
+	if (smbprofile_state.internal.db == NULL) {
+		return 0;
+	}
+	return smbprofile_persvc_collect_tdb(smbprofile_state.internal.db->tdb,
+					     fn,
+					     private_data);
+}
