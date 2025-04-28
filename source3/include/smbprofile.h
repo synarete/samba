@@ -485,6 +485,16 @@ struct profile_stats {
 	DO_PROFILE_INC(authentication); \
 	DO_PROFILE_INC(authentication_failed); \
 
+struct profile_stats_persvc {
+	struct profile_stats stats;
+	struct profile_stats_persvc *prev;
+	struct profile_stats_persvc *next;
+	int snum;
+	int refcnt;
+	bool active;
+	char dbkey[];
+};
+
 extern struct profile_stats *profile_p;
 
 struct smbprofile_global_state {
@@ -503,6 +513,7 @@ struct smbprofile_global_state {
 
 	struct {
 		struct profile_stats global;
+		struct profile_stats_persvc *persvc;
 	} stats;
 };
 
@@ -731,5 +742,31 @@ void set_profile_level(int level, const struct server_id *src);
 
 struct messaging_context;
 bool profile_setup(struct messaging_context *msg_ctx, bool rdonly);
+
+/* Per-share profiling */
+#ifdef WITH_PROFILE
+
+void smbprofile_persvc_mkref(int snum, const char *svc);
+void smbprofile_persvc_unref(int snum);
+struct profile_stats *smbprofile_persvc_get(int snum);
+
+#else /* WITH_PROFILE */
+
+static inline void smbprofile_persvc_mkref(int snum, const char *svc)
+{
+	return;
+}
+
+static inline void smbprofile_persvc_unref(int snum)
+{
+	return;
+}
+
+static inline struct profile_stats *smbprofile_persvc_get(int snum)
+{
+	return NULL;
+}
+
+#endif /* WITH_PROFILE */
 
 #endif
