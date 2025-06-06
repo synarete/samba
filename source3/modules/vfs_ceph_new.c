@@ -39,6 +39,7 @@
 #include "smbprofile.h"
 #include "modules/posixacl_xattr.h"
 #include "lib/util/tevent_unix.h"
+#include "modules/varlink_keybridge.h"
 
 // XXX
 #include <linux/fscrypt.h>
@@ -105,6 +106,7 @@ struct vfs_ceph_config {
 	const char *conf_file;
 	const char *user_id;
 	const char *fsname;
+	struct varlink_keybridge_config *kbc;
 	struct cephmount_cached *mount_entry;
 	struct ceph_mount_info *mount;
 	enum vfs_cephfs_proxy_mode proxy;
@@ -478,6 +480,104 @@ static int vfs_ceph_config_destructor(struct vfs_ceph_config *config)
 	return 0;
 }
 
+static bool parse_keybridge_config(int snum, const char *module_name,
+				   struct vfs_ceph_config *config)
+{
+	const char *tmp;
+	struct varlink_keybridge_config *kbc = NULL;
+	const char *socket = lp_parm_const_string(snum, module_name,
+					    "keybridge socket", NULL);
+	if (socket == NULL) {
+		/* no keybridge socket means no keybridge */
+		return false;
+	}
+#ifndef HAVE_LIBVARLINK
+	DBG_ERR("VARLINK not supported. keybridge not available.\n");
+	return false;
+#endif /* HAVE_VARLINK */
+
+	kbc = talloc_zero(config, struct varlink_keybridge_config);
+	if (kbc == NULL) {
+		DBG_ERR("talloc_zero failed\n");
+		goto fail;
+	}
+	kbc->path = talloc_strdup(kbc, socket);
+	if (kbc->path == NULL) {
+		DBG_ERR("talloc_strdup failed\n");
+		goto fail;
+	}
+	DBG_INFO("keybridge path = [%s]\n", kbc->path);
+
+	tmp = lp_parm_const_string(snum, module_name,
+				   "keybridge scope", "");
+	kbc->scope = talloc_strdup(kbc, tmp);
+	if (kbc->scope == NULL) {
+		DBG_ERR("talloc_strdup failed\n");
+		goto fail;
+	}
+	DBG_INFO("keybridge scope = [%s]\n", kbc->scope);
+
+	tmp = lp_parm_const_string(snum, module_name,
+				   "keybridge name", NULL);
+	if (tmp == NULL || strlen(tmp) == 0) {
+		DBG_ERR("'%s:keybridge name' must be set if keybridge  socket is set\n", module_name);
+		goto fail;
+	}
+	kbc->name = talloc_strdup(kbc, tmp);
+	if (kbc->scope == NULL) {
+		DBG_ERR("talloc_strdup failed\n");
+		goto fail;
+	}
+	DBG_INFO("keybridge name = [%s]\n", kbc->name);
+
+	tmp = lp_parm_const_string(snum, module_name, "keybridge kind", NULL);
+	if (tmp && strcmp(tmp, "B64") == 0) {
+		kbc->kind = VARLINK_KEYBRIDGE_KIND_B64;
+	} else if (tmp && strcmp(tmp, "VALUE") == 0) {
+		kbc->kind = VARLINK_KEYBRIDGE_KIND_VALUE;
+	}
+	DBG_INFO("keybridge kind = [%d]\n", kbc->kind);
+
+	config->kbc = kbc;
+	return true;
+fail:
+	if (kbc) {
+		talloc_free(kbc);
+	}
+	return false;
+}
+
+static void fetch_keybridge_config(struct vfs_ceph_config *config)
+{
+	struct varlink_keybridge_result *result = NULL;
+	bool ok = varlink_keybridge_entry_get(config, config->kbc, &result);
+	if (!ok) {
+		DBG_ERR("failed to get keybridge entry\n");
+		return;
+	}
+	switch (result->status) {
+	case VARLINK_KEYBRIDGE_STATUS_OK:
+		DBG_INFO("got entry data: %s\n", result->data);
+		/* TODO: don't just log the data, either decode it or not
+		 * based on kind and set it as the key data we need to
+		 * decrypt ceph volumes. */
+		break;
+	case VARLINK_KEYBRIDGE_STATUS_FAILURE:
+		DBG_ERR("failed to get keybridge entry: varlink failure\n");
+		break;
+	case VARLINK_KEYBRIDGE_STATUS_ERROR:
+		DBG_ERR("got error from keybridge server: %s\n", result->data);
+		break;
+	default:
+		DBG_ERR("invalid varlink keybridge status value: %d\n",
+			result->status);
+		break;
+	}
+	if (result) {
+		talloc_free(result);
+	}
+}
+
 static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 				 struct vfs_ceph_config **config)
 {
@@ -512,6 +612,10 @@ static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 	if (config_tmp->proxy == -1) {
 		DBG_ERR("[CEPH] value for proxy: mode unknown\n");
 		return false;
+	}
+	parse_keybridge_config(snum, module_name, config_tmp);
+	if (config_tmp->kbc != NULL) {
+		fetch_keybridge_config(config_tmp);
 	}
 
 	ok = vfs_cephfs_load_lib(config_tmp);
