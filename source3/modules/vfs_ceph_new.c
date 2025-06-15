@@ -105,6 +105,10 @@ struct vfs_ceph_config {
 	struct cephmount_cached *mount_entry;
 	struct ceph_mount_info *mount;
 	enum vfs_cephfs_proxy_mode proxy;
+	uint64_t rd_iops_lim;
+	uint64_t rd_bw_lim;
+	uint64_t wr_iops_lim;
+	uint64_t wr_bw_lim;
 	void *libhandle;
 
 	/*
@@ -176,12 +180,19 @@ struct vfs_ceph_config {
  * Individual mounts are IDed by a 'cookie' value that is a string built
  * from identifying parameters found in smb.conf.
  */
+struct cephmount_cached_stats {
+	struct smbprofile_stats_bytes st;
+	uint64_t ts;
+	uint32_t msec_delay;
+};
 
 static struct cephmount_cached {
 	char *cookie;
 	int32_t count;
 	struct ceph_mount_info *mount;
 	struct cephmount_cached *next, *prev;
+	struct cephmount_cached_stats rd_stats;
+	struct cephmount_cached_stats wr_stats;
 	uint64_t fd_index;
 } *cephmount_cached;
 
@@ -491,6 +502,22 @@ static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 						       "user_id", "");
 	config_tmp->fsname	= lp_parm_const_string(snum, module_name,
 						       "filesystem", "");
+	config_tmp->rd_iops_lim = lp_parm_ulong(snum,
+						module_name,
+						"read_iops_limit",
+						0);
+	config_tmp->rd_bw_lim = lp_parm_ulong(snum,
+					      module_name,
+					      "read_bw_limit",
+					      0);
+	config_tmp->wr_iops_lim = lp_parm_ulong(snum,
+						module_name,
+						"write_iops_limit",
+						0);
+	config_tmp->wr_bw_lim = lp_parm_ulong(snum,
+					      module_name,
+					      "write_bw_limit",
+					      0);
 	config_tmp->proxy	= lp_parm_enum(snum, module_name, "proxy",
 					       enum_vfs_cephfs_proxy_vals,
 					       VFS_CEPHFS_PROXY_NO);
@@ -2440,18 +2467,24 @@ out:
 	return lstatus_code(result);
 }
 
+enum vfs_ceph_aio_flags {
+	VFS_CEPH_AIO_READ = 0x01,
+	VFS_CEPH_AIO_WRITE = 0x02,
+	VFS_CEPH_AIO_FSYNC = 0x04,
+};
+
 struct vfs_ceph_aio_state {
 	struct vfs_ceph_config *config;
 	struct vfs_ceph_fh *cfh;
 #if HAVE_CEPH_ASYNCIO
 	struct tevent_req *req;
-	bool orphaned;
 	struct tevent_immediate *im;
 	void *data;
 	size_t len;
 	off_t off;
-	bool write;
-	bool fsync;
+	int snum;
+	int flags;
+	bool orphaned;
 
 	struct ceph_ll_io_info io_info;
 	struct iovec iov;
@@ -2512,6 +2545,7 @@ static int vfs_ceph_require_tctx(struct vfs_ceph_aio_state *state,
 static void vfs_ceph_aio_complete(struct ceph_ll_io_info *io_info)
 {
 	struct vfs_ceph_aio_state *state = io_info->priv;
+	const struct cephmount_cached_stats *cstats = NULL;
 
 	if (state->orphaned) {
 		return;
@@ -2524,6 +2558,19 @@ static void vfs_ceph_aio_complete(struct ceph_ll_io_info *io_info)
 		  state->off,
 		  state->len,
 		  state->io_info.result);
+
+	if (state->flags & VFS_CEPH_AIO_WRITE) {
+		cstats = &state->config->mount_entry->wr_stats;
+		if (cstats->msec_delay) {
+			smb_msleep(cstats->msec_delay);
+		}
+	}
+	if (state->flags & VFS_CEPH_AIO_READ) {
+		cstats = &state->config->mount_entry->rd_stats;
+		if (cstats->msec_delay) {
+			smb_msleep(cstats->msec_delay);
+		}
+	}
 
 	tevent_threaded_schedule_immediate(state->config->tctx,
 					   state->im,
@@ -2555,7 +2602,9 @@ static void vfs_ceph_aio_submit(struct vfs_handle_struct *handle,
 		req, struct vfs_ceph_aio_state);
 	int64_t res;
 
-	DBG_DEBUG("[CEPH] aio_send: ino=%" PRIu64 " fd=%d off=%jd len=%ju\n",
+	DBG_DEBUG("[CEPH] aio_send: snum=%d ino=%" PRIu64
+		  " fd=%d off=%jd len=%ju\n",
+		  state->snum,
 		  state->cfh->iref.ino,
 		  state->cfh->fd,
 		  state->off,
@@ -2569,8 +2618,8 @@ static void vfs_ceph_aio_submit(struct vfs_handle_struct *handle,
 	state->io_info.iov = &state->iov;
 	state->io_info.iovcnt = 1;
 	state->io_info.off = state->off;
-	state->io_info.write = state->write;
-	state->io_info.fsync = state->fsync;
+	state->io_info.write = (state->flags & VFS_CEPH_AIO_WRITE) > 0;
+	state->io_info.fsync = (state->flags & VFS_CEPH_AIO_FSYNC) > 0;
 	state->io_info.result = 0;
 
 	vfs_ceph_aio_start(state);
@@ -2597,8 +2646,9 @@ static void vfs_ceph_aio_done(struct tevent_context *ev,
 	struct vfs_ceph_aio_state *state = tevent_req_data(
 		req, struct vfs_ceph_aio_state);
 
-	DBG_DEBUG("[CEPH] aio_done: ino=%" PRIu64
+	DBG_DEBUG("[CEPH] aio_done: snum=%d ino=%" PRIu64
 		  " fd=%d off=%jd len=%ju result=%jd\n",
+		  state->snum,
 		  state->cfh->iref.ino,
 		  state->cfh->fd,
 		  state->off,
@@ -2612,6 +2662,79 @@ static void vfs_ceph_aio_done(struct tevent_context *ev,
 	}
 
 	tevent_req_done(req);
+}
+
+static void vfs_ceph_aio_probe_iorate(struct tevent_req *req)
+{
+	struct vfs_ceph_aio_state *state = tevent_req_data(
+		req, struct vfs_ceph_aio_state);
+	struct vfs_ceph_config *config = state->config;
+	struct cephmount_cached_stats *cstats = NULL;
+	const struct profile_stats *pstats = NULL;
+	const struct smbprofile_stats_bytes *stats = NULL;
+	uint64_t now, dif, msec_dif, iops, bw;
+	uint64_t iops_lim, bw_lim;
+
+	pstats = smbprofile_persvc_get(state->snum);
+	if (pstats == NULL) {
+		return;
+	}
+
+	if (state->flags & VFS_CEPH_AIO_WRITE) {
+		iops_lim = config->wr_iops_lim;
+		bw_lim = config->wr_bw_lim;
+		if (!iops_lim && !bw_lim) {
+			return;
+		}
+
+		now = profile_timestamp();
+		stats = &pstats->values.syscall_asys_pwrite_stats;
+		cstats = &config->mount_entry->wr_stats;
+
+	} else if (state->flags & VFS_CEPH_AIO_READ) {
+		{
+			iops_lim = config->rd_iops_lim;
+			bw_lim = config->rd_bw_lim;
+			if (!iops_lim && !bw_lim) {
+				return;
+			}
+
+			now = profile_timestamp();
+			stats = &pstats->values.syscall_asys_pread_stats;
+			cstats = &config->mount_entry->rd_stats;
+		}
+	}
+
+	if ((cstats == NULL) || (stats == NULL)) {
+		return;
+	}
+
+	if ((cstats->st.count == 0) || (cstats->st.count > stats->count)) {
+		cstats->st = *stats;
+		cstats->ts = now;
+		return;
+	}
+
+	msec_dif = (now - cstats->ts) / 1000;
+	if (msec_dif < 1000) {
+		return;
+	}
+
+	dif = stats->count - cstats->st.count;
+	iops = (1000 * dif) / msec_dif;
+	/* BW as mega-bits per-second */
+	dif = stats->bytes - cstats->st.bytes;
+	bw = ((1000 * 8 * dif) / msec_dif) / 1000000;
+
+	if (iops_lim && (iops > iops_lim)) {
+		cstats->msec_delay = MIN(cstats->msec_delay + 100, 10000);
+	} else if (bw_lim && (bw > bw_lim)) {
+		cstats->msec_delay = MIN(cstats->msec_delay + 100, 10000);
+	} else {
+		cstats->msec_delay = 0;
+	}
+	cstats->st = *stats;
+	cstats->ts = now;
 }
 
 static ssize_t vfs_ceph_aio_recv(struct tevent_req *req,
@@ -2635,6 +2758,8 @@ static ssize_t vfs_ceph_aio_recv(struct tevent_req *req,
 
 	*vfs_aio_state = state->vfs_aio_state;
 	res = state->result;
+
+	vfs_ceph_aio_probe_iorate(req);
 out:
 	tevent_req_received(req);
 	return res;
@@ -2645,7 +2770,8 @@ out:
 static void vfs_ceph_aio_prepare(struct vfs_handle_struct *handle,
 				 struct tevent_req *req,
 				 struct tevent_context *ev,
-				 struct files_struct *fsp)
+				 struct files_struct *fsp,
+				 int flags)
 {
 	struct vfs_ceph_config *config = NULL;
 	struct vfs_ceph_aio_state *state = NULL;
@@ -2662,6 +2788,8 @@ static void vfs_ceph_aio_prepare(struct vfs_handle_struct *handle,
 
 	state = tevent_req_data(req, struct vfs_ceph_aio_state);
 	state->config = config;
+	state->snum = SNUM(handle->conn);
+	state->flags = flags;
 
 #if HAVE_CEPH_ASYNCIO
 	ret = vfs_ceph_require_tctx(state, ev);
@@ -2680,6 +2808,7 @@ static void vfs_ceph_aio_prepare(struct vfs_handle_struct *handle,
 	ret = vfs_ceph_fetch_io_fh(handle, fsp, &state->cfh);
 	if (ret != 0) {
 		tevent_req_error(req, -ret);
+		return;
 	}
 }
 
@@ -2707,7 +2836,7 @@ static struct tevent_req *vfs_ceph_pread_send(struct vfs_handle_struct *handle,
 		return NULL;
 	}
 
-	vfs_ceph_aio_prepare(handle, req, ev, fsp);
+	vfs_ceph_aio_prepare(handle, req, ev, fsp, VFS_CEPH_AIO_READ);
 	if (!tevent_req_is_in_progress(req)) {
 		return tevent_req_post(req, ev);
 	}
@@ -2817,7 +2946,7 @@ static struct tevent_req *vfs_ceph_pwrite_send(struct vfs_handle_struct *handle,
 		return NULL;
 	}
 
-	vfs_ceph_aio_prepare(handle, req, ev, fsp);
+	vfs_ceph_aio_prepare(handle, req, ev, fsp, VFS_CEPH_AIO_WRITE);
 	if (!tevent_req_is_in_progress(req)) {
 		return tevent_req_post(req, ev);
 	}
@@ -2839,7 +2968,6 @@ static struct tevent_req *vfs_ceph_pwrite_send(struct vfs_handle_struct *handle,
 	state->data = discard_const(data);
 	state->len = n;
 	state->off = offset;
-	state->write = true;
 	vfs_ceph_aio_submit(handle, req, ev);
 	return req;
 #endif
@@ -3012,7 +3140,7 @@ static struct tevent_req *vfs_ceph_fsync_send(struct vfs_handle_struct *handle,
 		return NULL;
 	}
 
-	vfs_ceph_aio_prepare(handle, req, ev, fsp);
+	vfs_ceph_aio_prepare(handle, req, ev, fsp, VFS_CEPH_AIO_FSYNC);
 	if (!tevent_req_is_in_progress(req)) {
 		return tevent_req_post(req, ev);
 	}
@@ -3034,7 +3162,6 @@ static struct tevent_req *vfs_ceph_fsync_send(struct vfs_handle_struct *handle,
 	state->data = NULL;
 	state->len = 0;
 	state->off = 0;
-	state->fsync = true;
 	vfs_ceph_aio_submit(handle, req, ev);
 	return req;
 #endif
