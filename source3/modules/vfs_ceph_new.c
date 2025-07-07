@@ -40,6 +40,9 @@
 #include "modules/posixacl_xattr.h"
 #include "lib/util/tevent_unix.h"
 
+// XXX
+#include <linux/fscrypt.h>
+
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_VFS
 
@@ -165,6 +168,12 @@ struct vfs_ceph_config {
 #if HAVE_CEPH_ASYNCIO
 	CEPH_FN(ceph_ll_nonblocking_readv_writev);
 #endif
+
+	// XXX
+	CEPH_FN(ceph_open);
+	CEPH_FN(ceph_close);
+	CEPH_FN(ceph_add_fscrypt_key);
+	CEPH_FN(ceph_set_fscrypt_policy_v2);
 };
 
 /*
@@ -447,6 +456,12 @@ static bool vfs_cephfs_load_lib(struct vfs_ceph_config *config)
 	CHECK_CEPH_FN(libhandle, ceph_ll_nonblocking_readv_writev);
 #endif
 
+	// XXX
+	CHECK_CEPH_FN(libhandle, ceph_open);
+	CHECK_CEPH_FN(libhandle, ceph_close);
+	CHECK_CEPH_FN(libhandle, ceph_add_fscrypt_key);
+	CHECK_CEPH_FN(libhandle, ceph_set_fscrypt_policy_v2);
+
 	config->libhandle = libhandle;
 
 	return true;
@@ -519,6 +534,74 @@ done:
    is sure to try and execute them.  These stubs are used to prevent
    this possibility. */
 
+/*
+ * struct ceph_fscrypt_key_identifier isn't exported so we cannot know its
+ * exact internals. However, the first FSCRYPT_KEY_IDENTIFIER_SIZE bytes will
+ * be copied into policy_v2. Following the foot-steps of nfs-ganesha.
+ */
+struct vfs_ceph_fscrypt_key_identifier {
+	char raw[256];
+};
+
+static void populate_policy(const struct vfs_ceph_fscrypt_key_identifier *kid,
+			    struct fscrypt_policy_v2 *policy)
+{
+	policy->version = 2;
+	policy->contents_encryption_mode = FSCRYPT_MODE_AES_256_XTS;
+	policy->filenames_encryption_mode = FSCRYPT_MODE_AES_256_CTS;
+	policy->flags = FSCRYPT_POLICY_FLAGS_PAD_32;
+	memset(policy->__reserved, 0, sizeof(policy->__reserved));
+	memcpy(policy->master_key_identifier,
+	       kid->raw,
+	       FSCRYPT_KEY_IDENTIFIER_SIZE);
+}
+
+static int vfs_ceph_setup_fscrypt(struct vfs_ceph_config *config,
+				  struct connection_struct *conn)
+{
+	static char fscrypt_key[32] = {
+		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	};
+	struct ceph_mount_info *cmount = config->mount;
+	const struct security_unix_token *utok = get_current_utok(conn);
+	struct vfs_ceph_fscrypt_key_identifier kid = {};
+	struct fscrypt_policy_v2 policy;
+	void *kid_raw = kid.raw;
+	int ret = -1;
+	int fd;
+	int r;
+
+	fd = config->ceph_open_fn(cmount, "/", O_DIRECTORY, 0);
+	if (fd < 0) {
+		DBG_ERR("[CEPH] failed to open root dir: errno=%d\n", errno);
+		return -1;
+	}
+	r = config->ceph_add_fscrypt_key_fn(
+		cmount, fscrypt_key, sizeof(fscrypt_key), kid_raw, utok->uid);
+	if (r < 0) {
+		DBG_ERR("[CEPH] ceph_add_fscrypt_key error: "
+			"r=%d errno=%d\n",
+			r,
+			errno);
+		goto out;
+	}
+	populate_policy(&kid, &policy);
+
+	r = config->ceph_set_fscrypt_policy_v2_fn(cmount, fd, &policy);
+	if (r < 0) {
+		DBG_ERR("[CEPH] ceph_set_fscrypt_policy_v2 error: "
+			"r=%d errno=%d\n",
+			r,
+			errno);
+		goto out;
+	}
+	ret = 0;
+out:
+	config->ceph_close_fn(cmount, fd);
+	return ret;
+}
+
 static int vfs_ceph_connect(struct vfs_handle_struct *handle,
 			    const char *service, const char *user)
 {
@@ -563,6 +646,8 @@ connect_ok:
 		 "snum=%d cookie='%s'\n",
 		 SNUM(handle->conn),
 		 cookie);
+
+	vfs_ceph_setup_fscrypt(config, handle->conn);
 
 	/*
 	 * Unless we have an async implementation of getxattrat turn this off.
