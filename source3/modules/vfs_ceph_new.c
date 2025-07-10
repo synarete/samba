@@ -39,6 +39,7 @@
 #include "smbprofile.h"
 #include "modules/posixacl_xattr.h"
 #include "lib/util/tevent_unix.h"
+#include "lib/util/base64.h"
 #include "modules/varlink_keybridge.h"
 
 // XXX
@@ -97,6 +98,14 @@ static const struct enum_list enum_vfs_cephfs_proxy_vals[] = {
 	{-1, NULL}
 };
 
+struct vfs_ceph_fscrypt_key {
+	/* TODO: need a key type or expected length to validate the data? */
+	DATA_BLOB blob;
+};
+
+#define FS_KEY_DATA(kp) (char*)((kp)->blob.data)
+#define FS_KEY_LEN(kp) ((kp)->blob.length)
+
 #define CEPH_FN(_name) typeof(_name) *_name ## _fn
 
 struct vfs_ceph_config {
@@ -107,6 +116,7 @@ struct vfs_ceph_config {
 	const char *user_id;
 	const char *fsname;
 	struct varlink_keybridge_config *kbc;
+	struct vfs_ceph_fscrypt_key *fskey;
 	struct cephmount_cached *mount_entry;
 	struct ceph_mount_info *mount;
 	enum vfs_cephfs_proxy_mode proxy;
@@ -547,6 +557,31 @@ fail:
 	return false;
 }
 
+static void extract_keybridge_key(struct vfs_ceph_config *config,
+				  struct varlink_keybridge_result *result) {
+	config->fskey = talloc_zero(config, struct vfs_ceph_fscrypt_key);
+	if (config->fskey == NULL) {
+		DBG_ERR("failed to allocate fskey\n");
+		return;
+	}
+
+	/* TODO: error checking? expected key length? */
+	if (result->kind == VARLINK_KEYBRIDGE_KIND_B64) {
+		config->fskey->blob = base64_decode_data_blob_talloc(
+			config->fskey, result->data);
+		return;
+	} else if (result->kind == VARLINK_KEYBRIDGE_KIND_VALUE) {
+		/* TODO: loses the trailing null. does this even make
+		 * sense at all for fscrypt? */
+		config->fskey->blob = data_blob_talloc(
+			config->fskey, result->data, strlen(result->data));
+	}
+	DBG_ERR("invalid kind\n");
+	/* failure */
+	if (config->fskey) talloc_free(config->fskey);
+	config->fskey = NULL;
+}
+
 static void fetch_keybridge_config(struct vfs_ceph_config *config)
 {
 	struct varlink_keybridge_result *result = NULL;
@@ -558,9 +593,7 @@ static void fetch_keybridge_config(struct vfs_ceph_config *config)
 	switch (result->status) {
 	case VARLINK_KEYBRIDGE_STATUS_OK:
 		DBG_INFO("got entry data: %s\n", result->data);
-		/* TODO: don't just log the data, either decode it or not
-		 * based on kind and set it as the key data we need to
-		 * decrypt ceph volumes. */
+		extract_keybridge_key(config, result);
 		break;
 	case VARLINK_KEYBRIDGE_STATUS_FAILURE:
 		DBG_ERR("failed to get keybridge entry: varlink failure\n");
@@ -663,10 +696,6 @@ static void populate_policy(const struct vfs_ceph_fscrypt_key_identifier *kid,
 static int vfs_ceph_setup_fscrypt(struct vfs_ceph_config *config,
 				  struct connection_struct *conn)
 {
-	static char fscrypt_key[32] = {
-		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	};
 	struct ceph_mount_info *cmount = config->mount;
 	const struct security_unix_token *utok = get_current_utok(conn);
 	struct vfs_ceph_fscrypt_key_identifier kid = {};
@@ -676,13 +705,19 @@ static int vfs_ceph_setup_fscrypt(struct vfs_ceph_config *config,
 	int fd;
 	int r;
 
+	if (config->fskey == NULL) {
+		DBG_ERR("[CEPH] no fs key configured\n");
+		return ret;
+	}
+
 	fd = config->ceph_open_fn(cmount, "/", O_DIRECTORY, 0);
 	if (fd < 0) {
 		DBG_ERR("[CEPH] failed to open root dir: errno=%d\n", errno);
 		return -1;
 	}
 	r = config->ceph_add_fscrypt_key_fn(
-		cmount, fscrypt_key, sizeof(fscrypt_key), kid_raw, utok->uid);
+		cmount, FS_KEY_DATA(config->fskey), FS_KEY_LEN(config->fskey),
+		kid_raw, utok->uid);
 	if (r < 0) {
 		DBG_ERR("[CEPH] ceph_add_fscrypt_key error: "
 			"r=%d errno=%d\n",
