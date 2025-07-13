@@ -48,6 +48,57 @@
 #define LIBCEPHFS_VERSION_CODE LIBCEPHFS_VERSION(0, 0, 0)
 #endif
 
+#define TOKEN_REFILL_INTERVAL_MS 100
+#define RATE_LIMIT_RETRY_INTERVAL_MS 100
+
+/**
+ * Token bucket-based rate limiter with tevent_queue
+ */
+struct vfs_ceph_rate_limiter {
+	TALLOC_CTX *ctx;
+	bool enabled;
+
+	double rate_iops;
+	double rate_bytes;
+
+	double burst_iops;
+	double burst_bytes;
+
+	double tokens_iops;
+	double tokens_bytes;
+
+	uint64_t last_op_time;
+	uint64_t last_op_count;
+	uint64_t last_op_bytes;
+
+	struct tevent_timer *timer;
+	// Store for resumption
+	struct vfs_handle_struct *resume_handle;
+	struct tevent_context *resume_ev;
+
+	bool is_write;
+	int snum;
+
+	struct tevent_req *pending_req; /* request that is waiting for tokens */
+	bool initialized;
+};
+
+/* Rate limiter prototypes */
+static void init_rate_limiter(struct vfs_ceph_rate_limiter *rl,
+			      TALLOC_CTX *mem_ctx,
+			      unsigned long iops,
+			      unsigned long bw,
+			      bool is_write,
+			      int snum);
+
+static void refill_tokens(struct vfs_ceph_rate_limiter *rl);
+
+static bool check_rate_limit(struct vfs_handle_struct *handle,
+			     struct vfs_ceph_rate_limiter *rl,
+			     size_t bytes,
+			     struct tevent_req *req,
+			     struct tevent_context *ev);
+
 /*
  * Note, libcephfs's return code model is to return -errno. Thus we have to
  * convert to what Samba expects: set errno to non-negative value and return -1.
@@ -106,6 +157,12 @@ struct vfs_ceph_config {
 	struct ceph_mount_info *mount;
 	enum vfs_cephfs_proxy_mode proxy;
 	void *libhandle;
+	struct vfs_ceph_rate_limiter rd_rate_limiter;
+	struct vfs_ceph_rate_limiter wr_rate_limiter;
+	unsigned long read_iops_limit;
+	unsigned long read_bw_limit;
+	unsigned long write_iops_limit;
+	unsigned long write_bw_limit;
 
 	/*
 	* This field stores the Samba capabilities for the share represented
@@ -472,7 +529,8 @@ static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 	bool ok;
 
 	if (SMB_VFS_HANDLE_TEST_DATA(handle)) {
-		SMB_VFS_HANDLE_GET_DATA(handle, config_tmp,
+		SMB_VFS_HANDLE_GET_DATA(handle,
+					config_tmp,
 					struct vfs_ceph_config,
 					return false);
 		goto done;
@@ -485,32 +543,75 @@ static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 	}
 	talloc_set_destructor(config_tmp, vfs_ceph_config_destructor);
 
-	config_tmp->conf_file	= lp_parm_const_string(snum, module_name,
-						       "config_file", ".");
-	config_tmp->user_id	= lp_parm_const_string(snum, module_name,
-						       "user_id", "");
-	config_tmp->fsname	= lp_parm_const_string(snum, module_name,
-						       "filesystem", "");
-	config_tmp->proxy	= lp_parm_enum(snum, module_name, "proxy",
-					       enum_vfs_cephfs_proxy_vals,
-					       VFS_CEPHFS_PROXY_NO);
+	config_tmp->conf_file = lp_parm_const_string(snum,
+						     module_name,
+						     "config_file",
+						     ".");
+	config_tmp->user_id = lp_parm_const_string(snum,
+						   module_name,
+						   "user_id",
+						   "");
+	config_tmp->fsname = lp_parm_const_string(snum,
+						  module_name,
+						  "filesystem",
+						  "");
+	config_tmp->proxy = lp_parm_enum(snum,
+					 module_name,
+					 "proxy",
+					 enum_vfs_cephfs_proxy_vals,
+					 VFS_CEPHFS_PROXY_NO);
 	if (config_tmp->proxy == -1) {
 		DBG_ERR("[CEPH] value for proxy: mode unknown\n");
 		return false;
 	}
+
+	config_tmp->read_iops_limit = lp_parm_ulong(snum,
+						    module_name,
+						    "read_iops_limit",
+						    0);
+	config_tmp->read_bw_limit = lp_parm_ulong(snum,
+						  module_name,
+						  "read_bw_limit",
+						  0);
+	config_tmp->write_iops_limit = lp_parm_ulong(snum,
+						     module_name,
+						     "write_iops_limit",
+						     0);
+	config_tmp->write_bw_limit = lp_parm_ulong(snum,
+						   module_name,
+						   "write_bw_limit",
+						   0);
 
 	ok = vfs_cephfs_load_lib(config_tmp);
 	if (!ok) {
 		return false;
 	}
 
-	SMB_VFS_HANDLE_SET_DATA(handle, config_tmp, NULL,
-				struct vfs_ceph_config, return false);
+	SMB_VFS_HANDLE_SET_DATA(
+		handle, config_tmp, NULL, struct vfs_ceph_config, return false);
 
 done:
 	*config = config_tmp;
 
 	return true;
+}
+
+static void vfs_ceph_setup_rate_limiters(const struct vfs_handle_struct *handle,
+					 struct vfs_ceph_config *config)
+{
+	init_rate_limiter(&config->rd_rate_limiter,
+			  config,
+			  config->read_iops_limit,
+			  config->read_bw_limit,
+			  false,
+			  SNUM(handle->conn));
+
+	init_rate_limiter(&config->wr_rate_limiter,
+			  config,
+			  config->write_iops_limit,
+			  config->write_bw_limit,
+			  true,
+			  SNUM(handle->conn));
 }
 
 /* Check for NULL pointer parameters in vfs_ceph_* functions */
@@ -555,6 +656,8 @@ static int vfs_ceph_connect(struct vfs_handle_struct *handle,
 		ret = -1;
 		goto connect_fail;
 	}
+
+	vfs_ceph_setup_rate_limiters(handle, config);
 
 connect_ok:
 	config->mount = entry->mount;
@@ -2697,6 +2800,189 @@ static void vfs_ceph_aio_prepare(struct vfs_handle_struct *handle,
 	}
 }
 
+static void init_rate_limiter(struct vfs_ceph_rate_limiter *rl,
+			      TALLOC_CTX *mem_ctx,
+			      unsigned long iops,
+			      unsigned long bw,
+			      bool is_write,
+			      int snum)
+{
+	rl->enabled = (iops > 0) || (bw > 0);
+	rl->rate_iops = (double)iops;
+	rl->rate_bytes = (double)bw;
+	rl->burst_iops = (double)iops;
+	rl->burst_bytes = (double)bw;
+	rl->tokens_iops = rl->burst_iops;
+	rl->tokens_bytes = rl->burst_bytes;
+	rl->last_op_time = profile_timestamp();
+	rl->last_op_count = 0;
+	rl->last_op_bytes = 0;
+	rl->timer = NULL;
+	rl->resume_ev = NULL;
+	rl->resume_handle = NULL;
+	rl->is_write = is_write;
+	rl->snum = snum;
+	rl->pending_req = NULL;
+
+	DBG_DEBUG("[CEPH/ratelimit] init: iops=%lu bw=%lu\n", iops, bw);
+}
+
+static void refill_tokens(struct vfs_ceph_rate_limiter *rl)
+{
+	struct profile_stats *p = NULL;
+	uint64_t now;
+	uint64_t curr_count = 0;
+	uint64_t curr_bytes = 0;
+	uint64_t delta_count = 0;
+	uint64_t delta_bytes = 0;
+	double refill_ops = 0.0;
+	double refill_bytes = 0.0;
+	double elapsed = 0.0;
+
+	if (!rl->enabled) {
+		return;
+	}
+
+	p = smbprofile_persvc_get(rl->snum);
+	if (p == NULL) {
+		return;
+	}
+
+	if (rl->is_write) {
+		curr_count = p->values.smb2_write_stats.count;
+		curr_bytes = p->values.smb2_write_stats.inbytes +
+			     p->values.smb2_write_stats.outbytes;
+	} else {
+		curr_count = p->values.smb2_read_stats.count;
+		curr_bytes = p->values.smb2_read_stats.inbytes +
+			     p->values.smb2_read_stats.outbytes;
+	}
+
+	if (curr_count > rl->last_op_count) {
+		delta_count = curr_count - rl->last_op_count;
+	}
+	if (curr_bytes > rl->last_op_bytes) {
+		delta_bytes = curr_bytes - rl->last_op_bytes;
+	}
+
+	now = profile_timestamp();
+	if (rl->last_op_time > 0) {
+		elapsed = (now - rl->last_op_time) / 1000000.0;
+		refill_ops = rl->rate_iops *
+			     (elapsed / (TOKEN_REFILL_INTERVAL_MS / 1000.0));
+		refill_bytes = rl->rate_bytes *
+			       (elapsed / (TOKEN_REFILL_INTERVAL_MS / 1000.0));
+	} else {
+		refill_ops = rl->burst_iops;
+		refill_bytes = rl->burst_bytes;
+	}
+
+	rl->tokens_iops = MIN(rl->tokens_iops + refill_ops, rl->burst_iops);
+	rl->tokens_bytes = MIN(rl->tokens_bytes + refill_bytes,
+			       rl->burst_bytes);
+
+	rl->tokens_iops = (rl->tokens_iops >= delta_count)
+				  ? (rl->tokens_iops - delta_count)
+				  : 0;
+	rl->tokens_bytes = (rl->tokens_bytes >= delta_bytes)
+				   ? (rl->tokens_bytes - delta_bytes)
+				   : 0;
+
+	DBG_DEBUG("[CEPH/ratelimit] Refill: elapsed=%.3f sec "
+		  "delta_ops=%" PRIu64 " delta_bytes=%" PRIu64 "\n",
+		  elapsed,
+		  delta_count,
+		  delta_bytes);
+	DBG_DEBUG("[CEPH/ratelimit] Tokens after refill: "
+		  "iops=%.2f bytes=%.2f\n",
+		  rl->tokens_iops,
+		  rl->tokens_bytes);
+
+	rl->last_op_count = curr_count;
+	rl->last_op_bytes = curr_bytes;
+	rl->last_op_time = now;
+}
+
+static void rate_limit_timer_cb(struct tevent_context *ev,
+				struct tevent_timer *te,
+				struct timeval now,
+				void *private_data)
+{
+	struct vfs_ceph_rate_limiter *rl = private_data;
+	struct tevent_req *req = NULL;
+	struct vfs_ceph_aio_state *state = NULL;
+
+	rl->timer = NULL;
+
+	if (rl->pending_req == NULL) {
+		DBG_DEBUG("[CEPH/ratelimit] No deferred request to resume\n");
+		return;
+	}
+
+	req = rl->pending_req;
+	state = tevent_req_data(req, struct vfs_ceph_aio_state);
+
+	refill_tokens(rl);
+
+	if (rl->tokens_iops >= 1 && rl->tokens_bytes >= state->len) {
+		rl->tokens_iops -= 1;
+		rl->tokens_bytes -= state->len;
+		DBG_DEBUG("[CEPH/ratelimit] Resuming deferred request\n");
+		rl->pending_req = NULL;
+		vfs_ceph_aio_submit(rl->resume_handle, req, rl->resume_ev);
+		return;
+	}
+
+	DBG_DEBUG("[CEPH/ratelimit] Still limited, rescheduling timer\n");
+	rl->timer = tevent_add_timer(
+		ev,
+		ev,
+		timeval_current_ofs(0, RATE_LIMIT_RETRY_INTERVAL_MS),
+		rate_limit_timer_cb,
+		rl);
+}
+
+static bool check_rate_limit(struct vfs_handle_struct *handle,
+			     struct vfs_ceph_rate_limiter *rl,
+			     size_t bytes,
+			     struct tevent_req *req,
+			     struct tevent_context *ev)
+{
+	if (!rl->enabled) {
+		return false;
+	}
+
+	refill_tokens(rl);
+
+	if (rl->tokens_iops >= 1 && rl->tokens_bytes >= bytes) {
+		rl->tokens_iops -= 1;
+		rl->tokens_bytes -= bytes;
+		return false;
+	}
+
+	DBG_DEBUG("[CEPH/ratelimit] Rate limit exceeded, deferring\n");
+
+	/* Only allow one pending request */
+	if (rl->pending_req != NULL) {
+		DBG_ERR("[CEPH/ratelimit] Already a deferred request in "
+			"progress\n");
+		return true; // Drop or fail the current op (could be refined)
+	}
+
+	rl->pending_req = req;
+
+	if (rl->timer == NULL) {
+		rl->timer = tevent_add_timer(
+			ev,
+			ev,
+			timeval_current_ofs(0, RATE_LIMIT_RETRY_INTERVAL_MS),
+			rate_limit_timer_cb,
+			rl);
+	}
+
+	return true;
+}
+
 static struct tevent_req *vfs_ceph_pread_send(struct vfs_handle_struct *handle,
 					      TALLOC_CTX *mem_ctx,
 					      struct tevent_context *ev,
@@ -2707,6 +2993,8 @@ static struct tevent_req *vfs_ceph_pread_send(struct vfs_handle_struct *handle,
 {
 	struct tevent_req *req = NULL;
 	struct vfs_ceph_aio_state *state = NULL;
+	struct vfs_ceph_config *config = NULL;
+	struct vfs_ceph_rate_limiter *rl = NULL;
 	int ret = -1;
 
 	DBG_DEBUG("[CEPH] pread_send: handle=%p name=%s data=%p n=%zu offset=%zd\n",
@@ -2720,6 +3008,12 @@ static struct tevent_req *vfs_ceph_pread_send(struct vfs_handle_struct *handle,
 	if (req == NULL) {
 		return NULL;
 	}
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_config,
+				return NULL);
+	rl = &config->rd_rate_limiter;
 
 	vfs_ceph_aio_prepare(handle, req, ev, fsp);
 	if (!tevent_req_is_in_progress(req)) {
@@ -2739,6 +3033,16 @@ static struct tevent_req *vfs_ceph_pread_send(struct vfs_handle_struct *handle,
 	state->data = data;
 	state->len = n;
 	state->off = offset;
+
+	/* Rate limiting check before actual read */
+	if (rl->enabled && check_rate_limit(handle, rl, n, req, ev)) {
+		/* Request is queued for delay and will be completed via timer
+		 */
+		rl->resume_handle = handle;
+		rl->resume_ev = ev;
+		return req;
+	}
+
 	vfs_ceph_aio_submit(handle, req, ev);
 	return req;
 #endif
