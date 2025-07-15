@@ -98,6 +98,19 @@ static const struct enum_list enum_vfs_cephfs_proxy_vals[] = {
 	{-1, NULL}
 };
 
+enum vfs_cephfs_fscrypt_mode {
+	/* no fscrypt */
+	VFS_CEPHFS_FSCRYPT_DISABLED,
+	/* enable fscrypt, get keys from keybridge */
+	VFS_CEPHFS_FSCRYPT_KEYBRIDGE
+};
+
+static const struct enum_list enum_vfs_cephfs_fscrypt_vals[] = {
+	{VFS_CEPHFS_FSCRYPT_DISABLED, "disabled"},
+	{VFS_CEPHFS_FSCRYPT_DISABLED, "none"},
+	{VFS_CEPHFS_FSCRYPT_KEYBRIDGE, "keybridge"},
+};
+
 struct vfs_ceph_fscrypt_key {
 	/* TODO: need a key type or expected length to validate the data? */
 	DATA_BLOB blob;
@@ -115,6 +128,7 @@ struct vfs_ceph_config {
 	const char *conf_file;
 	const char *user_id;
 	const char *fsname;
+	enum vfs_cephfs_fscrypt_mode fscrypt;
 	struct varlink_keybridge_config *kbc;
 	struct vfs_ceph_fscrypt_key *fskey;
 	struct cephmount_cached *mount_entry;
@@ -541,10 +555,14 @@ static bool parse_keybridge_config(int snum, const char *module_name,
 	DBG_INFO("keybridge name = [%s]\n", kbc->name);
 
 	tmp = lp_parm_const_string(snum, module_name, "keybridge kind", NULL);
-	if (tmp && strcmp(tmp, "B64") == 0) {
+	if (tmp == NULL || strcmp(tmp, "B64") == 0) {
+		/* default to B64 or chosen */
 		kbc->kind = VARLINK_KEYBRIDGE_KIND_B64;
 	} else if (tmp && strcmp(tmp, "VALUE") == 0) {
 		kbc->kind = VARLINK_KEYBRIDGE_KIND_VALUE;
+	} else {
+		DBG_ERR("invalid keybridge kind: [%s]\n", tmp);
+		goto fail;
 	}
 	DBG_INFO("keybridge kind = [%d]\n", kbc->kind);
 
@@ -592,7 +610,8 @@ static void fetch_keybridge_config(struct vfs_ceph_config *config)
 	}
 	switch (result->status) {
 	case VARLINK_KEYBRIDGE_STATUS_OK:
-		DBG_INFO("got entry data: %s\n", result->data);
+		DBG_INFO("got value from keybridge\n");
+		DEBUG(100, ("keybridge data value: %s\n", result->data));
 		extract_keybridge_key(config, result);
 		break;
 	case VARLINK_KEYBRIDGE_STATUS_FAILURE:
@@ -646,9 +665,18 @@ static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 		DBG_ERR("[CEPH] value for proxy: mode unknown\n");
 		return false;
 	}
-	parse_keybridge_config(snum, module_name, config_tmp);
-	if (config_tmp->kbc != NULL) {
-		fetch_keybridge_config(config_tmp);
+	config_tmp->fscrypt	= lp_parm_enum(snum, module_name, "fscrypt",
+					       enum_vfs_cephfs_fscrypt_vals,
+					       VFS_CEPHFS_FSCRYPT_DISABLED);
+	if (config_tmp->fscrypt == -1) {
+		DBG_ERR("[CEPH] value for proxy: mode unknown\n");
+		return false;
+	}
+	if (config_tmp->fscrypt == VFS_CEPHFS_FSCRYPT_KEYBRIDGE) {
+		parse_keybridge_config(snum, module_name, config_tmp);
+		if (config_tmp->kbc != NULL) {
+			fetch_keybridge_config(config_tmp);
+		}
 	}
 
 	ok = vfs_cephfs_load_lib(config_tmp);
@@ -709,6 +737,7 @@ static int vfs_ceph_setup_fscrypt(struct vfs_ceph_config *config,
 		DBG_ERR("[CEPH] no fs key configured\n");
 		return ret;
 	}
+	DBG_INFO("[CEPH] setting up fscrypt for cephfs\n");
 
 	fd = config->ceph_open_fn(cmount, "/", O_DIRECTORY, 0);
 	if (fd < 0) {
@@ -786,7 +815,12 @@ connect_ok:
 		 SNUM(handle->conn),
 		 cookie);
 
-	vfs_ceph_setup_fscrypt(config, handle->conn);
+	if (config->fscrypt != VFS_CEPHFS_FSCRYPT_DISABLED) {
+		DBG_INFO("[CEPH] fscrypt is enabled\n");
+		ret = vfs_ceph_setup_fscrypt(config, handle->conn);
+		DBG_INFO("[CEPH] vfs_ceph_setup_fscrypt: %s\n",
+			 (ret==0)?"ok":"error");
+	}
 
 	/*
 	 * Unless we have an async implementation of getxattrat turn this off.
