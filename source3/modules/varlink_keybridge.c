@@ -24,6 +24,9 @@
 #include <varlink.h>
 
 
+#define KB_DBG_T(...) DEBUG(8, (__VA_ARGS__))
+#define KB_DBG_I(...) DEBUG(5, (__VA_ARGS__))
+
 #define DBG_ERR_VLKB(msg, verror) DBG_ERR(\
 	"%s: %s\n", (msg), (varlink_error_string(verror)))
 
@@ -147,7 +150,8 @@ static bool vlkb_entry_get(TALLOC_CTX * mem_ctx,
 	struct varlink_keybridge_result *result;
 	long vret;
 
-	DBG_INFO("creating %s arguments object\n", KB_GET);
+	KB_DBG_I("calling varlink keybridge get method\n");
+	KB_DBG_T("creating %s arguments object\n", KB_GET);
 	vret = varlink_object_new(&params);
 	if (vret < 0) {
 		DBG_ERR_VLKB("varlink_object_new failed", -vret);
@@ -171,14 +175,14 @@ static bool vlkb_entry_get(TALLOC_CTX * mem_ctx,
 	}
 
 	/* set up the varlink connection */
-	DBG_INFO("creating %s connection\n", KB_GET);
+	KB_DBG_T("creating %s connection\n", KB_GET);
 	vret = varlink_connection_new(&conn, kbc->path);
 	if (vret < 0) {
 		DBG_ERR_VLKB("varlink_connection_new failed", -vret);
 		goto done;
 	}
 
-	DBG_INFO("creating %s result object\n", KB_GET);
+	KB_DBG_T("creating %s result object\n", KB_GET);
 	result = talloc_zero(mem_ctx, struct varlink_keybridge_result);
 	if (result == NULL) {
 		DBG_ERR("talloc_zero failed\n");
@@ -186,7 +190,7 @@ static bool vlkb_entry_get(TALLOC_CTX * mem_ctx,
 	}
 	*resp = result;
 
-	DBG_INFO("performing %s call\n", KB_GET);
+	KB_DBG_T("performing %s call\n", KB_GET);
 	vret = varlink_connection_call(
 		conn,
 		KB_GET,
@@ -199,7 +203,7 @@ static bool vlkb_entry_get(TALLOC_CTX * mem_ctx,
 		result->error_code = vret;
 		goto done;
 	}
-	DBG_INFO("waiting for %s response\n", KB_GET);
+	KB_DBG_T("waiting for %s response\n", KB_GET);
 	vret = vlkb_wait_for_response(conn);
 	if (vret < 0) {
 		DBG_ERR_VLKB("vlkb_wait_for_response failed", -vret);
@@ -215,6 +219,8 @@ done:
 	if (conn) {
 		varlink_connection_free(conn);
 	}
+	KB_DBG_I("done varlink keybridge get method: %s\n",
+		 (completed)?"success":"failure");
 	return completed;
 }
 
