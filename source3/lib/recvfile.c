@@ -298,7 +298,7 @@ ssize_t drain_socket(int sockfd, size_t count)
 			count = (size_t)-1;
 			goto out;
 		}
-		total += read_ret;
+		total += (size_t)read_ret;
 	}
 
   out:
