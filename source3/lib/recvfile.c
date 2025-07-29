@@ -288,8 +288,9 @@ ssize_t drain_socket(int sockfd, size_t count)
 	}
 
 	while (total < count) {
+		const size_t rem = count - total;
+		const size_t toread = MIN(bufsize, rem);
 		ssize_t read_ret;
-		size_t toread = MIN(bufsize,count - total);
 
 		/* Read from socket - ignore EINTR. */
 		read_ret = sys_read(sockfd, buffer, toread);
@@ -298,7 +299,7 @@ ssize_t drain_socket(int sockfd, size_t count)
 			count = (size_t)-1;
 			goto out;
 		}
-		total += read_ret;
+		total += (size_t)read_ret;
 	}
 
   out:
