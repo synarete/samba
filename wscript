@@ -166,6 +166,10 @@ def options(opt):
                                      "Varlink"),
                                default=False)
 
+    opt.samba_add_onoff_option('varlink',
+                               help=("Build with Varlink support"),
+                               default=False)
+
 def configure(conf):
     if Options.options.SAMBA_VERSION_VENDOR_SUFFIX:
         conf.env.SAMBA_VERSION_VENDOR_SUFFIX = Options.options.SAMBA_VERSION_VENDOR_SUFFIX
