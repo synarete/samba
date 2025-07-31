@@ -40,10 +40,10 @@
 #include "modules/posixacl_xattr.h"
 #include "lib/util/tevent_unix.h"
 #include "lib/util/base64.h"
-#include "modules/varlink_keybridge.h"
-
-// XXX
+#if HAVE_CEPH_FSCRYPT
 #include <linux/fscrypt.h>
+#include "modules/varlink_keybridge.h"
+#endif
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_VFS
@@ -125,12 +125,14 @@ struct vfs_ceph_config {
 #if HAVE_CEPH_ASYNCIO
 	struct tevent_threaded_context *tctx;
 #endif
-	const char *conf_file;
-	const char *user_id;
-	const char *fsname;
+#if HAVE_CEPH_FSCRYPT
 	enum vfs_cephfs_fscrypt_mode fscrypt;
 	struct varlink_keybridge_config *kbc;
 	struct vfs_ceph_fscrypt_key *fskey;
+#endif
+	const char *conf_file;
+	const char *user_id;
+	const char *fsname;
 	struct cephmount_cached *mount_entry;
 	struct ceph_mount_info *mount;
 	enum vfs_cephfs_proxy_mode proxy;
@@ -194,12 +196,10 @@ struct vfs_ceph_config {
 #if HAVE_CEPH_ASYNCIO
 	CEPH_FN(ceph_ll_nonblocking_readv_writev);
 #endif
-
-	// XXX
-	CEPH_FN(ceph_open);
-	CEPH_FN(ceph_close);
+#if HAVE_CEPH_FSCRYPT
 	CEPH_FN(ceph_add_fscrypt_key);
-	CEPH_FN(ceph_set_fscrypt_policy_v2);
+	CEPH_FN(ceph_ll_set_fscrypt_policy_v2);
+#endif
 };
 
 /*
@@ -481,12 +481,10 @@ static bool vfs_cephfs_load_lib(struct vfs_ceph_config *config)
 #if HAVE_CEPH_ASYNCIO
 	CHECK_CEPH_FN(libhandle, ceph_ll_nonblocking_readv_writev);
 #endif
-
-	// XXX
-	CHECK_CEPH_FN(libhandle, ceph_open);
-	CHECK_CEPH_FN(libhandle, ceph_close);
+#if HAVE_CEPH_FSCRYPT
 	CHECK_CEPH_FN(libhandle, ceph_add_fscrypt_key);
-	CHECK_CEPH_FN(libhandle, ceph_set_fscrypt_policy_v2);
+	CHECK_CEPH_FN(libhandle, ceph_ll_set_fscrypt_policy_v2);
+#endif
 
 	config->libhandle = libhandle;
 
@@ -504,10 +502,11 @@ static int vfs_ceph_config_destructor(struct vfs_ceph_config *config)
 	return 0;
 }
 
+#if HAVE_CEPH_FSCRYPT
 static bool parse_keybridge_config(int snum, const char *module_name,
 				   struct vfs_ceph_config *config)
 {
-	const char *tmp;
+	const char *tmp = NULL;
 	struct varlink_keybridge_config *kbc = NULL;
 	const char *socket = lp_parm_const_string(snum, module_name,
 					    "keybridge socket", NULL);
@@ -515,11 +514,6 @@ static bool parse_keybridge_config(int snum, const char *module_name,
 		/* no keybridge socket means no keybridge */
 		return false;
 	}
-#ifndef HAVE_LIBVARLINK
-	DBG_ERR("VARLINK not supported. keybridge not available.\n");
-	return false;
-#endif /* HAVE_VARLINK */
-
 	kbc = talloc_zero(config, struct varlink_keybridge_config);
 	if (kbc == NULL) {
 		DBG_ERR("talloc_zero failed\n");
@@ -530,21 +524,23 @@ static bool parse_keybridge_config(int snum, const char *module_name,
 		DBG_ERR("talloc_strdup failed\n");
 		goto fail;
 	}
-	DBG_INFO("keybridge path = [%s]\n", kbc->path);
+	DBG_INFO("[CEPH] keybridge path = [%s]\n", kbc->path);
 
 	tmp = lp_parm_const_string(snum, module_name,
 				   "keybridge scope", "");
 	kbc->scope = talloc_strdup(kbc, tmp);
 	if (kbc->scope == NULL) {
-		DBG_ERR("talloc_strdup failed\n");
+		DBG_ERR("[CEPH] talloc_strdup failed\n");
 		goto fail;
 	}
-	DBG_INFO("keybridge scope = [%s]\n", kbc->scope);
+	DBG_INFO("[CEPH] keybridge scope = [%s]\n", kbc->scope);
 
 	tmp = lp_parm_const_string(snum, module_name,
 				   "keybridge name", NULL);
 	if (tmp == NULL || strlen(tmp) == 0) {
-		DBG_ERR("'%s:keybridge name' must be set if keybridge  socket is set\n", module_name);
+		DBG_ERR("[CEPH] '%s:keybridge name' must be set if keybridge "
+			"socket is set\n",
+			module_name);
 		goto fail;
 	}
 	kbc->name = talloc_strdup(kbc, tmp);
@@ -552,7 +548,7 @@ static bool parse_keybridge_config(int snum, const char *module_name,
 		DBG_ERR("talloc_strdup failed\n");
 		goto fail;
 	}
-	DBG_INFO("keybridge name = [%s]\n", kbc->name);
+	DBG_INFO("[CEPH] keybridge name = [%s]\n", kbc->name);
 
 	tmp = lp_parm_const_string(snum, module_name, "keybridge kind", NULL);
 	if (tmp == NULL || strcmp(tmp, "B64") == 0) {
@@ -561,25 +557,24 @@ static bool parse_keybridge_config(int snum, const char *module_name,
 	} else if (tmp && strcmp(tmp, "VALUE") == 0) {
 		kbc->kind = VARLINK_KEYBRIDGE_KIND_VALUE;
 	} else {
-		DBG_ERR("invalid keybridge kind: [%s]\n", tmp);
+		DBG_ERR("[CEPH] invalid keybridge kind: [%s]\n", tmp);
 		goto fail;
 	}
-	DBG_INFO("keybridge kind = [%d]\n", kbc->kind);
+	DBG_INFO("[CEPH] keybridge set: kind=%d\n", kbc->kind);
 
 	config->kbc = kbc;
 	return true;
 fail:
-	if (kbc) {
-		talloc_free(kbc);
-	}
+	TALLOC_FREE(kbc);
 	return false;
 }
 
 static void extract_keybridge_key(struct vfs_ceph_config *config,
-				  struct varlink_keybridge_result *result) {
+				  struct varlink_keybridge_result *result)
+{
 	config->fskey = talloc_zero(config, struct vfs_ceph_fscrypt_key);
 	if (config->fskey == NULL) {
-		DBG_ERR("failed to allocate fskey\n");
+		DBG_ERR("[CEPH] failed to allocate fskey\n");
 		return;
 	}
 
@@ -587,41 +582,42 @@ static void extract_keybridge_key(struct vfs_ceph_config *config,
 	if (result->kind == VARLINK_KEYBRIDGE_KIND_B64) {
 		config->fskey->blob = base64_decode_data_blob_talloc(
 			config->fskey, result->data);
-		return;
 	} else if (result->kind == VARLINK_KEYBRIDGE_KIND_VALUE) {
 		/* TODO: loses the trailing null. does this even make
 		 * sense at all for fscrypt? */
 		config->fskey->blob = data_blob_talloc(
 			config->fskey, result->data, strlen(result->data));
+	} else {
+		DBG_ERR("[CEPH] invalid keybridge: kind=%d\n", result->kind);
+		TALLOC_FREE(config->fskey);
 	}
-	DBG_ERR("invalid kind\n");
-	/* failure */
-	if (config->fskey) talloc_free(config->fskey);
-	config->fskey = NULL;
 }
 
 static void fetch_keybridge_config(struct vfs_ceph_config *config)
 {
 	struct varlink_keybridge_result *result = NULL;
-	bool ok = varlink_keybridge_entry_get(config, config->kbc, &result);
+	bool ok;
+
+	ok = varlink_keybridge_entry_get(config, config->kbc, &result);
 	if (!ok) {
-		DBG_ERR("failed to get keybridge entry\n");
+		DBG_ERR("[CEPH] failed to get keybridge entry\n");
 		return;
 	}
 	switch (result->status) {
 	case VARLINK_KEYBRIDGE_STATUS_OK:
-		DBG_INFO("got value from keybridge\n");
+		DBG_INFO("[CEPH] got value from keybridge\n");
 		DEBUG(100, ("keybridge data value: %s\n", result->data));
 		extract_keybridge_key(config, result);
 		break;
 	case VARLINK_KEYBRIDGE_STATUS_FAILURE:
-		DBG_ERR("failed to get keybridge entry: varlink failure\n");
+		DBG_ERR("[CEPH] failed to get keybridge: varlink failure\n");
 		break;
 	case VARLINK_KEYBRIDGE_STATUS_ERROR:
-		DBG_ERR("got error from keybridge server: %s\n", result->data);
+		DBG_ERR("[CEPH] got error from keybridge server: %s\n",
+			result->data);
 		break;
 	default:
-		DBG_ERR("invalid varlink keybridge status value: %d\n",
+		DBG_ERR("[CEPH] invalid varlink keybridge status value: %d\n",
 			result->status);
 		break;
 	}
@@ -629,6 +625,7 @@ static void fetch_keybridge_config(struct vfs_ceph_config *config)
 		talloc_free(result);
 	}
 }
+#endif /* HAVE_CEPH_FSCRYPT */
 
 static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 				 struct vfs_ceph_config **config)
@@ -665,19 +662,20 @@ static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 		DBG_ERR("[CEPH] value for proxy: mode unknown\n");
 		return false;
 	}
+#if HAVE_CEPH_FSCRYPT
 	config_tmp->fscrypt	= lp_parm_enum(snum, module_name, "fscrypt",
 					       enum_vfs_cephfs_fscrypt_vals,
 					       VFS_CEPHFS_FSCRYPT_DISABLED);
 	if (config_tmp->fscrypt == -1) {
-		DBG_ERR("[CEPH] value for proxy: mode unknown\n");
+		DBG_ERR("[CEPH] value for fscrypt: unknown\n");
 		return false;
 	}
 	if (config_tmp->fscrypt == VFS_CEPHFS_FSCRYPT_KEYBRIDGE) {
-		parse_keybridge_config(snum, module_name, config_tmp);
-		if (config_tmp->kbc != NULL) {
+		if (parse_keybridge_config(snum, module_name, config_tmp)) {
 			fetch_keybridge_config(config_tmp);
 		}
 	}
+#endif
 
 	ok = vfs_cephfs_load_lib(config_tmp);
 	if (!ok) {
@@ -699,76 +697,7 @@ done:
    is sure to try and execute them.  These stubs are used to prevent
    this possibility. */
 
-/*
- * struct ceph_fscrypt_key_identifier isn't exported so we cannot know its
- * exact internals. However, the first FSCRYPT_KEY_IDENTIFIER_SIZE bytes will
- * be copied into policy_v2. Following the foot-steps of nfs-ganesha.
- */
-struct vfs_ceph_fscrypt_key_identifier {
-	char raw[256];
-};
-
-static void populate_policy(const struct vfs_ceph_fscrypt_key_identifier *kid,
-			    struct fscrypt_policy_v2 *policy)
-{
-	policy->version = 2;
-	policy->contents_encryption_mode = FSCRYPT_MODE_AES_256_XTS;
-	policy->filenames_encryption_mode = FSCRYPT_MODE_AES_256_CTS;
-	policy->flags = FSCRYPT_POLICY_FLAGS_PAD_32;
-	memset(policy->__reserved, 0, sizeof(policy->__reserved));
-	memcpy(policy->master_key_identifier,
-	       kid->raw,
-	       FSCRYPT_KEY_IDENTIFIER_SIZE);
-}
-
-static int vfs_ceph_setup_fscrypt(struct vfs_ceph_config *config,
-				  struct connection_struct *conn)
-{
-	struct ceph_mount_info *cmount = config->mount;
-	const struct security_unix_token *utok = get_current_utok(conn);
-	struct vfs_ceph_fscrypt_key_identifier kid = {};
-	struct fscrypt_policy_v2 policy;
-	void *kid_raw = kid.raw;
-	int ret = -1;
-	int fd;
-	int r;
-
-	if (config->fskey == NULL) {
-		DBG_ERR("[CEPH] no fs key configured\n");
-		return ret;
-	}
-	DBG_INFO("[CEPH] setting up fscrypt for cephfs\n");
-
-	fd = config->ceph_open_fn(cmount, "/", O_DIRECTORY, 0);
-	if (fd < 0) {
-		DBG_ERR("[CEPH] failed to open root dir: errno=%d\n", errno);
-		return -1;
-	}
-	r = config->ceph_add_fscrypt_key_fn(
-		cmount, FS_KEY_DATA(config->fskey), FS_KEY_LEN(config->fskey),
-		kid_raw, utok->uid);
-	if (r < 0) {
-		DBG_ERR("[CEPH] ceph_add_fscrypt_key error: "
-			"r=%d errno=%d\n",
-			r,
-			errno);
-		goto out;
-	}
-	populate_policy(&kid, &policy);
-
-	r = config->ceph_set_fscrypt_policy_v2_fn(cmount, fd, &policy);
-	if (r < 0) {
-		DBG_ERR("[CEPH] ceph_set_fscrypt_policy_v2 error: "
-			"r=%d errno=%d\n",
-			r,
-			errno);
-		goto out;
-	}
-	ret = 0;
-out:
-	config->ceph_close_fn(cmount, fd);
-	return ret;
-}
+static int vfs_ceph_setup_fscrypt(struct vfs_handle_struct *handle);
 
 static int vfs_ceph_connect(struct vfs_handle_struct *handle,
 			    const char *service, const char *user)
@@ -815,12 +744,14 @@ connect_ok:
 		 SNUM(handle->conn),
 		 cookie);
 
+#if HAVE_CEPH_FSCRYPT
 	if (config->fscrypt != VFS_CEPHFS_FSCRYPT_DISABLED) {
 		DBG_INFO("[CEPH] fscrypt is enabled\n");
-		ret = vfs_ceph_setup_fscrypt(config, handle->conn);
+		ret = vfs_ceph_setup_fscrypt(handle);
 		DBG_INFO("[CEPH] vfs_ceph_setup_fscrypt: %s\n",
 			 (ret==0)?"ok":"error");
 	}
+#endif
 
 	/*
 	 * Unless we have an async implementation of getxattrat turn this off.
@@ -2282,6 +2213,83 @@ static void vfs_ceph_iput(const struct vfs_handle_struct *handle,
 		iref->inode = NULL;
 	}
 }
+
+#if HAVE_CEPH_FSCRYPT
+/* Fscrypt */
+/*
+ * struct ceph_fscrypt_key_identifier isn't exported so we cannot know its
+ * exact internals. However, the first FSCRYPT_KEY_IDENTIFIER_SIZE bytes will
+ * be copied into policy_v2. Following the foot-steps of nfs-ganesha.
+ */
+struct vfs_ceph_fscrypt_key_identifier {
+	char raw[256];
+};
+
+static void populate_policy(const struct vfs_ceph_fscrypt_key_identifier *kid,
+			    struct fscrypt_policy_v2 *policy)
+{
+	memset(policy, 0, sizeof(*policy));
+	policy->version = 2;
+	policy->contents_encryption_mode = FSCRYPT_MODE_AES_256_XTS;
+	policy->filenames_encryption_mode = FSCRYPT_MODE_AES_256_CTS;
+	policy->flags = FSCRYPT_POLICY_FLAGS_PAD_32;
+	memcpy(policy->master_key_identifier,
+	       kid->raw,
+	       FSCRYPT_KEY_IDENTIFIER_SIZE);
+}
+
+static int vfs_ceph_setup_fscrypt(struct vfs_handle_struct *handle)
+{
+	struct vfs_ceph_fscrypt_key_identifier kid = {};
+	struct fscrypt_policy_v2 policy = {};
+	struct vfs_ceph_iref iref = {};
+	struct vfs_ceph_config *config = NULL;
+	const struct security_unix_token *utok = NULL;
+	void *kid_raw = kid.raw;
+	int ret = -1;
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_config,
+				return ret);
+
+	if (config->fskey == NULL) {
+		DBG_ERR("[CEPH] no fs key configured\n");
+		return ret;
+	}
+	DBG_INFO("[CEPH] setting up fscrypt for cephfs\n");
+
+	ret = vfs_ceph_iget(handle, ".", 0, &iref);
+	if (ret != 0) {
+		DBG_ERR("[CEPH] iget root failed: errno=%d\n", errno);
+		return -1;
+	}
+	utok = get_current_utok(handle->conn);
+	ret = config->ceph_add_fscrypt_key_fn(config->mount,
+					      FS_KEY_DATA(config->fskey),
+					      FS_KEY_LEN(config->fskey),
+					      kid_raw,
+					      utok->uid);
+	if (ret < 0) {
+		DBG_ERR("[CEPH] ceph_add_fscrypt_key error: ret=%d\n", ret);
+		goto out;
+	}
+	populate_policy(&kid, &policy);
+
+	ret = config->ceph_ll_set_fscrypt_policy_v2_fn(config->mount,
+						       iref.inode,
+						       &policy);
+	if (ret < 0) {
+		DBG_ERR("[CEPH] ceph_ll_set_fscrypt_policy_v2 error: ret=%d",
+			ret);
+		goto out;
+	}
+	ret = 0;
+out:
+	vfs_ceph_iput(handle, &iref);
+	return ret;
+}
+#endif /* HAVE_CEPH_FSCRYPT */
 
 /* Disk operations */
 
