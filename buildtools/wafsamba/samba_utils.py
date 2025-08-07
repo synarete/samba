@@ -374,16 +374,8 @@ except:
         # Try to use MD5 function. In FIPS mode this will cause an exception
         foo = md5.md5(b'abcd')
     except:
-        Context.SIG_NIL = hash('abcd')
-        class replace_md5(object):
-            def __init__(self):
-                self.val = None
-            def update(self, val):
-                self.val = hash((self.val, val))
-            def digest(self):
-                return str(self.val)
-            def hexdigest(self):
-                return self.digest().encode('hex')
+        from hashlib import sha1 as replace_md5
+
         def replace_h_file(filename):
             f = open(filename, 'rb')
             m = replace_md5()
