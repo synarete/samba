@@ -376,14 +376,15 @@ except:
     except:
         Context.SIG_NIL = hash('abcd')
         class replace_md5(object):
-            def __init__(self):
-                self.val = None
+            def __init__(self, val = None):
+                self.val = abs(hash(val))
             def update(self, val):
-                self.val = hash((self.val, val))
+                self.val = abs(hash((self.val, val)))
             def digest(self):
-                return str(self.val)
+                d = bytes(str(self.val), "utf-8") + bytes(16)
+                return d[:16]
             def hexdigest(self):
-                return self.digest().encode('hex')
+                return self.digest().hex()
         def replace_h_file(filename):
             f = open(filename, 'rb')
             m = replace_md5()
