@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<!DOCTYPE refentry PUBLIC "-//Samba-Team//DTD DocBook V4.2-Based Variant V1.0//EN" "http://www.samba.org/samba/DTD/samba-doc">
+<refentry id="vfs_aio_qos.8">
+
+<refmeta>
+	<refentrytitle>vfs_aio_qos</refentrytitle>
+	<manvolnum>8</manvolnum>
+	<refmiscinfo class="source">Samba</refmiscinfo>
+	<refmiscinfo class="manual">System Administration tools</refmiscinfo>
+	<refmiscinfo class="version">&doc.version;</refmiscinfo>
+</refmeta>
+
+<refnamediv>
+	<refname>vfs_aio_qos</refname>
+	<refpurpose>implement quality-of-service Samba vfs</refpurpose>
+</refnamediv>
+
+<refsynopsisdiv>
+	<cmdsynopsis>
+		<command>vfs objects = aio_qos</command>
+	</cmdsynopsis>
+</refsynopsisdiv>
+
+<refsect1>
+	<title>DESCRIPTION</title>
+
+	<para>This VFS module is part of the
+	<citerefentry><refentrytitle>samba</refentrytitle>
+	<manvolnum>7</manvolnum></citerefentry> suite.</para>
+
+	<para>The <command>aio_qos</command> VFS module enables
+	quality of service on specific shares by enforcing a rate
+	limit on async I/O operations. An administrator may define
+	an upper limit to I/O operations-per-second or bytes-per-second
+	plus a delay value which should be injected when one of those
+	limits exceeded, thus yielding a throughput ceiling.
+	</para>
+
+	<para>
+	This module operates only on async VFS READ/WRITE operation.
+	</para>
+
+	<para>This module is stackable.</para>
+</refsect1>
+
+
+<refsect1>
+	<title>CONFIGURATION</title>
+
+	<para>Straight forward use:</para>
+
+<programlisting>
+	<smbconfsection name="[share]"/>
+	<smbconfoption name="path">/path/to/share</smbconfoption>
+	<smbconfoption name="vfs objects">aio_qos</smbconfoption>
+</programlisting>
+
+</refsect1>
+
+<refsect1>
+	<title>OPTIONS</title>
+
+	<variablelist>
+		<varlistentry>
+		<term>aio_qos:read_iops_limit = count</term>
+		<listitem>
+		<para>
+			Upper limit of READ-operations-per-second before start
+			injecting delays. Zero value implies no limit.
+		</para>
+		<para>Default: 0</para>
+		<para>Example: aio_qos:read_iops_limit = 1000</para>
+		</listitem>
+		</varlistentry>
+
+		<varlistentry>
+		<term>aio_qos:read_bps_limit = count</term>
+		<listitem>
+		<para>
+			Upper limit of READ-bytes-per-second before start
+			injecting delays. Zero value implies no limit.
+		</para>
+		<para>Default: 0</para>
+		<para>Example: aio_qos:read_bps_limit = 1000000</para>
+		</listitem>
+		</varlistentry>
+
+		<varlistentry>
+		<term>aio_qos:read_delay = millisecs</term>
+		<listitem>
+		<para>
+			Fixed delay value (in millisecons) to inject when read
+			operations exceeds their limit threshold. In order to
+			use a dynamic delay, set this value to zero.
+		</para>
+		<para>Default: 0, Max: 30000</para>
+		<para>Example: aio_qos:read_delay = 1500</para>
+		</listitem>
+		</varlistentry>
+		
+		<varlistentry>
+		<term>aio_qos:write_iops_limit = count</term>
+		<listitem>
+		<para>
+			Upper limit of WRITE-operations-per-second before start
+			injecting delays. Zero value implies no limit.
+		</para>
+		<para>Default: 0</para>
+		<para>Example: aio_qos:write_iops_limit = 1000</para>
+		</listitem>
+		</varlistentry>
+
+		<varlistentry>
+		<term>aio_qos:write_bps_limit = count</term>
+		<listitem>
+		<para>
+			Upper limit of WRITE-bytes-per-second before start
+			injecting delays. Zero value implies no limit.
+		</para>
+		<para>Default: 0</para>
+		<para>Example: aio_qos:write_bps_limit = 1000000</para>
+		</listitem>
+		</varlistentry>
+
+		<varlistentry>
+		<term>aio_qos:write_delay = millisecs</term>
+		<listitem>
+		<para>
+			Fixed delay value (in millisecons) to inject when write
+			operations exceeds their limit threshold. In order to
+			use a dynamic delay, set this value to zero.
+		</para>
+		<para>Default: 0, Max: 30000</para>
+		<para>Example: aio_qos:write_delay = 500</para>
+		</listitem>
+		</varlistentry>
+
+	</variablelist>
+</refsect1>
+
+<refsect1>
+	<title>VERSION</title>
+
+	<para>This man page is part of version &doc.version; of the Samba suite.
+	</para>
+</refsect1>
+
+<refsect1>
+	<title>AUTHOR</title>
+
+	<para>The original Samba software and related utilities
+	were created by Andrew Tridgell. Samba is now developed
+	by the Samba Team as an Open Source project similar
+	to the way the Linux kernel is developed.</para>
+
+</refsect1>
+
+</refentry>
