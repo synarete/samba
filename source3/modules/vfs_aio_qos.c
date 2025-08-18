@@ -57,16 +57,31 @@ static void ratelimiter_init(struct ratelimiter *rl,
 static void ratelimiter_update(struct ratelimiter *rl, size_t n)
 {
 	struct timespec ts;
+	uint64_t iops_carry = 0;
+	uint64_t bps_carry = 0;
 
 	clock_gettime_mono(&ts);
-	if (rl->timestamp.tv_sec != ts.tv_sec) {
-		rl->iops_curr = 1;
-		rl->bps_curr = n;
-		rl->timestamp = ts;
-	} else {
+
+	/* update within current 1-sec cycle */
+	if (rl->timestamp.tv_sec == ts.tv_sec) {
 		rl->iops_curr += 1;
 		rl->bps_curr += n;
+		return;
 	}
+
+	/* start new 1-sec cycle; if last cycle was a burst, carry some */
+	if ((rl->timestamp.tv_sec + 1) == ts.tv_sec) {
+		if (rl->iops_curr > (2 * rl->iops_limit)) {
+			iops_carry = rl->iops_limit / 2;
+		}
+		if (rl->bps_curr > (2 * rl->bps_limit)) {
+			bps_carry = rl->bps_limit / 2;
+		}
+	}
+
+	rl->iops_curr = 1 + iops_carry;
+	rl->bps_curr = n + bps_carry;
+	rl->timestamp = ts;
 }
 
 static uint32_t ratelimiter_calc_delay(const struct ratelimiter *rl)
