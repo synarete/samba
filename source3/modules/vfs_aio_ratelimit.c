@@ -21,8 +21,8 @@
 #include "lib/util/time.h"
 #include "lib/util/tevent_unix.h"
 
-/* Maximal delay value for IOPS/BYTES overflow, in micro-seconds */
-#define DELAY_MAX (30000000)
+/* Maximal delay value for IOPS/BYTES overflow */
+#define DELAY_USEC_MAX (5000000)
 
 /* Token-based rate-limiter control state */
 struct ratelimiter {
@@ -77,17 +77,23 @@ static void ratelimiter_fill_tokens(struct ratelimiter *rl,
 				    uint64_t usec_dif)
 {
 	const float elapsed = (float)usec_dif;
-	float refill, bytes_rate;
 
 	if (rl->iops_limit > 0) {
-		refill = (float)elapsed / 1000000.0f;
-		rl->iops_tokens += refill;
+		float iops_rate = (float)rl->iops_limit;
+
+		rl->iops_tokens += (float)elapsed / 1000000.0f;
+		if (rl->iops_tokens > iops_rate) {
+			rl->iops_tokens = iops_rate;
+		}
 	}
 
 	if (rl->bytes_limit > 0) {
-		bytes_rate = (float)rl->bytes_limit;
-		refill = (bytes_rate * (float)elapsed) / 1000000.0f;
-		rl->bytes_tokens += refill;
+		float bytes_rate = (float)rl->bytes_limit;
+
+		rl->bytes_tokens += (bytes_rate * (float)elapsed) / 1000000.0f;
+		if (rl->bytes_tokens > bytes_rate) {
+			rl->bytes_tokens = bytes_rate;
+		}
 	}
 }
 
@@ -112,22 +118,22 @@ static void ratelimiter_take_tokens(struct ratelimiter *rl, size_t nbytes)
 	}
 }
 
-static uint32_t clap_delay(float delay)
+static uint64_t clap_delay(float delay)
 {
 	if (delay < 0.0) {
 		return 0;
 	}
-	if (delay > (float)DELAY_MAX) {
-		return DELAY_MAX;
+	if (delay > (float)DELAY_USEC_MAX) {
+		return DELAY_USEC_MAX;
 	}
-	return (uint32_t)delay;
+	return (uint64_t)delay;
 }
 
-static uint32_t ratelimiter_calc_delay(const struct ratelimiter *rl,
+static uint64_t ratelimiter_calc_delay(const struct ratelimiter *rl,
 				       size_t nbytes)
 {
-	uint32_t delay_usec_iops = 0;
-	uint32_t delay_usec_bytes = 0;
+	uint64_t delay_usec_iops = 0;
+	uint64_t delay_usec_bytes = 0;
 	float deficit, limit;
 
 	if ((rl->iops_limit > 0) && (rl->iops_tokens < 1.0)) {
@@ -160,8 +166,8 @@ static uint64_t ratelimiter_pre_io(struct ratelimiter *rl, size_t nbytes)
 		rl->bytes_curr = 0;
 	} else {
 		/* Normal case */
-		ratelimiter_fill_tokens(rl, usec_diff(&now, &rl->ts_last));
 		delay_usec = ratelimiter_calc_delay(rl, nbytes);
+		ratelimiter_fill_tokens(rl, usec_diff(&now, &rl->ts_last));
 		ratelimiter_take_tokens(rl, nbytes);
 	}
 	rl->ts_last = now;
