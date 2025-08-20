@@ -178,6 +178,7 @@ static int dochild(int master, const char *slavedev, const struct passwd *pass,
 	}
 	if (slave <= 2)
 	{
+		close(slave);
 		DEBUG(3, ("Extra weirdness, open %s with fd %d\n",
 		      slavedev, slave));
 		return (False);
