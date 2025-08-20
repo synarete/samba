@@ -176,6 +176,12 @@ static int dochild(int master, const char *slavedev, const struct passwd *pass,
 		DEBUG(3, ("More weirdness, could not open %s\n", slavedev));
 		return (False);
 	}
+	if (slave <= 2)
+	{
+		DEBUG(3, ("Extra weirdness, open %s with fd %d\n",
+		      slavedev, slave));
+		return (False);
+	}
 #if defined(TIOCSCTTY) && !defined(SUNOS5)
 	/*
 	 * On patched Solaris 10 TIOCSCTTY is defined but seems not to work,
@@ -219,8 +225,7 @@ static int dochild(int master, const char *slavedev, const struct passwd *pass,
 		DEBUG(3, ("Could not re-direct stderr\n"));
 		return (False);
 	}
-	if (slave > 2)
-		close(slave);
+	close(slave);
 
 	/* Set proper terminal attributes - no echo, canonical input processing,
 	   no map NL to CR/NL on output. */
