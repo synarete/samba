@@ -21,15 +21,13 @@
 #include "lib/util/time.h"
 #include "lib/util/tevent_unix.h"
 
-/* Maximal delay value for IOPS/BYTES overflow, in milliseconds */
-#define DELAY_MAX (30000)
-
-/* Refill-token interval, in milliseconds */
-#define TOKEN_REFILL_INTERVAL_MSEC (100)
+/* Maximal delay value for IOPS/BYTES overflow, in micro-seconds */
+#define DELAY_MAX (30000000)
 
 /* Token-based rate-limiter control state */
 struct ratelimiter {
-	uint64_t timestamp_msec;
+	struct timespec ts_base;
+	struct timespec ts_last;
 	uint64_t iops_limit;
 	uint64_t iops_curr;
 	uint64_t bytes_limit;
@@ -44,17 +42,15 @@ struct aio_rlim_config {
 	struct ratelimiter wr_ratelimiter;
 };
 
-static uint64_t timestamp_msec(const struct timespec *ts)
+static void gettime_now(struct timespec *ts)
 {
-	return (ts->tv_sec * 1000) + (ts->tv_nsec / 1000000);
+	clock_gettime_mono(ts);
 }
 
-static uint64_t timestamp_msec_now(void)
+static uint64_t usec_diff(const struct timespec *now,
+			  const struct timespec *prev)
 {
-	struct timespec ts;
-
-	clock_gettime_mono(&ts);
-	return timestamp_msec(&ts);
+	return (uint64_t)nsec_time_diff(now, prev) / 1000;
 }
 
 static void ratelimiter_init(struct ratelimiter *rl,
@@ -78,21 +74,20 @@ static void ratelimiter_renew_tokens(struct ratelimiter *rl)
 }
 
 static void ratelimiter_fill_tokens(struct ratelimiter *rl,
-				    uint64_t elapsed_msec)
+				    uint64_t usec_dif)
 {
-	float factor = (float)elapsed_msec / (float)TOKEN_REFILL_INTERVAL_MSEC;
-	float refill, tokens_max;
+	const float elapsed = (float)usec_dif;
+	float refill, bytes_rate;
 
 	if (rl->iops_limit > 0) {
-		tokens_max = (float)rl->iops_limit;
-		refill = tokens_max * factor;
-		rl->iops_tokens = MIN(rl->iops_tokens + refill, tokens_max);
+		refill = (float)elapsed / 1000000.0f;
+		rl->iops_tokens += refill;
 	}
 
 	if (rl->bytes_limit > 0) {
-		tokens_max = (float)rl->bytes_limit;
-		refill = tokens_max * factor;
-		rl->bytes_tokens = MIN(rl->bytes_tokens + refill, tokens_max);
+		bytes_rate = (float)rl->bytes_limit;
+		refill = (bytes_rate * (float)elapsed) / 1000000.0f;
+		rl->bytes_tokens += refill;
 	}
 }
 
@@ -131,47 +126,49 @@ static uint32_t clap_delay(float delay)
 static uint32_t ratelimiter_calc_delay(const struct ratelimiter *rl,
 				       size_t nbytes)
 {
-	uint32_t delay_iops = 0;
-	uint32_t delay_bytes = 0;
+	uint32_t delay_usec_iops = 0;
+	uint32_t delay_usec_bytes = 0;
 	float deficit, limit;
 
 	if ((rl->iops_limit > 0) && (rl->iops_tokens < 1.0)) {
 		deficit = 1.0 - rl->iops_tokens;
 		limit = (float)rl->iops_limit;
-		delay_iops = clap_delay((deficit / limit) * 1000.0);
+		delay_usec_iops = clap_delay((deficit / limit) * 1000000.0);
 	}
 
 	if ((rl->bytes_limit > 0) && (rl->bytes_tokens < (float)nbytes)) {
 		deficit = (float)nbytes - rl->bytes_tokens;
 		limit = (float)rl->bytes_limit;
-		delay_bytes = clap_delay((deficit / limit) * 1000.0);
+		delay_usec_bytes = clap_delay((deficit / limit) * 1000000.0);
 	}
 
-	return MAX(delay_iops, delay_bytes);
+	return MAX(delay_usec_iops, delay_usec_bytes);
 }
 
-static uint32_t ratelimiter_pre_io(struct ratelimiter *rl, size_t nbytes)
+static uint64_t ratelimiter_pre_io(struct ratelimiter *rl, size_t nbytes)
 {
-	const uint64_t now_msec = timestamp_msec_now();
-	const uint64_t dif = now_msec - rl->timestamp_msec;
-	uint32_t delay = 0;
+	struct timespec now;
+	uint64_t delay_usec = 0;
 
-	if ((rl->timestamp_msec == 0) || (dif > 60000)) {
-		/* First I/O or 1-min idle */
+	gettime_now(&now);
+
+	if (!rl->ts_base.tv_sec || (now.tv_sec >= (rl->ts_base.tv_sec + 60))) {
+		/* Renew state */
 		ratelimiter_renew_tokens(rl);
+		rl->ts_base = now;
 		rl->iops_curr = 0;
 		rl->bytes_curr = 0;
 	} else {
 		/* Normal case */
-		delay = ratelimiter_calc_delay(rl, nbytes);
-		ratelimiter_fill_tokens(rl, dif);
+		ratelimiter_fill_tokens(rl, usec_diff(&now, &rl->ts_last));
+		delay_usec = ratelimiter_calc_delay(rl, nbytes);
 		ratelimiter_take_tokens(rl, nbytes);
 	}
-	rl->timestamp_msec = now_msec;
+	rl->ts_last = now;
 	rl->iops_curr += 1;
 	rl->bytes_curr += nbytes;
 
-	return delay;
+	return delay_usec;
 }
 
 static struct ratelimiter *ratelimiter_of(struct vfs_handle_struct *handle,
@@ -265,10 +262,9 @@ static void aio_rlim_disconnect(struct vfs_handle_struct *handle)
 	SMB_VFS_HANDLE_FREE_DATA(handle);
 }
 
-static struct timeval aio_rlim_delay_tv(uint32_t delay_msec)
+static struct timeval aio_rlim_delay_tv(uint64_t delay_usec)
 {
-	return timeval_current_ofs(delay_msec / 1000,
-				   (delay_msec * 1000) % 1000000);
+	return timeval_current_ofs(delay_usec / 1000000, delay_usec % 1000000);
 }
 
 struct aio_rlim_pread_state {
@@ -282,7 +278,7 @@ struct aio_rlim_pread_state {
 	struct vfs_aio_state vfs_aio_state;
 	struct ratelimiter *rl;
 	struct timeval wakeup;
-	uint32_t delay;
+	uint64_t delay;
 };
 
 static void aio_rlim_pread_wait_done(struct tevent_req *subreq);
@@ -413,7 +409,7 @@ struct aio_rlim_pwrite_state {
 	struct vfs_aio_state vfs_aio_state;
 	struct ratelimiter *rl;
 	struct timeval wakeup;
-	uint32_t delay;
+	uint64_t delay;
 };
 
 static void aio_rlim_pwrite_wait_done(struct tevent_req *subreq);
