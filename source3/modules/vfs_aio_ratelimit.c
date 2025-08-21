@@ -26,7 +26,7 @@
 
 /* Token-based rate-limiter control state */
 struct ratelimiter {
-	const char *tag;
+	const char *op;
 	struct timespec ts_base;
 	struct timespec ts_last;
 	uint64_t iops_limit;
@@ -60,12 +60,12 @@ static int64_t time_diff(const struct timespec *now,
 
 static void ratelimiter_init(struct ratelimiter *rl,
 			     int snum,
-			     const char *tag,
+			     const char *oper_name,
 			     uint64_t iops_limit,
 			     uint64_t bytes_limit)
 {
 	ZERO_STRUCTP(rl);
-	rl->tag = tag;
+	rl->op = oper_name;
 	rl->snum = snum;
 	rl->iops_limit = iops_limit;
 	rl->bytes_limit = bytes_limit;
@@ -79,32 +79,57 @@ static bool ratelimiter_enabled(const struct ratelimiter *rl)
 	return (rl->iops_limit > 0) || (rl->bytes_limit > 0);
 }
 
+static void ratelimiter_tokens_dbg(const struct ratelimiter *rl,
+				   const char *label)
+{
+	if (rl->iops_limit > 0) {
+		DBG_DEBUG("[%s snum:%d %s] %s: epoch=%ld"
+			  " iops_tokens=%" PRId64 "\n",
+			  mod_name,
+			  rl->snum,
+			  rl->op,
+			  label,
+			  rl->epoch,
+			  rl->iops_tokens);
+	}
+	if (rl->bytes_limit > 0) {
+		DBG_DEBUG("[%s snum:%d %s] %s: epoch=%ld"
+			  " bytes_tokens=%" PRId64 "\n",
+			  mod_name,
+			  rl->snum,
+			  rl->op,
+			  label,
+			  rl->epoch,
+			  rl->bytes_tokens);
+	}
+}
+
 static void ratelimiter_renew_tokens(struct ratelimiter *rl)
 {
 	rl->iops_tokens = (int64_t)rl->iops_limit * 1000000;
 	rl->bytes_tokens = (int64_t)rl->bytes_limit * 1000000;
+	ratelimiter_tokens_dbg(rl, "renew_tokens");
 }
 
 static void ratelimiter_take_tokens(struct ratelimiter *rl, ssize_t nbytes)
 {
 	rl->iops_tokens -= 1000000;
 	rl->bytes_tokens -= nbytes * 1000000;
+	ratelimiter_tokens_dbg(rl, "take_tokens");
 }
 
 static void ratelimiter_give_bytes_tokens(struct ratelimiter *rl,
 					  ssize_t nbytes)
 {
 	rl->bytes_tokens += nbytes * 1000000;
+	ratelimiter_tokens_dbg(rl, "give_bytes_tokens");
 }
 
 static void ratelimiter_fill_tokens(struct ratelimiter *rl, int64_t dif_usec)
 {
-	if (rl->iops_limit > 0) {
-		rl->iops_tokens += dif_usec;
-	}
-	if (rl->bytes_limit > 0) {
-		rl->bytes_tokens += (int64_t)rl->bytes_limit * dif_usec;
-	}
+	rl->iops_tokens += dif_usec;
+	rl->bytes_tokens += (int64_t)rl->bytes_limit * dif_usec;
+	ratelimiter_tokens_dbg(rl, "fill_tokens");
 }
 
 static int64_t clap_delay(int64_t delay)
@@ -128,29 +153,29 @@ static int64_t ratelimiter_calc_delay(const struct ratelimiter *rl)
 	return MAX(iops_delay_usec, bytes_delay_usec);
 }
 
-static void ratelimiter_dbg(const struct ratelimiter *rl,
-			    size_t nbytes,
-			    int64_t delay_usec)
+static void ratelimiter_pre_io_dbg(const struct ratelimiter *rl,
+				   size_t nbytes,
+				   int64_t delay_usec)
 {
 	if (rl->iops_limit > 0) {
-		DBG_DEBUG("[%s %d-%s] delay_usec=%" PRId64
+		DBG_DEBUG("[%s snum:%d %s] delay_usec=%" PRId64
 			  " op_total=%zu iops_limit=%" PRIu64
 			  " iops_tokens=%" PRId64 "\n",
 			  mod_name,
 			  rl->snum,
-			  rl->tag,
+			  rl->op,
 			  delay_usec,
 			  rl->op_total,
 			  rl->iops_limit,
 			  rl->iops_tokens);
 	}
 	if (rl->bytes_limit > 0) {
-		DBG_DEBUG("[%s %d-%s] delay_usec=%" PRId64 " nbytes=%zu "
+		DBG_DEBUG("[%s snum:%d %s] delay_usec=%" PRId64 " nbytes=%zu "
 			  " nb_total=%zu bytes_limit=%" PRIu64
 			  " bytes_tokens=%" PRId64 "\n",
 			  mod_name,
 			  rl->snum,
-			  rl->tag,
+			  rl->op,
 			  delay_usec,
 			  nbytes,
 			  rl->nb_total,
@@ -186,7 +211,7 @@ static int64_t ratelimiter_pre_io(struct ratelimiter *rl, size_t nbytes)
 	rl->op_total += 1;
 	rl->nb_total += nbytes;
 
-	ratelimiter_dbg(rl, nbytes, delay_usec);
+	ratelimiter_pre_io_dbg(rl, nbytes, delay_usec);
 
 	return delay_usec;
 }
