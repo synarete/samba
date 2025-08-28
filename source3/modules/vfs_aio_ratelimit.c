@@ -79,7 +79,7 @@ struct ratelimiter {
 	int64_t bytes_tokens;
 	int64_t bytes_tokens_max;
 	int64_t bytes_tokens_min;
-	int64_t delay_usec_max;
+	int64_t delay_sec_max;
 	int snum;
 };
 
@@ -132,7 +132,7 @@ static void ratelimiter_init(struct ratelimiter *rl,
 	rl->bytes_tokens = 0;
 	rl->bytes_tokens_max = rl->bw_limit * TOKENS_FACTOR;
 	rl->bytes_tokens_min = -rl->bytes_tokens_max;
-	rl->delay_usec_max = 1000000L * delay_sec_max;
+	rl->delay_sec_max = delay_sec_max;
 	rl->snum = snum;
 
 	DBG_DEBUG("[%s snum:%d %s] init ratelimiter:" //
@@ -145,12 +145,12 @@ static void ratelimiter_init(struct ratelimiter *rl,
 		  rl->oper,
 		  rl->iops_limit,
 		  rl->bw_limit,
-		  delay_sec_max);
+		  rl->delay_sec_max);
 }
 
 static bool ratelimiter_enabled(const struct ratelimiter *rl)
 {
-	return (rl->delay_usec_max > 0) &&
+	return (rl->delay_sec_max > 0) &&
 	       ((rl->iops_limit > 0) || (rl->bw_limit > 0));
 }
 
@@ -200,18 +200,20 @@ static uint32_t ratelimiter_calc_delay(const struct ratelimiter *rl)
 {
 	int64_t iops_delay_usec = 0;
 	int64_t bytes_delay_usec = 0;
-	int64_t deficit = 0;
+	int64_t delay_usec = 0;
 
+	/* Calculate delay for 1-second window */
 	if ((rl->iops_limit > 0) && (rl->iops_tokens < 0)) {
-		deficit = (rl->iops_tokens * 1000000L);
-		iops_delay_usec = deficit / rl->iops_tokens_min;
+		iops_delay_usec = (rl->iops_tokens * 1000000L) /
+				  rl->iops_tokens_min;
 	}
 	if ((rl->bw_limit > 0) && (rl->bytes_tokens < 0)) {
-		deficit = (rl->bytes_tokens * 1000000L);
-		bytes_delay_usec = deficit / rl->bytes_tokens_min;
+		bytes_delay_usec = (rl->bytes_tokens * 1000000L) /
+				   rl->bytes_tokens_min;
 	}
-	return (uint32_t)min64(rl->delay_usec_max,
-			       max64(iops_delay_usec, bytes_delay_usec));
+	/* Normalize delay within valid span */
+	delay_usec = max64(iops_delay_usec, bytes_delay_usec);
+	return (uint32_t)(delay_usec * rl->delay_sec_max);
 }
 
 static bool ratelimiter_need_renew(const struct ratelimiter *rl,
