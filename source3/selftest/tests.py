@@ -1691,6 +1691,16 @@ plantestsuite("samba3.blackbox.aio-outstanding", "simpleserver:local",
                '$SERVER_IP',
                "aio_delay_inject"])
 
+plantestsuite("samba3.blackbox.aio_ratelimit", "simpleserver:local",
+              [os.path.join(samba3srcdir,
+                            "script/tests/test_aio_ratelimit.sh"),
+               configuration,
+               os.path.join(bindir(), "smbclient"),
+               '$SERVER_IP',
+               '$LOCAL_PATH',
+               '$PREFIX',
+               "aio_ratelimit"])
+
 plantestsuite("samba3.blackbox.deadtime", "simpleserver:local",
               [os.path.join(samba3srcdir, "script/tests/test_deadtime.sh"),
                '$SERVER_IP'])
