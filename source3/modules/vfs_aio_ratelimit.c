@@ -308,11 +308,14 @@ static uint32_t ratelimiter_update_io(struct ratelimiter *rl, int64_t nbytes)
 	if (ratelimiter_need_renew(rl, &now)) {
 		/* Renew state */
 		ratelimiter_renew_tokens(rl);
-		rl->ts_base = now;
+		rl->ts_base = rl->ts_last = now;
 	} else {
 		/* Produce tokens based on elapsed time */
 		tdiff_usec = time_diff(&now, &rl->ts_last);
-		ratelimiter_fill_tokens(rl, tdiff_usec);
+		if (tdiff_usec > 0) {
+			ratelimiter_fill_tokens(rl, tdiff_usec);
+			rl->ts_last = now;
+		}
 	}
 
 	/* Consume tokens based on I/O size */
@@ -321,8 +324,7 @@ static uint32_t ratelimiter_update_io(struct ratelimiter *rl, int64_t nbytes)
 	/* Calculate delay based on current tokens deficit */
 	delay_usec = ratelimiter_calc_delay(rl);
 
-	/* Update time-stamp for next operation */
-	rl->ts_last = now;
+	/* Update global counters */
 	rl->iops_total += 1;
 	rl->bytes_total += nbytes;
 
