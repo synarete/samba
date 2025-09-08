@@ -398,7 +398,7 @@ int main(int argc, char * const *argv)
 		}
 	}
 
-	while (num_procs) {
+	while (num_procs > 0) {
 		int status, j;
 		pid_t pid;
 
