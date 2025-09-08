@@ -314,7 +314,7 @@ int main(int argc, char * const *argv)
 {
 	int i, seed = -1;
 	int num_loops = 5000;
-	int num_procs = 3;
+	unsigned num_procs = 3;
 	int c, pfds[2];
 	extern char *optarg;
 	pid_t *pids;
@@ -327,7 +327,7 @@ int main(int argc, char * const *argv)
 	while ((c = getopt(argc, argv, "n:l:s:H:thkm")) != -1) {
 		switch (c) {
 		case 'n':
-			num_procs = strtol(optarg, NULL, 0);
+			num_procs = (unsigned)strtol(optarg, NULL, 0);
 			break;
 		case 'l':
 			num_loops = strtol(optarg, NULL, 0);
@@ -364,11 +364,11 @@ int main(int argc, char * const *argv)
 		seed = (getpid() + time(NULL)) & 0x7FFFFFFF;
 	}
 
-	printf("Testing with %d processes, %d loops, %d hash_size, seed=%d%s\n",
+	printf("Testing with %u processes, %d loops, %d hash_size, seed=%d%s\n",
 	       num_procs, num_loops, hash_size, seed,
 	       (always_transaction ? " (all within transactions)" : ""));
 
-	if (num_procs == 1 && !kill_random) {
+	if (num_procs <= 1 && !kill_random) {
 		/* Don't fork for this case, makes debugging easier. */
 		error_count = run_child(test_tdb, 0, seed, num_loops, 0);
 		goto done;
@@ -398,7 +398,7 @@ int main(int argc, char * const *argv)
 		}
 	}
 
-	while (num_procs) {
+	while (num_procs > 0) {
 		int status, j;
 		pid_t pid;
 
