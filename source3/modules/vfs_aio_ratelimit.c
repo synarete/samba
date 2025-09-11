@@ -53,7 +53,7 @@
 #define DELAY_SEC_MAX (100L)
 
 /* Avoid precision loss by multiply tokens with fixed factor */
-#define TOKENS_FACTOR (1000L)
+#define TOKENS_FACTOR (1000000L)
 
 /* Maximal value for iops_limit */
 #define IOPS_LIMIT_MAX (1000000L)
