@@ -194,6 +194,20 @@ static void ratelimiter_fill_tokens(struct ratelimiter *rl, int64_t dif_usec)
 	}
 }
 
+static float calc_delay_usec(float tokens, float tokens_min)
+{
+	float ratio, deficit;
+
+	/* calc ratio with [0.0, 1.0] range */
+	ratio = tokens / tokens_min;
+
+	/* define deficit as a quadratic ratio (instead of linear) */
+	deficit = (ratio * ratio);
+
+	/* return delay in micro-seconds units */
+	return deficit * 1000000.0f;
+}
+
 static uint32_t ratelimiter_calc_delay(const struct ratelimiter *rl)
 {
 	float iops_delay_usec = 0.0;
@@ -202,15 +216,16 @@ static uint32_t ratelimiter_calc_delay(const struct ratelimiter *rl)
 
 	/* Calculate delay for 1-second window */
 	if ((rl->iops_limit > 0) && (rl->iops_tokens < 0.0)) {
-		iops_delay_usec = (rl->iops_tokens * 1000000L) /
-				  rl->iops_tokens_min;
+		iops_delay_usec = calc_delay_usec(rl->iops_tokens,
+						  rl->iops_tokens_min);
 	}
 	if ((rl->bw_limit > 0) && (rl->bytes_tokens < 0.0)) {
-		bytes_delay_usec = (rl->bytes_tokens * 1000000L) /
-				   rl->bytes_tokens_min;
+		bytes_delay_usec = calc_delay_usec(rl->bytes_tokens,
+						   rl->bytes_tokens_min);
 	}
-	/* Normalize delay within valid span */
 	delay_usec = (int64_t)maxf(iops_delay_usec, bytes_delay_usec);
+
+	/* Normalize delay within valid span */
 	return (uint32_t)(delay_usec * rl->delay_sec_max);
 }
 
