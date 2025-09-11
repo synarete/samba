@@ -52,9 +52,6 @@
 #define DELAY_SEC_DEF (10L)
 #define DELAY_SEC_MAX (100L)
 
-/* Avoid precision loss by multiply tokens with fixed factor */
-#define TOKENS_FACTOR (1000L)
-
 /* Maximal value for iops_limit */
 #define IOPS_LIMIT_MAX (1000000L)
 
@@ -71,14 +68,14 @@ struct ratelimiter {
 	struct timespec ts_last;
 	int64_t iops_limit;
 	int64_t iops_total;
-	int64_t iops_tokens;
-	int64_t iops_tokens_max;
-	int64_t iops_tokens_min;
+	float iops_tokens;
+	float iops_tokens_max;
+	float iops_tokens_min;
 	int64_t bw_limit;
 	int64_t bytes_total;
-	int64_t bytes_tokens;
-	int64_t bytes_tokens_max;
-	int64_t bytes_tokens_min;
+	float bytes_tokens;
+	float bytes_tokens_max;
+	float bytes_tokens_min;
 	int64_t delay_sec_max;
 	int snum;
 };
@@ -89,12 +86,12 @@ struct vfs_aio_ratelimit_config {
 	struct ratelimiter wr_ratelimiter;
 };
 
-static int64_t max64(int64_t x, int64_t y)
+static float maxf(float x, float y)
 {
 	return MAX(x, y);
 }
 
-static int64_t min64(int64_t x, int64_t y)
+static float minf(float x, float y)
 {
 	return MIN(x, y);
 }
@@ -124,13 +121,13 @@ static void ratelimiter_init(struct ratelimiter *rl,
 	rl->oper = oper_name;
 	rl->iops_total = 0;
 	rl->iops_limit = iops_limit;
-	rl->iops_tokens = 0;
-	rl->iops_tokens_max = rl->iops_limit * TOKENS_FACTOR;
+	rl->iops_tokens = 0.0;
+	rl->iops_tokens_max = (float)rl->iops_limit;
 	rl->iops_tokens_min = -rl->iops_tokens_max;
 	rl->bytes_total = 0;
 	rl->bw_limit = bw_limit;
-	rl->bytes_tokens = 0;
-	rl->bytes_tokens_max = rl->bw_limit * TOKENS_FACTOR;
+	rl->bytes_tokens = 0.0;
+	rl->bytes_tokens_max = (float)rl->bw_limit;
 	rl->bytes_tokens_min = -rl->bytes_tokens_max;
 	rl->delay_sec_max = delay_sec_max;
 	rl->snum = snum;
@@ -166,53 +163,54 @@ static void ratelimiter_renew_tokens(struct ratelimiter *rl)
 
 static void ratelimiter_take_tokens(struct ratelimiter *rl, int64_t nbytes)
 {
-	int64_t take;
-
 	if (rl->iops_limit > 0) {
-		take = TOKENS_FACTOR;
-		rl->iops_tokens = max64(rl->iops_tokens - take,
-					rl->iops_tokens_min);
+		rl->iops_tokens = maxf(rl->iops_tokens - 1.0,
+				       rl->iops_tokens_min);
 	}
 	if (rl->bw_limit > 0) {
-		take = TOKENS_FACTOR * nbytes;
-		rl->bytes_tokens = max64(rl->bytes_tokens - take,
-					 rl->bytes_tokens_min);
+		rl->bytes_tokens = maxf(rl->bytes_tokens - (float)nbytes,
+					rl->bytes_tokens_min);
 	}
+}
+
+static float calc_fill_tokens(float tokens_max, int64_t dif_usec)
+{
+	return ((float)(dif_usec)*tokens_max) / 1000000.0f;
 }
 
 static void ratelimiter_fill_tokens(struct ratelimiter *rl, int64_t dif_usec)
 {
-	int64_t fill;
+	float fill;
 
 	if (rl->iops_limit > 0) {
-		fill = (dif_usec * rl->iops_tokens_max) / 1000000L;
-		rl->iops_tokens = min64(rl->iops_tokens + fill,
-					rl->iops_tokens_max);
+		fill = calc_fill_tokens(rl->iops_tokens_max, dif_usec);
+		rl->iops_tokens = minf(rl->iops_tokens + fill,
+				       rl->iops_tokens_max);
 	}
 	if (rl->bw_limit > 0) {
-		fill = (dif_usec * rl->bytes_tokens_max) / 1000000L;
-		rl->bytes_tokens = min64(rl->bytes_tokens + fill,
-					 rl->bytes_tokens_max);
+		fill = calc_fill_tokens(rl->bytes_tokens_max, dif_usec);
+		rl->bytes_tokens = minf(rl->bytes_tokens + fill,
+					rl->bytes_tokens_max);
 	}
 }
 
 static uint32_t ratelimiter_calc_delay(const struct ratelimiter *rl)
 {
-	int64_t iops_delay_usec = 0;
-	int64_t bytes_delay_usec = 0;
+	float iops_delay_usec = 0.0;
+	float bytes_delay_usec = 0.0;
 	int64_t delay_usec = 0;
 
 	/* Calculate delay for 1-second window */
-	if ((rl->iops_limit > 0) && (rl->iops_tokens < 0)) {
+	if ((rl->iops_limit > 0) && (rl->iops_tokens < 0.0)) {
 		iops_delay_usec = (rl->iops_tokens * 1000000L) /
 				  rl->iops_tokens_min;
 	}
-	if ((rl->bw_limit > 0) && (rl->bytes_tokens < 0)) {
+	if ((rl->bw_limit > 0) && (rl->bytes_tokens < 0.0)) {
 		bytes_delay_usec = (rl->bytes_tokens * 1000000L) /
 				   rl->bytes_tokens_min;
 	}
 	/* Normalize delay within valid span */
-	delay_usec = max64(iops_delay_usec, bytes_delay_usec);
+	delay_usec = (int64_t)maxf(iops_delay_usec, bytes_delay_usec);
 	return (uint32_t)(delay_usec * rl->delay_sec_max);
 }
 
@@ -258,13 +256,13 @@ static void ratelimiter_dbg(const struct ratelimiter *rl,
 			    uint32_t delay_usec)
 {
 	if (rl->iops_limit > 0) {
-		DBG_DEBUG("[%s snum:%d %s]"	      //
-			  " iops_total=%" PRId64      //
-			  " iops_limit=%" PRId64      //
-			  " iops_tokens_max=%" PRId64 //
-			  " iops_tokens=%" PRId64     //
-			  " tdiff_usec=%" PRId64      //
-			  " delay_usec=%" PRIu32      //
+		DBG_DEBUG("[%s snum:%d %s]"	 //
+			  " iops_total=%" PRId64 //
+			  " iops_limit=%" PRId64 //
+			  " iops_tokens_max=%f"	 //
+			  " iops_tokens=%.2f"	 //
+			  " tdiff_usec=%" PRId64 //
+			  " delay_usec=%" PRIu32 //
 			  " \n",
 			  vfs_aio_ratelimit_name,
 			  rl->snum,
@@ -277,14 +275,14 @@ static void ratelimiter_dbg(const struct ratelimiter *rl,
 			  delay_usec);
 	}
 	if (rl->bw_limit > 0) {
-		DBG_DEBUG("[%s snum:%d %s]"	       //
-			  " bytes_total=%" PRId64      //
-			  " bw_limit=%" PRId64	       //
-			  " bytes_tokens_max=%" PRId64 //
-			  " bytes_tokens=%" PRId64     //
-			  " nbytes=%" PRId64	       //
-			  " tdiff_usec=%" PRId64       //
-			  " delay_usec=%" PRIu32       //
+		DBG_DEBUG("[%s snum:%d %s]"	  //
+			  " bytes_total=%" PRId64 //
+			  " bw_limit=%" PRId64	  //
+			  " bytes_tokens_max=%f"  //
+			  " bytes_tokens=%.2f"	  //
+			  " nbytes=%" PRId64	  //
+			  " tdiff_usec=%" PRId64  //
+			  " delay_usec=%" PRIu32  //
 			  " \n",
 			  vfs_aio_ratelimit_name,
 			  rl->snum,
@@ -358,9 +356,10 @@ static int64_t vfs_aio_ratelimit_lp_parm(int snum,
 					 int64_t def,
 					 int64_t lim)
 {
-	const char *type = vfs_aio_ratelimit_name;
+	int64_t val;
 
-	return min64((int64_t)lp_parm_ulong(snum, type, option, def), lim);
+	val = (int64_t)lp_parm_ulong(snum, vfs_aio_ratelimit_name, option, def);
+	return (val > lim) ? lim : val;
 }
 
 static void vfs_aio_ratelimit_setup(struct vfs_aio_ratelimit_config *config,
