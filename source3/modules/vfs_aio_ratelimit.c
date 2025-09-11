@@ -52,9 +52,6 @@
 #define DELAY_SEC_DEF (10L)
 #define DELAY_SEC_MAX (100L)
 
-/* Avoid precision loss by multiply tokens with fixed factor */
-#define TOKENS_FACTOR (1000000L)
-
 /* Maximal value for iops_limit */
 #define IOPS_LIMIT_MAX (1000000L)
 
@@ -125,12 +122,12 @@ static void ratelimiter_init(struct ratelimiter *rl,
 	rl->iops_total = 0;
 	rl->iops_limit = iops_limit;
 	rl->iops_tokens = 0;
-	rl->iops_tokens_max = rl->iops_limit * TOKENS_FACTOR;
+	rl->iops_tokens_max = rl->iops_limit;
 	rl->iops_tokens_min = -rl->iops_tokens_max;
 	rl->bytes_total = 0;
 	rl->bw_limit = bw_limit;
 	rl->bytes_tokens = 0;
-	rl->bytes_tokens_max = rl->bw_limit * TOKENS_FACTOR;
+	rl->bytes_tokens_max = rl->bw_limit;
 	rl->bytes_tokens_min = -rl->bytes_tokens_max;
 	rl->delay_sec_max = delay_sec_max;
 	rl->snum = snum;
@@ -169,12 +166,12 @@ static void ratelimiter_take_tokens(struct ratelimiter *rl, int64_t nbytes)
 	int64_t take;
 
 	if (rl->iops_limit > 0) {
-		take = TOKENS_FACTOR;
+		take = 1;
 		rl->iops_tokens = max64(rl->iops_tokens - take,
 					rl->iops_tokens_min);
 	}
 	if (rl->bw_limit > 0) {
-		take = TOKENS_FACTOR * nbytes;
+		take = nbytes;
 		rl->bytes_tokens = max64(rl->bytes_tokens - take,
 					 rl->bytes_tokens_min);
 	}
@@ -182,16 +179,16 @@ static void ratelimiter_take_tokens(struct ratelimiter *rl, int64_t nbytes)
 
 static void ratelimiter_fill_tokens(struct ratelimiter *rl, int64_t dif_usec)
 {
-	int64_t fill;
+	double fill;
 
 	if (rl->iops_limit > 0) {
-		fill = (dif_usec * rl->iops_tokens_max) / 1000000L;
-		rl->iops_tokens = min64(rl->iops_tokens + fill,
+		fill = (double)(dif_usec * rl->iops_tokens_max) / 1000000.0f;
+		rl->iops_tokens = min64(rl->iops_tokens + (int64_t)fill,
 					rl->iops_tokens_max);
 	}
 	if (rl->bw_limit > 0) {
-		fill = (dif_usec * rl->bytes_tokens_max) / 1000000L;
-		rl->bytes_tokens = min64(rl->bytes_tokens + fill,
+		fill = (double)(dif_usec * rl->bytes_tokens_max) / 1000000.0f;
+		rl->bytes_tokens = min64(rl->bytes_tokens + (int64_t)fill,
 					 rl->bytes_tokens_max);
 	}
 }
