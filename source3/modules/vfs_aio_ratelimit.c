@@ -297,7 +297,7 @@ static void ratelimiter_dbg(const struct ratelimiter *rl,
 	}
 }
 
-static uint32_t ratelimiter_update_io(struct ratelimiter *rl, int64_t nbytes)
+static uint32_t ratelimiter_pre_io(struct ratelimiter *rl, int64_t nbytes)
 {
 	const struct timespec now = time_now();
 	int64_t tdiff_usec = 0;
@@ -316,19 +316,22 @@ static uint32_t ratelimiter_update_io(struct ratelimiter *rl, int64_t nbytes)
 		}
 	}
 
-	/* Consume tokens based on I/O size */
-	ratelimiter_take_tokens(rl, nbytes);
-
 	/* Calculate delay based on current tokens deficit */
 	delay_usec = ratelimiter_calc_delay(rl);
-
-	/* Update global counters */
-	rl->iops_total += 1;
-	rl->bytes_total += nbytes;
 
 	ratelimiter_dbg(rl, nbytes, tdiff_usec, delay_usec);
 
 	return delay_usec;
+}
+
+static void ratelimiter_post_io(struct ratelimiter *rl, int64_t nbytes)
+{
+	/* Consume tokens based on actual I/O size */
+	ratelimiter_take_tokens(rl, nbytes);
+
+	/* Update global counters (debug only) */
+	rl->iops_total += 1;
+	rl->bytes_total += nbytes;
 }
 
 static struct ratelimiter *ratelimiter_of(struct vfs_handle_struct *handle,
@@ -463,18 +466,25 @@ static struct timeval vfs_aio_ratelimit_delay_tv(uint32_t delay_usec)
 
 struct vfs_aio_ratelimit_state {
 	struct tevent_context *ev;
+	struct vfs_handle_struct *handle;
+	struct files_struct *fsp;
+	union {
+		void *rd_data;
+		const void *wr_data;
+	} d;
+	size_t n;
+	off_t offset;
 	struct ratelimiter *rl;
 	ssize_t result;
 	uint32_t delay;
 	struct vfs_aio_state vfs_aio_state;
 };
 
-static bool vfs_aio_ratelimit_update_done(struct vfs_aio_ratelimit_state *state)
+static void vfs_aio_ratelimit_update_done(struct vfs_aio_ratelimit_state *state)
 {
 	if ((state->rl != NULL) && (state->result >= 0)) {
-		state->delay = ratelimiter_update_io(state->rl, state->result);
+		ratelimiter_post_io(state->rl, state->result);
 	}
-	return (state->delay == 0);
 }
 
 static void vfs_aio_ratelimit_pread_done(struct tevent_req *subreq);
@@ -487,7 +497,7 @@ static struct tevent_req *vfs_aio_ratelimit_pread_send(
 	struct files_struct *fsp,
 	void *data,
 	size_t n,
-	off_t off)
+	off_t offset)
 {
 	struct tevent_req *req = NULL;
 	struct tevent_req *subreq = NULL;
@@ -502,17 +512,66 @@ static struct tevent_req *vfs_aio_ratelimit_pread_send(
 
 	*state = (struct vfs_aio_ratelimit_state){
 		.ev = ev,
+		.handle = handle,
+		.fsp = fsp,
+		.d.rd_data = data,
+		.n = n,
+		.offset = offset,
 		.rl = ratelimiter_of(handle, false),
 		.result = 0,
 		.delay = 0,
 	};
 
-	subreq = SMB_VFS_NEXT_PREAD_SEND(state, ev, handle, fsp, data, n, off);
+	if (state->rl != NULL) {
+		state->delay = ratelimiter_pre_io(state->rl, n);
+	}
+	if (state->delay == 0) {
+		subreq = SMB_VFS_NEXT_PREAD_SEND(
+			state, ev, handle, fsp, data, n, offset);
+		if (tevent_req_nomem(subreq, req)) {
+			return tevent_req_post(req, ev);
+		}
+		tevent_req_set_callback(subreq,
+					vfs_aio_ratelimit_pread_done,
+					req);
+		return req;
+	}
+	subreq = tevent_wakeup_send(state,
+				    ev,
+				    vfs_aio_ratelimit_delay_tv(state->delay));
 	if (tevent_req_nomem(subreq, req)) {
 		return tevent_req_post(req, ev);
 	}
-	tevent_req_set_callback(subreq, vfs_aio_ratelimit_pread_done, req);
+	tevent_req_set_callback(subreq, vfs_aio_ratelimit_pread_waited, req);
 	return req;
+}
+
+static void vfs_aio_ratelimit_pread_waited(struct tevent_req *subreq)
+{
+	struct tevent_req *req = tevent_req_callback_data(subreq,
+							  struct tevent_req);
+	struct vfs_aio_ratelimit_state *state = tevent_req_data(
+		req, struct vfs_aio_ratelimit_state);
+	bool ok;
+
+	ok = tevent_wakeup_recv(subreq);
+	TALLOC_FREE(subreq);
+	if (!ok) {
+		tevent_req_error(req, EIO);
+		return;
+	}
+
+	subreq = SMB_VFS_NEXT_PREAD_SEND(state,
+					 state->ev,
+					 state->handle,
+					 state->fsp,
+					 state->d.rd_data,
+					 state->n,
+					 state->offset);
+	if (tevent_req_nomem(subreq, req)) {
+		return;
+	}
+	tevent_req_set_callback(subreq, vfs_aio_ratelimit_pread_done, req);
 }
 
 static void vfs_aio_ratelimit_pread_done(struct tevent_req *subreq)
@@ -525,32 +584,7 @@ static void vfs_aio_ratelimit_pread_done(struct tevent_req *subreq)
 	state->result = SMB_VFS_PREAD_RECV(subreq, &state->vfs_aio_state);
 	TALLOC_FREE(subreq);
 
-	if (vfs_aio_ratelimit_update_done(state)) {
-		tevent_req_done(req);
-		return;
-	}
-
-	subreq = tevent_wakeup_send(state,
-				    state->ev,
-				    vfs_aio_ratelimit_delay_tv(state->delay));
-	if (tevent_req_nomem(subreq, req)) {
-		return;
-	}
-	tevent_req_set_callback(subreq, vfs_aio_ratelimit_pread_waited, req);
-}
-
-static void vfs_aio_ratelimit_pread_waited(struct tevent_req *subreq)
-{
-	struct tevent_req *req = tevent_req_callback_data(subreq,
-							  struct tevent_req);
-	bool ok;
-
-	ok = tevent_wakeup_recv(subreq);
-	TALLOC_FREE(subreq);
-	if (!ok) {
-		tevent_req_error(req, EIO);
-		return;
-	}
+	vfs_aio_ratelimit_update_done(state);
 	tevent_req_done(req);
 }
 
@@ -578,7 +612,7 @@ static struct tevent_req *vfs_aio_ratelimit_pwrite_send(
 	struct files_struct *fsp,
 	const void *data,
 	size_t n,
-	off_t off)
+	off_t offset)
 {
 	struct tevent_req *req = NULL;
 	struct tevent_req *subreq = NULL;
@@ -593,17 +627,66 @@ static struct tevent_req *vfs_aio_ratelimit_pwrite_send(
 
 	*state = (struct vfs_aio_ratelimit_state){
 		.ev = ev,
+		.handle = handle,
+		.fsp = fsp,
+		.d.wr_data = data,
+		.n = n,
+		.offset = offset,
 		.rl = ratelimiter_of(handle, true),
 		.result = 0,
 		.delay = 0,
 	};
 
-	subreq = SMB_VFS_NEXT_PWRITE_SEND(state, ev, handle, fsp, data, n, off);
+	if (state->rl != NULL) {
+		state->delay = ratelimiter_pre_io(state->rl, n);
+	}
+	if (state->delay == 0) {
+		subreq = SMB_VFS_NEXT_PWRITE_SEND(
+			state, ev, handle, fsp, data, n, offset);
+		if (tevent_req_nomem(subreq, req)) {
+			return tevent_req_post(req, ev);
+		}
+		tevent_req_set_callback(subreq,
+					vfs_aio_ratelimit_pwrite_done,
+					req);
+		return req;
+	}
+	subreq = tevent_wakeup_send(state,
+				    ev,
+				    vfs_aio_ratelimit_delay_tv(state->delay));
 	if (tevent_req_nomem(subreq, req)) {
 		return tevent_req_post(req, ev);
 	}
-	tevent_req_set_callback(subreq, vfs_aio_ratelimit_pwrite_done, req);
+	tevent_req_set_callback(subreq, vfs_aio_ratelimit_pwrite_waited, req);
 	return req;
+}
+
+static void vfs_aio_ratelimit_pwrite_waited(struct tevent_req *subreq)
+{
+	struct tevent_req *req = tevent_req_callback_data(subreq,
+							  struct tevent_req);
+	struct vfs_aio_ratelimit_state *state = tevent_req_data(
+		req, struct vfs_aio_ratelimit_state);
+	bool ok;
+
+	ok = tevent_wakeup_recv(subreq);
+	TALLOC_FREE(subreq);
+	if (!ok) {
+		tevent_req_error(req, EIO);
+		return;
+	}
+
+	subreq = SMB_VFS_NEXT_PWRITE_SEND(state,
+					  state->ev,
+					  state->handle,
+					  state->fsp,
+					  state->d.wr_data,
+					  state->n,
+					  state->offset);
+	if (tevent_req_nomem(subreq, req)) {
+		return;
+	}
+	tevent_req_set_callback(subreq, vfs_aio_ratelimit_pwrite_done, req);
 }
 
 static void vfs_aio_ratelimit_pwrite_done(struct tevent_req *subreq)
@@ -616,32 +699,7 @@ static void vfs_aio_ratelimit_pwrite_done(struct tevent_req *subreq)
 	state->result = SMB_VFS_PWRITE_RECV(subreq, &state->vfs_aio_state);
 	TALLOC_FREE(subreq);
 
-	if (vfs_aio_ratelimit_update_done(state)) {
-		tevent_req_done(req);
-		return;
-	}
-
-	subreq = tevent_wakeup_send(state,
-				    state->ev,
-				    vfs_aio_ratelimit_delay_tv(state->delay));
-	if (tevent_req_nomem(subreq, req)) {
-		return;
-	}
-	tevent_req_set_callback(subreq, vfs_aio_ratelimit_pwrite_waited, req);
-}
-
-static void vfs_aio_ratelimit_pwrite_waited(struct tevent_req *subreq)
-{
-	struct tevent_req *req = tevent_req_callback_data(subreq,
-							  struct tevent_req);
-	bool ok;
-
-	ok = tevent_wakeup_recv(subreq);
-	TALLOC_FREE(subreq);
-	if (!ok) {
-		tevent_req_error(req, EIO);
-		return;
-	}
+	vfs_aio_ratelimit_update_done(state);
 	tevent_req_done(req);
 }
 
