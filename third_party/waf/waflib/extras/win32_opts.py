@@ -80,7 +80,7 @@ if Utils.is_win32:
 		except OSError:
 			raise IOError('Cannot read from %r' % fname)
 		f = os.fdopen(fd, 'rb')
-		m = Utils.md5()
+		m = Utils.md5(usedforsecurity=False)
 		rb = 1
 		try:
 			while rb:

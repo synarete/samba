@@ -295,7 +295,7 @@ def hash_env_vars(self, env, vars_lst):
 
 	v = str([env[a] for a in vars_lst])
 	v = v.replace(self.srcnode.abspath().__repr__()[:-1], '')
-	m = Utils.md5()
+	m = Utils.md5(usedforsecurity=False)
 	m.update(v.encode())
 	ret = m.digest()
 
@@ -310,7 +310,7 @@ def uid(self):
 	try:
 		return self.uid_
 	except AttributeError:
-		m = Utils.md5()
+		m = Utils.md5(usedforsecurity=False)
 		src = self.generator.bld.srcnode
 		up = m.update
 		up(self.__class__.__name__.encode())

@@ -32,7 +32,7 @@ def h_file(self):
 	else:
 		if stat.S_ISDIR(st[stat.ST_MODE]):
 			raise IOError('Not a file')
-		ret = Utils.md5(str((st.st_mtime, st.st_size)).encode()).digest()
+		ret = Utils.md5(str((st.st_mtime, st.st_size)).encode(), usedforsecurity=False).digest()
 
 	cache[filename] = (st.st_mtime, ret)
 	return ret

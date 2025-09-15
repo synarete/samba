@@ -65,7 +65,7 @@ def uid(self):
 		return self.uid_
 	except AttributeError:
 		# this is not a real hot zone, but we want to avoid surprises here
-		m = Utils.md5()
+		m = Utils.md5(usedforsecurity=False)
 		up = m.update
 		up(self.__class__.__name__.encode())
 		for x in self.inputs + self.outputs:

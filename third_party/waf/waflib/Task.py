@@ -564,7 +564,7 @@ class Task(metaclass=store_task_type):
 		try:
 			return self.uid_
 		except AttributeError:
-			m = Utils.md5(self.__class__.__name__)
+			m = Utils.md5(self.__class__.__name__, usedforsecurity=False)
 			up = m.update
 			for x in self.inputs + self.outputs:
 				up(x.abspath())
@@ -634,7 +634,7 @@ class Task(metaclass=store_task_type):
 		except AttributeError:
 			pass
 
-		self.m = Utils.md5(self.hcode)
+		self.m = Utils.md5(self.hcode, usedforsecurity=False)
 
 		# explicit deps
 		self.sig_explicit_deps()
@@ -912,7 +912,7 @@ if sys.hexversion > 0x3000000:
 		try:
 			return self.uid_
 		except AttributeError:
-			m = Utils.md5(self.__class__.__name__.encode('latin-1', 'xmlcharrefreplace'))
+			m = Utils.md5(self.__class__.__name__.encode('latin-1', 'xmlcharrefreplace'), usedforsecurity=False)
 			up = m.update
 			for x in self.inputs + self.outputs:
 				up(x.abspath().encode('latin-1', 'xmlcharrefreplace'))

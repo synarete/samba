@@ -22,22 +22,22 @@ def signature(self):
 	except AttributeError:
 		pass
 
-	self.m = Utils.md5()
+	self.m = Utils.md5(usedforsecurity=False)
 	self.m.update(self.hcode)
 	id_sig = self.m.digest()
 
 	# explicit deps
-	self.m = Utils.md5()
+	self.m = Utils.md5(usedforsecurity=False)
 	self.sig_explicit_deps()
 	exp_sig = self.m.digest()
 
 	# env vars
-	self.m = Utils.md5()
+	self.m = Utils.md5(usedforsecurity=False)
 	self.sig_vars()
 	var_sig = self.m.digest()
 
 	# implicit deps / scanner results
-	self.m = Utils.md5()
+	self.m = Utils.md5(usedforsecurity=False)
 	if self.scan:
 		try:
 			self.sig_implicit_deps()

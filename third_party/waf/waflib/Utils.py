@@ -53,7 +53,7 @@ except ImportError:
 		pass
 else:
 	try:
-		md5().digest()
+		md5(usedforsecurity=False).digest()
 	except ValueError:
 		# Fips? #2213
 		from hashlib import sha1 as md5
@@ -278,7 +278,7 @@ def h_file(fname):
 	:return: hash of the file contents
 	:rtype: string or bytes
 	"""
-	m = md5()
+	m = md5(usedforsecurity=False)
 	with open(fname, 'rb') as f:
 		while fname:
 			fname = f.read(200000)
@@ -330,7 +330,7 @@ def h_file_win32(fname):
 		fd = os.open(fname, os.O_BINARY | os.O_RDONLY | os.O_NOINHERIT)
 	except OSError:
 		raise OSError('Cannot read from %r' % fname)
-	m = md5()
+	m = md5(usedforsecurity=False)
 	with os.fdopen(fd, 'rb') as f:
 		while fname:
 			fname = f.read(200000)
@@ -605,11 +605,11 @@ def h_list(lst):
 	:type lst: list of strings
 	:return: hash of the list
 	"""
-	return md5(repr(lst).encode()).digest()
+	return md5(repr(lst).encode(), usedforsecurity=False).digest()
 
 if sys.hexversion < 0x3000000:
 	def h_list_python2(lst):
-		return md5(repr(lst)).digest()
+		return md5(repr(lst), usedforsecurity=False).digest()
 	h_list_python2.__doc__ = h_list.__doc__
 	h_list = h_list_python2
 
