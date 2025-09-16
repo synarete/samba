@@ -768,6 +768,7 @@ bld.SAMBA3_LIBRARY('smbd_base',
                    ''' +
                    bld.env['dmapi_lib'] +
                    bld.env['legacy_quota_libs'] +
+                   bld.env['malloc_lib'] +
                    NOTIFY_DEPS,
                    private_library=True)
 

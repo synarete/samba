@@ -166,6 +166,11 @@ def options(opt):
                                      "Varlink"),
                                default=False)
 
+    opt.add_option('--with-tcmalloc',
+                   action='store_true', dest='with_tcmalloc', default=False,
+                   help=("Use TCMalloc allocator."))
+
+
 def configure(conf):
     if Options.options.SAMBA_VERSION_VENDOR_SUFFIX:
         conf.env.SAMBA_VERSION_VENDOR_SUFFIX = Options.options.SAMBA_VERSION_VENDOR_SUFFIX
@@ -397,6 +402,19 @@ def configure(conf):
 
     if not conf.CONFIG_GET('KRB5_VENDOR'):
         conf.PROCESS_SEPARATE_RULE('embedded_heimdal')
+
+    samba_malloc_lib = ''
+    if Options.options.with_tcmalloc:
+        conf.CHECK_CFG(package='libtcmalloc', args='--cflags --libs',
+                       msg='Checking for tcmalloc', mandatory=True)
+        if conf.CHECK_HEADERS('gperftools/tcmalloc.h', lib='tcmalloc') and \
+            conf.CHECK_LIB('tcmalloc', shlib=True) and \
+            conf.CHECK_FUNCS_IN('tc_malloc', 'tcmalloc', headers='gperftools/tcmalloc.h'):
+                conf.DEFINE('WITH_TCMALLOC', '1')
+                samba_malloc_lib = 'tcmalloc'
+        else:
+            conf.fatal("libtcmalloc (gperftools) not found.")
+    conf.env['malloc_lib'] = samba_malloc_lib
 
     conf.RECURSE('source4/dsdb/samdb/ldb_modules')
     conf.RECURSE('source4/ntvfs/sysdep')
