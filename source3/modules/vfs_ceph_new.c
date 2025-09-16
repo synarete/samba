@@ -164,6 +164,7 @@ struct vfs_ceph_config {
 	CEPH_FN(ceph_readdir_r);
 #if HAVE_CEPH_ASYNCIO
 	CEPH_FN(ceph_ll_nonblocking_readv_writev);
+	CEPH_FN(ceph_ll_nonblocking_fsync);
 #endif
 };
 
@@ -445,6 +446,7 @@ static bool vfs_cephfs_load_lib(struct vfs_ceph_config *config)
 	CHECK_CEPH_FN(libhandle, ceph_readdir_r);
 #if HAVE_CEPH_ASYNCIO
 	CHECK_CEPH_FN(libhandle, ceph_ll_nonblocking_readv_writev);
+	CHECK_CEPH_FN(libhandle, ceph_ll_nonblocking_fsync);
 #endif
 
 	config->libhandle = libhandle;
@@ -1952,6 +1954,28 @@ static int64_t vfs_ceph_ll_nonblocking_readv_writev(
 	return config->ceph_ll_nonblocking_readv_writev_fn(config->mount,
 							   io_info);
 }
+
+static int64_t vfs_ceph_ll_nonblocking_fsync(
+	const struct vfs_handle_struct *handle,
+	const struct vfs_ceph_fh *cfh,
+	struct ceph_ll_io_info *io_info)
+{
+	struct vfs_ceph_config *config = NULL;
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_config,
+				return -EINVAL);
+
+	DBG_DEBUG("[CEPH] ceph_ll_nonblocking_fsync: ino=%" PRIu64 " fd=%d\n",
+		  cfh->iref.ino,
+		  cfh->fd);
+
+	return config->ceph_ll_nonblocking_fsync_fn(config->mount,
+						    cfh->iref.inode,
+						    io_info);
+}
+
 #endif
 
 /* Ceph Inode-refernce get/put wrappers */
@@ -2587,9 +2611,15 @@ static void vfs_ceph_aio_submit(struct vfs_handle_struct *handle,
 
 	vfs_ceph_aio_start(state);
 
-	res = vfs_ceph_ll_nonblocking_readv_writev(handle,
-						   state->cfh,
-						   &state->io_info);
+	if (state->fsync && !state->write) {
+		res = vfs_ceph_ll_nonblocking_fsync(handle,
+						    state->cfh,
+						    &state->io_info);
+	} else {
+		res = vfs_ceph_ll_nonblocking_readv_writev(handle,
+							   state->cfh,
+							   &state->io_info);
+	}
 	if (res < 0) {
 		state->result = (int)res;
 		tevent_req_error(req, -((int)res));
