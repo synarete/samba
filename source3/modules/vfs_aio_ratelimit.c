@@ -515,6 +515,18 @@ static void vfs_aio_ratelimit_update_done(struct vfs_aio_ratelimit_state *state)
 static void vfs_aio_ratelimit_pread_done(struct tevent_req *subreq);
 static void vfs_aio_ratelimit_pread_waited(struct tevent_req *subreq);
 
+static struct tevent_req *vfs_aio_ratelimit_next_pread_send(
+	struct vfs_aio_ratelimit_state *state)
+{
+	return SMB_VFS_NEXT_PREAD_SEND(state,
+				       state->ev,
+				       state->handle,
+				       state->fsp,
+				       state->data.rd_data,
+				       state->n,
+				       state->offset);
+}
+
 static struct tevent_req *vfs_aio_ratelimit_pread_send(
 	struct vfs_handle_struct *handle,
 	TALLOC_CTX *mem_ctx,
@@ -551,8 +563,7 @@ static struct tevent_req *vfs_aio_ratelimit_pread_send(
 		state->delay = ratelimiter_pre_io(state->rl, n);
 	}
 	if (state->delay == 0) {
-		subreq = SMB_VFS_NEXT_PREAD_SEND(
-			state, ev, handle, fsp, data, n, offset);
+		subreq = vfs_aio_ratelimit_next_pread_send(state);
 		if (tevent_req_nomem(subreq, req)) {
 			return tevent_req_post(req, ev);
 		}
@@ -586,13 +597,7 @@ static void vfs_aio_ratelimit_pread_waited(struct tevent_req *subreq)
 		return;
 	}
 
-	subreq = SMB_VFS_NEXT_PREAD_SEND(state,
-					 state->ev,
-					 state->handle,
-					 state->fsp,
-					 state->data.rd_data,
-					 state->n,
-					 state->offset);
+	subreq = vfs_aio_ratelimit_next_pread_send(state);
 	if (tevent_req_nomem(subreq, req)) {
 		return;
 	}
@@ -630,6 +635,18 @@ static ssize_t vfs_aio_ratelimit_pread_recv(struct tevent_req *req,
 static void vfs_aio_ratelimit_pwrite_done(struct tevent_req *subreq);
 static void vfs_aio_ratelimit_pwrite_waited(struct tevent_req *subreq);
 
+static struct tevent_req *vfs_aio_ratelimit_next_pwrite_send(
+	struct vfs_aio_ratelimit_state *state)
+{
+	return SMB_VFS_NEXT_PWRITE_SEND(state,
+					state->ev,
+					state->handle,
+					state->fsp,
+					state->data.wr_data,
+					state->n,
+					state->offset);
+}
+
 static struct tevent_req *vfs_aio_ratelimit_pwrite_send(
 	struct vfs_handle_struct *handle,
 	TALLOC_CTX *mem_ctx,
@@ -666,8 +683,7 @@ static struct tevent_req *vfs_aio_ratelimit_pwrite_send(
 		state->delay = ratelimiter_pre_io(state->rl, n);
 	}
 	if (state->delay == 0) {
-		subreq = SMB_VFS_NEXT_PWRITE_SEND(
-			state, ev, handle, fsp, data, n, offset);
+		subreq = vfs_aio_ratelimit_next_pwrite_send(state);
 		if (tevent_req_nomem(subreq, req)) {
 			return tevent_req_post(req, ev);
 		}
@@ -701,13 +717,7 @@ static void vfs_aio_ratelimit_pwrite_waited(struct tevent_req *subreq)
 		return;
 	}
 
-	subreq = SMB_VFS_NEXT_PWRITE_SEND(state,
-					  state->ev,
-					  state->handle,
-					  state->fsp,
-					  state->data.wr_data,
-					  state->n,
-					  state->offset);
+	subreq = vfs_aio_ratelimit_next_pwrite_send(state);
 	if (tevent_req_nomem(subreq, req)) {
 		return;
 	}
