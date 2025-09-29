@@ -201,12 +201,46 @@ static void ratelimiter_fill_tokens(struct ratelimiter *rl, int64_t dif_usec)
 	}
 }
 
-static float calc_delay_usec(float tokens, float tokens_min)
+#define ALIGN_TO(v, al) (((v) + (al) - 1) & ~((al) - 1))
+#define ALIGN_TO_4K(v) ALIGN_TO((v), 4096)
+
+static size_t calc_iosize(size_t n, float tokens, float tokens_min)
 {
-	return (tokens * 1000000.0f) / tokens_min;
+	const size_t k = 65536;
+
+	if (n > k) {
+		const float r = 1.0 - (tokens / tokens_min);
+
+		if (r > 0.1) {
+			n = (size_t)((float)n * r);
+			n = ALIGN_TO_4K(n);
+		} else {
+			n = k;
+		}
+	}
+	return n;
 }
 
-static uint32_t ratelimiter_calc_delay(const struct ratelimiter *rl)
+static size_t ratelimiter_calc_iosize(const struct ratelimiter *rl, size_t n)
+{
+	if (!rl->iops_limit && (rl->bw_limit > 0) && (rl->bytes_tokens < 0.0)) {
+		n = calc_iosize(n, rl->bytes_tokens, rl->bytes_tokens_min);
+	}
+	return n;
+}
+
+static float calc_delay_usec(size_t n, float tokens, float tokens_min)
+{
+	const size_t nlim = 2097152;
+	float delay_factor = 1.0;
+
+	if (n < nlim) {
+		delay_factor = maxf((float)n / (float)nlim, 0.1);
+	}
+	return delay_factor * ((tokens * 1000000.0f) / tokens_min);
+}
+
+static uint32_t ratelimiter_calc_delay(const struct ratelimiter *rl, size_t n)
 {
 	float iops_delay_usec = 0.0;
 	float bytes_delay_usec = 0.0;
@@ -214,11 +248,13 @@ static uint32_t ratelimiter_calc_delay(const struct ratelimiter *rl)
 
 	/* Calculate delay for 1-second window */
 	if ((rl->iops_limit > 0) && (rl->iops_tokens < 0.0)) {
-		iops_delay_usec = calc_delay_usec(rl->iops_tokens,
+		iops_delay_usec = calc_delay_usec(n,
+						  rl->iops_tokens,
 						  rl->iops_tokens_min);
 	}
 	if ((rl->bw_limit > 0) && (rl->bytes_tokens < 0.0)) {
-		bytes_delay_usec = calc_delay_usec(rl->bytes_tokens,
+		bytes_delay_usec = calc_delay_usec(n,
+						   rl->bytes_tokens,
 						   rl->bytes_tokens_min);
 	}
 	/* Normalize delay within valid span */
@@ -263,7 +299,7 @@ static bool ratelimiter_need_renew(const struct ratelimiter *rl,
 }
 
 static void ratelimiter_dbg(const struct ratelimiter *rl,
-			    int64_t nbytes,
+			    size_t nbytes,
 			    int64_t tdiff_usec,
 			    uint32_t delay_usec)
 {
@@ -286,7 +322,7 @@ static void ratelimiter_dbg(const struct ratelimiter *rl,
 		DBG_DEBUG("[%s snum:%d %s]"
 			  " bytes_total=%" PRId64 " bw_limit=%" PRId64
 			  " bytes_tokens_max=%.2f bytes_tokens=%.2f"
-			  " nbytes=%" PRId64 " tdiff_usec=%" PRId64
+			  " nbytes=%zu tdiff_usec=%" PRId64
 			  " delay_usec=%" PRIu32 " \n",
 			  MODULE_NAME,
 			  rl->snum,
@@ -301,11 +337,15 @@ static void ratelimiter_dbg(const struct ratelimiter *rl,
 	}
 }
 
-static uint32_t ratelimiter_pre_io(struct ratelimiter *rl, int64_t nbytes)
+static void ratelimiter_pre_io(struct ratelimiter *rl,
+			       size_t nbytes_want,
+			       size_t *out_nbytes,
+			       uint32_t *out_delay_usec)
 {
 	const struct timespec now = time_now();
 	int64_t tdiff_usec = 0;
 	uint32_t delay_usec = 0;
+	size_t nbytes;
 
 	if (ratelimiter_need_renew(rl, &now)) {
 		/* Renew state */
@@ -320,18 +360,20 @@ static uint32_t ratelimiter_pre_io(struct ratelimiter *rl, int64_t nbytes)
 		}
 	}
 
+	/* Calculate io-size and delay based on current tokens deficit */
+	nbytes = ratelimiter_calc_iosize(rl, nbytes_want);
+	delay_usec = ratelimiter_calc_delay(rl, nbytes);
+
 	/* Consume tokens based on expected I/O size */
 	ratelimiter_take_tokens(rl, nbytes);
-
-	/* Calculate delay based on current tokens deficit */
-	delay_usec = ratelimiter_calc_delay(rl);
 
 	/* Update global counters (debug only) */
 	rl->iops_total += 1;
 	rl->bytes_total += nbytes;
 	ratelimiter_dbg(rl, nbytes, tdiff_usec, delay_usec);
 
-	return delay_usec;
+	*out_nbytes = nbytes;
+	*out_delay_usec = delay_usec;
 }
 
 static void ratelimiter_post_io(struct ratelimiter *rl,
@@ -560,7 +602,7 @@ static struct tevent_req *vfs_aio_ratelimit_pread_send(
 	};
 
 	if (state->rl != NULL) {
-		state->delay = ratelimiter_pre_io(state->rl, n);
+		ratelimiter_pre_io(state->rl, n, &state->n, &state->delay);
 	}
 	if (state->delay == 0) {
 		subreq = vfs_aio_ratelimit_next_pread_send(state);
@@ -680,7 +722,7 @@ static struct tevent_req *vfs_aio_ratelimit_pwrite_send(
 	};
 
 	if (state->rl != NULL) {
-		state->delay = ratelimiter_pre_io(state->rl, n);
+		ratelimiter_pre_io(state->rl, n, &state->n, &state->delay);
 	}
 	if (state->delay == 0) {
 		subreq = vfs_aio_ratelimit_next_pwrite_send(state);
