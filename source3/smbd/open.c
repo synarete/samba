@@ -5037,6 +5037,7 @@ static NTSTATUS open_directory(connection_struct *conn,
 			       struct smb_filename *smb_fname_atname,
 			       uint32_t oplock_request,
 			       const struct smb2_lease *lease,
+			       uint32_t private_flags,
 			       struct security_descriptor *sd,
 			       int *pinfo,
 			       struct files_struct *fsp)
@@ -5247,7 +5248,11 @@ static NTSTATUS open_directory(connection_struct *conn,
 	fsp->fsp_flags.can_read = false;
 	fsp->fsp_flags.can_write = false;
 
-	fsp_apply_private_ntcreatex_flags(fsp, 0);
+	/* FIXME: what about NTCREATEX_FLAG_STREAM_BASEOPEN ? */
+	fsp_apply_private_ntcreatex_flags(
+		fsp,
+		private_flags & NTCREATEX_FLAG_PERSISTENT_OPEN);
+
 	/*
 	 * According to Samba4, SEC_FILE_READ_ATTRIBUTE is always granted,
 	 */
@@ -6682,6 +6687,7 @@ static NTSTATUS create_file_unixpath(connection_struct *conn,
 					smb_fname_atname,
 					oplock_request,
 					lease,
+					private_flags,
 					sd,
 					&info,
 					fsp);
@@ -6740,6 +6746,7 @@ static NTSTATUS create_file_unixpath(connection_struct *conn,
 						smb_fname_atname,
 						oplock_request,
 						lease,
+						private_flags,
 						sd,
 						&info,
 						fsp);
