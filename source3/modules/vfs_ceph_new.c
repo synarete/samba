@@ -102,6 +102,7 @@ struct vfs_ceph_config {
 	const char *conf_file;
 	const char *user_id;
 	const char *fsname;
+	bool client_permissions;
 	struct cephmount_cached *mount_entry;
 	struct ceph_mount_info *mount;
 	enum vfs_cephfs_proxy_mode proxy;
@@ -317,6 +318,15 @@ static struct ceph_mount_info *cephmount_mount_fs(
 	if (ret < 0) {
 		goto out;
 	}
+	ret = cephmount_update_conf(config,
+				    mnt,
+				    "client_permissions",
+				    config->client_permissions ? "true"
+							       : "false");
+	if (ret < 0) {
+		goto out;
+	}
+
 	/*
 	 * select a cephfs file system to use:
 	 * In ceph, multiple file system support has been stable since
@@ -494,6 +504,11 @@ static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 	config_tmp->proxy	= lp_parm_enum(snum, module_name, "proxy",
 					       enum_vfs_cephfs_proxy_vals,
 					       VFS_CEPHFS_PROXY_NO);
+	config_tmp->client_permissions = lp_parm_bool(snum,
+						      module_name,
+						      "client_permissions",
+						      true);
+
 	if (config_tmp->proxy == -1) {
 		DBG_ERR("[CEPH] value for proxy: mode unknown\n");
 		return false;
