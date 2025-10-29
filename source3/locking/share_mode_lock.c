@@ -3620,3 +3620,8 @@ void fsp_apply_share_entry_flags(struct files_struct *fsp, uint16_t flags)
 	SMB_ASSERT(!(flags & SHARE_ENTRY_FLAG_DENY_DOS));
 	SMB_ASSERT(!(flags & SHARE_ENTRY_FLAG_DENY_FCB));
 }
+
+NTSTATUS locking_wipe(int flags)
+{
+	return g_lock_wipe(lock_ctx, flags);
+}
