@@ -102,6 +102,7 @@ struct vfs_ceph_config {
 	const char *conf_file;
 	const char *user_id;
 	const char *fsname;
+	unsigned long asyncio_threshold;
 	struct cephmount_cached *mount_entry;
 	struct ceph_mount_info *mount;
 	enum vfs_cephfs_proxy_mode proxy;
@@ -491,6 +492,10 @@ static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 						       "user_id", "");
 	config_tmp->fsname	= lp_parm_const_string(snum, module_name,
 						       "filesystem", "");
+	config_tmp->asyncio_threshold = lp_parm_ulong(snum,
+						      module_name,
+						      "asyncio_threshold",
+						      0);
 	config_tmp->proxy	= lp_parm_enum(snum, module_name, "proxy",
 					       enum_vfs_cephfs_proxy_vals,
 					       VFS_CEPHFS_PROXY_NO);
@@ -2476,6 +2481,7 @@ struct vfs_ceph_aio_state {
 	bool orphaned;
 	bool write;
 	bool fsync;
+	bool with_aio_submit;
 #endif
 	size_t len;
 	off_t off;
@@ -2641,7 +2647,8 @@ static void vfs_ceph_aio_done(struct tevent_context *ev,
 static void vfs_ceph_aio_prepare(struct vfs_handle_struct *handle,
 				 struct tevent_req *req,
 				 struct tevent_context *ev,
-				 struct files_struct *fsp)
+				 struct files_struct *fsp,
+				 size_t iosize)
 {
 	struct vfs_ceph_config *config = NULL;
 	struct vfs_ceph_aio_state *state = NULL;
@@ -2660,16 +2667,19 @@ static void vfs_ceph_aio_prepare(struct vfs_handle_struct *handle,
 	state->config = config;
 
 #if HAVE_CEPH_ASYNCIO
-	ret = vfs_ceph_require_tctx(state, ev);
-	if (ret != 0) {
-		tevent_req_error(req, -ret);
-		return;
-	}
+	if (iosize > config->asyncio_threshold) {
+		ret = vfs_ceph_require_tctx(state, ev);
+		if (ret != 0) {
+			tevent_req_error(req, -ret);
+			return;
+		}
 
-	state->im = tevent_create_immediate(state);
-	if (state->im == NULL) {
-		tevent_req_error(req, ENOMEM);
-		return;
+		state->im = tevent_create_immediate(state);
+		if (state->im == NULL) {
+			tevent_req_error(req, ENOMEM);
+			return;
+		}
+		state->with_aio_submit = true;
 	}
 #endif
 
@@ -2704,7 +2714,7 @@ static struct tevent_req *vfs_ceph_pread_send(struct vfs_handle_struct *handle,
 		return NULL;
 	}
 
-	vfs_ceph_aio_prepare(handle, req, ev, fsp);
+	vfs_ceph_aio_prepare(handle, req, ev, fsp, n);
 	if (!tevent_req_is_in_progress(req)) {
 		return tevent_req_post(req, ev);
 	}
@@ -2718,12 +2728,14 @@ static struct tevent_req *vfs_ceph_pread_send(struct vfs_handle_struct *handle,
 					  state->profile_bytes_x);
 
 #if HAVE_CEPH_ASYNCIO
-	state->req = req;
-	state->data = data;
-	state->len = n;
-	state->off = offset;
-	vfs_ceph_aio_submit(handle, req, ev);
-	return req;
+	if (state->with_aio_submit) {
+		state->req = req;
+		state->data = data;
+		state->len = n;
+		state->off = offset;
+		vfs_ceph_aio_submit(handle, req, ev);
+		return req;
+	}
 #endif
 	vfs_ceph_aio_start(state);
 	ret = vfs_ceph_ll_read(handle, state->cfh, offset, n, data);
@@ -2820,7 +2832,7 @@ static struct tevent_req *vfs_ceph_pwrite_send(struct vfs_handle_struct *handle,
 		return NULL;
 	}
 
-	vfs_ceph_aio_prepare(handle, req, ev, fsp);
+	vfs_ceph_aio_prepare(handle, req, ev, fsp, n);
 	if (!tevent_req_is_in_progress(req)) {
 		return tevent_req_post(req, ev);
 	}
@@ -2834,13 +2846,15 @@ static struct tevent_req *vfs_ceph_pwrite_send(struct vfs_handle_struct *handle,
 					  state->profile_bytes_x);
 
 #if HAVE_CEPH_ASYNCIO
-	state->req = req;
-	state->data = discard_const(data);
-	state->len = n;
-	state->off = offset;
-	state->write = true;
-	vfs_ceph_aio_submit(handle, req, ev);
-	return req;
+	if (state->with_aio_submit) {
+		state->req = req;
+		state->data = discard_const(data);
+		state->len = n;
+		state->off = offset;
+		state->write = true;
+		vfs_ceph_aio_submit(handle, req, ev);
+		return req;
+	}
 #endif
 
 	vfs_ceph_aio_start(state);
@@ -3023,7 +3037,7 @@ static struct tevent_req *vfs_ceph_fsync_send(struct vfs_handle_struct *handle,
 		return NULL;
 	}
 
-	vfs_ceph_aio_prepare(handle, req, ev, fsp);
+	vfs_ceph_aio_prepare(handle, req, ev, fsp, 0);
 	if (!tevent_req_is_in_progress(req)) {
 		return tevent_req_post(req, ev);
 	}
