@@ -317,6 +317,13 @@ static struct ceph_mount_info *cephmount_mount_fs(
 	if (ret < 0) {
 		goto out;
 	}
+	/* do explicit init */
+	ret = config->ceph_init_fn(mnt);
+	if (ret < 0) {
+		DBG_DEBUG("[CEPH] ceph_init failed: ret=%d\n", ret);
+		goto out;
+	}
+
 	/*
 	 * select a cephfs file system to use:
 	 * In ceph, multiple file system support has been stable since
