@@ -387,6 +387,7 @@ static struct smb_filename *vfs_ceph_rgw_realpath(
 	struct smb_filename *result_fname = NULL;
 
 	START_PROFILE_X(SNUM(handle->conn), syscall_realpath);
+
 	result = talloc_strdup(ctx, path);
 	if (result == NULL) {
 		goto out;
@@ -513,6 +514,80 @@ out:
 	return status_code(result);
 }
 
+/*
+ * librgw do not have concept of current working directory.
+ * Thus we just perform a lookup if its not same as bucket name.
+ */
+
+static int vfs_ceph_rgw_chdir(struct vfs_handle_struct *handle,
+			      const struct smb_filename *smb_fname)
+{
+	START_PROFILE_X(SNUM(handle->conn), syscall_chdir);
+	END_PROFILE_X(syscall_chdir);
+	return status_code(0);
+#if 0
+	int rc = -1;
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct rgw_file_handle *rgw_fh = NULL;
+	const char *path = smb_fname->base_name;
+	struct stat st = {0};
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_chdir);
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				return -ENOMEM);
+
+	DBG_NOTICE("[CEPH_RGW] chdir called with path=%s\n", path);
+
+	len = strlen(path);
+
+	if (path[0] == '/') {
+		path++;
+	}
+
+	/* Return success, if chdir path is bucket itself */
+	if (strncmp(config->bkt_name, path, strlen(config->bkt_name)) == 0) {
+		rc = 0;
+		goto out;
+	}
+
+	rc = config->rgw_lookup_fn(config->rgw_root_fs,
+				   config->rgw_root_fh,
+				   path,
+				   &rgw_fh,
+				   &st,
+				   0,
+				   RGW_LOOKUP_TYPE_FLAGS);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Error changing dir to %s. rc=%d\n",
+			path, rc);
+	} else {
+		/* release handle returned by lookup operation */
+		(void)config->rgw_fh_rele_fn(config->rgw_root_fs,
+					     rgw_fh,
+					     RGW_FH_RELE_FLAG_NONE);
+	}
+
+out:
+	END_PROFILE_X(syscall_chdir);
+	return status_code(rc);
+#endif
+}
+
+static struct smb_filename *vfs_ceph_rgw_getwd(
+			struct vfs_handle_struct *handle,
+			TALLOC_CTX *ctx)
+{
+	const char *cwd = "/";
+	struct vfs_ceph_rgw_config *config = NULL;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_getwd);
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				return NULL);
+
+	END_PROFILE_X(syscall_getwd);
+	return cp_smb_basename(ctx, cwd);
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
@@ -558,8 +633,8 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.fchmod_fn = vfs_not_implemented_fchmod,
 	.fchown_fn = vfs_not_implemented_fchown,
 	.lchown_fn = vfs_not_implemented_lchown,
-	.chdir_fn = vfs_not_implemented_chdir,
-	.getwd_fn = vfs_not_implemented_getwd,
+	.chdir_fn = vfs_ceph_rgw_chdir,
+	.getwd_fn = vfs_ceph_rgw_getwd,
 	.fntimes_fn = vfs_not_implemented_fntimes,
 	.ftruncate_fn = vfs_not_implemented_ftruncate,
 	.fallocate_fn = vfs_not_implemented_fallocate,
