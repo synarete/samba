@@ -522,9 +522,12 @@ out:
 static int vfs_ceph_rgw_chdir(struct vfs_handle_struct *handle,
 			      const struct smb_filename *smb_fname)
 {
+	int rc = 0;
 	START_PROFILE_X(SNUM(handle->conn), syscall_chdir);
+	DBG_NOTICE("[CEPH_RGW] chdir is for %s\n",
+		   smb_fname->base_name);
 	END_PROFILE_X(syscall_chdir);
-	return status_code(0);
+	return status_code(rc);
 #if 0
 	int rc = -1;
 	struct vfs_ceph_rgw_config *config = NULL;
@@ -588,6 +591,48 @@ static struct smb_filename *vfs_ceph_rgw_getwd(
 	return cp_smb_basename(ctx, cwd);
 }
 
+static int vfs_ceph_rgw_openat(
+			struct vfs_handle_struct *handle,
+			const struct files_struct *dirfsp,
+			const struct smb_filename *smb_fname,
+			files_struct *fsp,
+			const struct vfs_open_how *how)
+{
+	int rc = 0;
+	static int ceph_rgw_fd = 10000;
+	START_PROFILE_X(SNUM(handle->conn), syscall_openat);
+	DBG_NOTICE("[CEPH_RGW] open is for [%s] fd=%d\n",
+		   smb_fname->base_name, ceph_rgw_fd);
+	ceph_rgw_fd++;
+	rc = ceph_rgw_fd;
+	END_PROFILE_X(syscall_openat);
+	return status_code(rc);
+}
+
+static int vfs_ceph_rgw_close(
+			struct vfs_handle_struct *handle,
+			files_struct *fsp)
+{
+	int rc = 0;
+	START_PROFILE_X(SNUM(handle->conn), syscall_close);
+	DBG_NOTICE("[CEPH_RGW] close is for [%s]\n", fsp_str_dbg(fsp));
+	END_PROFILE_X(syscall_close);
+	return status_code(rc);
+}
+
+static int vfs_ceph_rgw_fstat(struct vfs_handle_struct *handle,
+			  files_struct *fsp,
+			  SMB_STRUCT_STAT *sbuf)
+{
+	int rc = 0;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_fstatat);
+
+	DBG_DEBUG("[CEPH_RGW] fstatat: name [%s]\n", fsp->fsp_name->base_name);
+	END_PROFILE_X(syscall_fstatat);
+	return status_code(rc);
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
@@ -611,8 +656,8 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 
 	.create_dfs_pathat_fn = vfs_not_implemented_create_dfs_pathat,
 	.read_dfs_pathat_fn = vfs_not_implemented_read_dfs_pathat,
-	.openat_fn = vfs_not_implemented_openat,
-	.close_fn = vfs_not_implemented_close_fn,
+	.openat_fn = vfs_ceph_rgw_openat,
+	.close_fn = vfs_ceph_rgw_close,
 	.pread_fn = vfs_not_implemented_pread,
 	.pread_send_fn = vfs_not_implemented_pread_send,
 	.pread_recv_fn = vfs_not_implemented_pread_recv,
@@ -626,7 +671,7 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.fsync_send_fn = vfs_not_implemented_fsync_send,
 	.fsync_recv_fn = vfs_not_implemented_fsync_recv,
 	.stat_fn = vfs_ceph_rgw_stat,
-	.fstat_fn = vfs_not_implemented_fstat,
+	.fstat_fn = vfs_ceph_rgw_fstat,
 	.lstat_fn = vfs_not_implemented_lstat,
 	.fstatat_fn = vfs_not_implemented_fstatat,
 	.unlinkat_fn = vfs_not_implemented_unlinkat,
