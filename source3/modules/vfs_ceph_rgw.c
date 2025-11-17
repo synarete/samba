@@ -116,6 +116,23 @@ struct vfs_ceph_rgw_config {
 	RGW_FN(rgw_rmxattrs);
 };
 
+struct vfs_ceph_rgw_dir {
+	int pos;
+	int num;
+	struct dirent *dirs;
+};
+
+/* Ceph-rgw file-handles via fsp-extension */
+struct vfs_ceph_rgw_fh {
+	struct vfs_ceph_rgw_dir *dirp;
+	struct files_struct *fsp;
+	struct vfs_ceph_rgw_config *config;
+	struct Fh *fh;
+	struct rgw_file_handle *rgw_fh;
+	int fd;
+	int o_flags;
+};
+
 /*
  * Note, librgw's return code model is to return -errno. Thus we have to
  * convert to what Samba expects: set errno to non-negative value and return -1.
@@ -608,28 +625,17 @@ static struct smb_filename *vfs_ceph_rgw_getwd(
 	return cp_smb_basename(ctx, cwd);
 }
 
-/* Ceph file-handles via fsp-extension */
-struct vfs_ceph_rgw_fh {
-	struct files_struct *fsp;
-	struct vfs_ceph_rgw_config *config;
-	struct Fh *fh;
-	struct rgw_file_handle *rgw_fh;
-	int fd;
-	int o_flags;
-};
 
 static void vfs_ceph_rgw_put_fh_dirent(struct vfs_ceph_rgw_fh *cfh)
 {
+	TALLOC_FREE(cfh->dirp);
 }
 
 static int vfs_ceph_rgw_release_fh(struct vfs_ceph_rgw_fh *cfh)
 {
 	int ret = 0;
 
-	if (cfh->fh != NULL) {
-		/* TODO: call release/close function */
-		cfh->fh = NULL;
-	}
+	/* TODO: call release/close function? */
 	vfs_ceph_rgw_put_fh_dirent(cfh);
 	cfh->fd = -1;
 
@@ -910,6 +916,164 @@ out:
 	return status_code(rc);
 }
 
+#if 0
+struct vfs_ceph_rgw_dir {
+	int pos;
+	int num;
+	struct dirent *dirs;
+};
+#endif
+
+struct vfs_ceph_rgw_rd_arg {
+	struct vfs_ceph_rgw_dir *dirp;
+	void *ctx;
+	bool eof;
+};
+
+static int vfs_ceph_rgw_rd_cb(const char *name,
+			      void *arg,
+			      uint64_t offset,
+			      struct stat *st,
+			      uint32_t mask,
+			      uint32_t flags)
+{
+	struct vfs_ceph_rgw_rd_arg *cb_arg = (struct vfs_ceph_rgw_rd_arg *)arg;
+	struct dirent *d = NULL;
+	struct vfs_ceph_rgw_dir *dirp = cb_arg->dirp;
+
+	DBG_NOTICE("[CEPH_RGW]: Object-name: %s offset=%lu mask=%u flags=%u\n",
+		   name, offset, mask, flags);
+
+	if (cb_arg->eof == true) {
+		/* Its end of dir listing, return 0 */
+		return 0;
+	}
+
+	d = talloc_zero(cb_arg->ctx, struct dirent);
+	if (d == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory for dir entry\n");
+		return 0;
+	}
+
+	/* prepare dentry */
+	d->d_ino = st->st_ino;
+	d->d_off = dirp->pos;
+	d->d_reclen = strlen(name);
+	d->d_type = DT_DIR;
+	strncpy(d->d_name, name, sizeof(d->d_name)-1);
+
+	dirp->dirs = talloc_realloc(cb_arg->ctx, dirp->dirs, struct dirent, dirp->num+1);
+	if (dirp->dirs == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory for dir entries\n");
+		return 0;
+	}
+
+	dirp->dirs[dirp->num++] = *d;
+
+	/* Since its not end of dir listing, return non-zero value to continue
+	 * listing.
+	 */
+	return 1;
+}
+
+static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
+				   files_struct *fsp,
+				   const char *mask,
+				   uint32_t attr)
+{
+	int rc = 0;
+	struct vfs_ceph_rgw_dir *dirp = NULL;
+	struct vfs_ceph_rgw_fh *openfh = NULL;
+	struct vfs_ceph_rgw_config *config = NULL;
+	const char *r_whence = NULL;
+	struct vfs_ceph_rgw_rd_arg *cb_arg = NULL;
+	START_PROFILE_X(SNUM(handle->conn), syscall_fdopendir);
+
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				return NULL);
+
+	DBG_DEBUG("[CEPH_RGW] fdopendir: name [%s]\n", FSP_NAME(fsp));
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &openfh);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to find open handle for %s. rc=%d\n",
+			FSP_NAME(fsp), rc);
+		goto out;
+	}
+
+	/* We might not need this */
+#if 0
+	rc = config->rgw_getattr_fn(config->rgw_root_fs,
+				    openfh,
+				    &st,
+				    RGW_GETATTR_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to get attr for [%s]. rc = %d\n",
+			FSP_NAME(fsp), rc);
+		goto out;
+	}
+#endif
+
+	dirp = talloc_zero(handle->conn, struct vfs_ceph_rgw_dir);
+	if (dirp == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory for dir info.");
+		goto out;
+	}
+
+	cb_arg = talloc(handle->conn, struct vfs_ceph_rgw_rd_arg);
+	if (cb_arg == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory for cb arg\n");
+		goto out;
+		return NULL;
+	}
+	cb_arg->dirp = dirp;
+	cb_arg->eof = false;
+	cb_arg->ctx = handle->conn;
+
+	rc = config->rgw_readdir2_fn(config->rgw_root_fs,
+				     openfh->rgw_fh,
+				     r_whence,
+				     vfs_ceph_rgw_rd_cb,
+				     cb_arg,
+				     &cb_arg->eof,
+				     RGW_READDIR_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] readdir faild. rc=%d\n", rc);
+		goto out;
+	}
+
+	TALLOC_FREE(cb_arg);
+
+out:
+	END_PROFILE_X(syscall_fdopendir);
+	return (DIR *)dirp;
+}
+
+static int vfs_ceph_rgw_closedir(struct vfs_handle_struct *handle, DIR *dirp)
+{
+	int rc = 0;
+	struct vfs_ceph_rgw_fh *cfh = (struct vfs_ceph_rgw_fh *)dirp;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_closedir);
+	DBG_NOTICE("[CEPH_RGW] closedir: handle=%p dirp=%p\n", handle, dirp);
+	TALLOC_FREE(cfh->dirp);
+	END_PROFILE_X(syscall_closedir);
+	return status_code(rc);
+}
+
+static struct dirent *vfs_ceph_rgw_readdir(struct vfs_handle_struct *handle,
+					   struct files_struct *dirfsp,
+				           DIR *dirp)
+{
+	struct vfs_ceph_rgw_dir *rgw_dirp = (struct vfs_ceph_rgw_dir *)dirp;
+	START_PROFILE_X(SNUM(handle->conn), syscall_readdir);
+
+	DBG_DEBUG("[CEPH_RGW] readdir: name [%s]\n", FSP_NAME(dirfsp));
+
+	END_PROFILE_X(syscall_readdir);
+	return (struct dirent *)&rgw_dirp->dirs[0];
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
@@ -923,11 +1087,11 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 
 	/* Directory operations */
 
-	.fdopendir_fn = vfs_not_implemented_fdopendir,
-	.readdir_fn = vfs_not_implemented_readdir,
+	.fdopendir_fn = vfs_ceph_rgw_fdopendir,
+	.readdir_fn = vfs_ceph_rgw_readdir,
 	.rewind_dir_fn = vfs_not_implemented_rewind_dir,
 	.mkdirat_fn = vfs_not_implemented_mkdirat,
-	.closedir_fn = vfs_not_implemented_closedir,
+	.closedir_fn = vfs_ceph_rgw_closedir,
 
 	/* File operations */
 
