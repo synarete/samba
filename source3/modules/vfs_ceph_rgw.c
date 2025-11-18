@@ -713,6 +713,7 @@ static int vfs_ceph_rgw_openat(
 	/* TODO: Figure out what to do with mask */
 	uint32_t mask = RGW_SETATTR_UID | RGW_SETATTR_GID | RGW_SETATTR_MODE;
 	bool skip_open = false;
+	uint32_t file_type = 0;
 
 	START_PROFILE_X(SNUM(handle->conn), syscall_openat);
 
@@ -797,20 +798,22 @@ static int vfs_ceph_rgw_openat(
 		}
 		DBG_NOTICE("[CEPH_RGW] After lookup [%s]. rgw_fh=%p\n",
 			   FSP_NAME(fsp), rgw_fh);
-
-		rc = config->rgw_open_fn(config->rgw_root_fs,
-					 rgw_fh,
-					 flags,
-					 RGW_OPEN_FLAG_NONE);
-		if (rc < 0) {
-			vfs_ceph_rgw_remove_fh(handle, fsp);
-			DBG_ERR("[CEPH_RGW] Unable to open [%s]. rc = %d\n",
-				 FSP_NAME(fsp), rc);
-			goto out;
+		file_type = st.st_mode & S_IFMT;
+		if (file_type == S_IFREG) {
+			rc = config->rgw_open_fn(config->rgw_root_fs,
+						 rgw_fh,
+						 flags,
+						 RGW_OPEN_FLAG_NONE);
+			if (rc < 0) {
+				vfs_ceph_rgw_remove_fh(handle, fsp);
+				DBG_ERR("[CEPH_RGW] Unable to open [%s]. rc = %d\n",
+					 FSP_NAME(fsp), rc);
+				goto out;
+			}
+			DBG_NOTICE("[CEPH_RGW] After open [%s]. rgw_fh=%p\n",
+					FSP_NAME(fsp), rgw_fh);
 		}
 		newfh->rgw_fh = rgw_fh;
-		DBG_NOTICE("[CEPH_RGW] After open [%s]. rgw_fh=%p\n",
-			   FSP_NAME(fsp), rgw_fh);
 
 		rc = config->rgw_fh_rele_fn(config->rgw_root_fs,
 					    rgw_fh,
@@ -875,6 +878,7 @@ static int vfs_ceph_rgw_fstat(struct vfs_handle_struct *handle,
 
 	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
 				return -ENOMEM);
+#if 0
 	if (strlen(FSP_NAME(fsp)) == 1) {
 		if ((strncmp(FSP_NAME(fsp), ".", 1) == 0) ||
 		    (strncmp(FSP_NAME(fsp), "/", 1) == 0)) {
@@ -889,6 +893,7 @@ static int vfs_ceph_rgw_fstat(struct vfs_handle_struct *handle,
 			goto out;
 		}
 	}
+#endif
 
 	DBG_DEBUG("[CEPH_RGW] fstatat: name [%s]\n", FSP_NAME(fsp));
 
@@ -959,7 +964,13 @@ static int vfs_ceph_rgw_rd_cb(const char *name,
 	d->d_ino = st->st_ino;
 	d->d_off = dirp->pos;
 	d->d_reclen = strlen(name);
-	d->d_type = DT_DIR;
+	if (flags & DT_DIR) {
+		d->d_type = DT_DIR;
+	} else if (flags & DT_REG) {
+		d->d_type = DT_REG;
+	} else {
+		d->d_type = DT_UNKNOWN;
+	}
 	strncpy(d->d_name, name, sizeof(d->d_name)-1);
 
 	dirp->dirs = talloc_realloc(cb_arg->ctx, dirp->dirs, struct dirent, dirp->num+1);
@@ -1065,13 +1076,25 @@ static struct dirent *vfs_ceph_rgw_readdir(struct vfs_handle_struct *handle,
 					   struct files_struct *dirfsp,
 				           DIR *dirp)
 {
+	struct dirent *ret = NULL;
 	struct vfs_ceph_rgw_dir *rgw_dirp = (struct vfs_ceph_rgw_dir *)dirp;
 	START_PROFILE_X(SNUM(handle->conn), syscall_readdir);
 
 	DBG_DEBUG("[CEPH_RGW] readdir: name [%s]\n", FSP_NAME(dirfsp));
 
+	if (rgw_dirp->pos < rgw_dirp->num) {
+		ret = (struct dirent *)&rgw_dirp->dirs[rgw_dirp->pos++];
+	}
 	END_PROFILE_X(syscall_readdir);
-	return (struct dirent *)&rgw_dirp->dirs[0];
+	return ret;
+}
+
+static void vfs_ceph_rgw_rewinddir(struct vfs_handle_struct *handle, DIR *dirp)
+{
+	struct vfs_ceph_rgw_dir *rgw_dirp = (struct vfs_ceph_rgw_dir *)dirp;
+	START_PROFILE_X(SNUM(handle->conn), syscall_rewinddir);
+	rgw_dirp->pos = 0;
+	END_PROFILE_X(syscall_rewinddir);
 }
 
 static struct vfs_fn_pointers ceph_rgw_fns = {
@@ -1089,7 +1112,7 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 
 	.fdopendir_fn = vfs_ceph_rgw_fdopendir,
 	.readdir_fn = vfs_ceph_rgw_readdir,
-	.rewind_dir_fn = vfs_not_implemented_rewind_dir,
+	.rewind_dir_fn = vfs_ceph_rgw_rewinddir,
 	.mkdirat_fn = vfs_not_implemented_mkdirat,
 	.closedir_fn = vfs_ceph_rgw_closedir,
 
