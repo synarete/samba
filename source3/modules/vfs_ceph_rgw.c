@@ -1097,6 +1097,52 @@ static void vfs_ceph_rgw_rewinddir(struct vfs_handle_struct *handle, DIR *dirp)
 	END_PROFILE_X(syscall_rewinddir);
 }
 
+static NTSTATUS vfs_ceph_rgw_get_real_filename_at(
+	struct vfs_handle_struct *handle,
+	struct files_struct *dirfsp,
+	const char *name,
+	TALLOC_CTX *mem_ctx,
+	char **found_name)
+{
+	return NT_STATUS_NOT_SUPPORTED;
+}
+
+static int vfs_ceph_rgw_fcntl(vfs_handle_struct *handle,
+			      files_struct *fsp,
+			      int cmd,
+			      va_list cmd_arg)
+{
+	int result = 0;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_fcntl);
+	/*
+	 * SMB_VFS_FCNTL() is currently only called by vfs_set_blocking() to
+	 * clear O_NONBLOCK, etc for LOCK_MAND and FIFOs. Ignore it.
+	 */
+	if (cmd == F_GETFL) {
+		goto out;
+	} else if (cmd == F_SETFL) {
+		va_list dup_cmd_arg;
+		int opt;
+
+		va_copy(dup_cmd_arg, cmd_arg);
+		opt = va_arg(dup_cmd_arg, int);
+		va_end(dup_cmd_arg);
+		if (opt == 0) {
+			goto out;
+		}
+		DBG_ERR("[CEPH_RGW] unexpected fcntl SETFL(%d)\n", opt);
+		goto err_out;
+	}
+	DBG_ERR("[CEPH_RGW] unexpected fcntl: %d\n", cmd);
+err_out:
+	result = -1;
+	errno = EINVAL;
+out:
+	END_PROFILE_X(syscall_fcntl);
+	return result;
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
@@ -1149,7 +1195,7 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.fallocate_fn = vfs_not_implemented_fallocate,
 	.lock_fn = vfs_not_implemented_lock,
 	.filesystem_sharemode_fn = vfs_not_implemented_filesystem_sharemode,
-	.fcntl_fn = vfs_not_implemented_fcntl,
+	.fcntl_fn = vfs_ceph_rgw_fcntl,
 	.linux_setlease_fn = vfs_not_implemented_linux_setlease,
 	.getlock_fn = vfs_not_implemented_getlock,
 	.symlinkat_fn = vfs_not_implemented_symlinkat,
@@ -1158,7 +1204,7 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.mknodat_fn = vfs_not_implemented_mknodat,
 	.realpath_fn = vfs_ceph_rgw_realpath,
 	.fchflags_fn = vfs_not_implemented_fchflags,
-	.get_real_filename_at_fn = vfs_not_implemented_get_real_filename_at,
+	.get_real_filename_at_fn = vfs_ceph_rgw_get_real_filename_at,
 	.fget_dos_attributes_fn = vfs_not_implemented_fget_dos_attributes,
 	.fset_dos_attributes_fn = vfs_not_implemented_fset_dos_attributes,
 
