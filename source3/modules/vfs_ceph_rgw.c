@@ -719,7 +719,7 @@ static int vfs_ceph_rgw_openat(
 
 	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
 				return -ENOMEM);
-	DBG_NOTICE("[CEPH_RGW] smb_fname->base_name=%s dirfsp->name=%s fsp->name=%s flags=%d mode=%d\n",
+	DBG_NOTICE("[CEPH_RGW] smb_fname->base_name=[%s] dirfsp->name=[%s] fsp->name=[%s] flags=%d mode=%d\n",
 		  smb_fname->base_name, FSP_NAME(dirfsp), FSP_NAME(fsp), flags, mode);
 
 #if 0
@@ -738,6 +738,10 @@ static int vfs_ceph_rgw_openat(
 		    (strncmp(FSP_NAME(fsp), "/", 1) == 0)) {
 			skip_open = true;
 		}
+	}
+
+	if (strlen(FSP_NAME(fsp)) == 0) {
+		skip_open = true;
 	}
 
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &newfh);
@@ -840,17 +844,24 @@ static int vfs_ceph_rgw_close(
 	struct vfs_ceph_rgw_config *config = NULL;
 	START_PROFILE_X(SNUM(handle->conn), syscall_close);
 
+	DBG_NOTICE("[CEPH_RGW] close is for [%s]\n", FSP_NAME(fsp));
 	if (strlen(FSP_NAME(fsp)) == 1) {
 		if ((strncmp(FSP_NAME(fsp), ".", 1) == 0) ||
 		    (strncmp(FSP_NAME(fsp), "/", 1) == 0)) {
+			vfs_ceph_rgw_remove_fh(handle, fsp);
 			rc = 0;
 			goto out;
 		}
 	}
 
+	if (strlen(FSP_NAME(fsp)) == 0) {
+		vfs_ceph_rgw_remove_fh(handle, fsp);
+		rc = 0;
+		goto out;
+	}
+
 	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
 				return -ENOMEM);
-	DBG_NOTICE("[CEPH_RGW] close is for [%s]\n", FSP_NAME(fsp));
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &openfh);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Unable to find open handle for %s. rc=%d\n",
