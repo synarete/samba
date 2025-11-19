@@ -144,6 +144,19 @@
 		</para>
 		</listitem>
 		</varlistentry>
+
+		<varlistentry>
+		<term>ceph_rgw:bucket = bucket name</term>
+		<listitem>
+		<para>
+			Bucket name to be exported as share.
+		</para>
+		<para>
+			Example: ceph_rgw:bucket = video4k
+		</para>
+		</listitem>
+		</varlistentry>
+
 	</variablelist>
 
 </refsect1>
