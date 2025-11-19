@@ -520,6 +520,9 @@ static int vfs_ceph_rgw_stat(
 					&st,
 					RGW_GETATTR_FLAG_NONE);
 			if (result < 0) {
+				DBG_ERR("[CEPH_RGW] Unable to get attr for [%s]. "
+					"rc = %d\n",
+					smb_fname->base_name, result);
 				goto out;
 			}
 			smb_stat_from_ceph_rgw_stat(&smb_fname->st, &st);
@@ -537,13 +540,14 @@ static int vfs_ceph_rgw_stat(
 				 &st,
 				 RGW_GETATTR_FLAG_NONE);
 	if (result < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to get attr for [%s]. rc = %d\n",
+			smb_fname->base_name, result);
 		goto out;
 	}
 
+	DBG_DEBUG("[CEPH_RGW] stat: [%s] Success.\n", smb_fname->base_name);
 	smb_stat_from_ceph_rgw_stat(&smb_fname->st, &st);
-
 out:
-	DBG_DEBUG("[CEPH_RGW] stat: name=%s rc=%d\n", smb_fname->base_name, result);
 	END_PROFILE_X(syscall_stat);
 	return status_code(result);
 }
@@ -830,6 +834,8 @@ static int vfs_ceph_rgw_openat(
 		}
 		rc = newfh->fd;
 	}
+
+	DBG_NOTICE("[CEPH_RGW] openat: [%s] success\n", FSP_NAME(fsp));
 out:
 	END_PROFILE_X(syscall_openat);
 	return status_code(rc);
@@ -870,6 +876,15 @@ static int vfs_ceph_rgw_close(
 	}
 
 	rc = config->rgw_close_fn(config->rgw_root_fs, openfh->rgw_fh, RGW_CLOSE_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to close [%s]. rc = %d\n",
+			FSP_NAME(fsp), rc);
+		goto err_out;
+	}
+
+	DBG_NOTICE("[CEPH_RGW] close: [%s] success\n", FSP_NAME(fsp));
+
+err_out:
 	vfs_ceph_rgw_remove_fh(handle, fsp);
 out:
 	END_PROFILE_X(syscall_close);
@@ -925,6 +940,7 @@ static int vfs_ceph_rgw_fstat(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
+	DBG_DEBUG("[CEPH_RGW] fstatat: [%s] success\n", FSP_NAME(fsp));
 	smb_stat_from_ceph_rgw_stat(sbuf, &st);
 
 out:
@@ -1065,6 +1081,7 @@ static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
 	}
 
 	TALLOC_FREE(cb_arg);
+	DBG_NOTICE("[CEPH_RGW] fdopendir: [%s] success.\n", FSP_NAME(fsp));
 
 out:
 	END_PROFILE_X(syscall_fdopendir);
@@ -1096,6 +1113,7 @@ static struct dirent *vfs_ceph_rgw_readdir(struct vfs_handle_struct *handle,
 	if (rgw_dirp->pos < rgw_dirp->num) {
 		ret = (struct dirent *)&rgw_dirp->dirs[rgw_dirp->pos++];
 	}
+	DBG_NOTICE("[CEPH_RGW] readdir: [%s] success.\n", FSP_NAME(dirfsp));
 	END_PROFILE_X(syscall_readdir);
 	return ret;
 }
@@ -1154,6 +1172,188 @@ out:
 	return result;
 }
 
+static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
+				files_struct *dirfsp,
+				const struct smb_filename *smb_fname,
+				mode_t mode)
+{
+	int rc = -1;
+	const char *name = smb_fname->base_name;
+	struct vfs_ceph_rgw_fh *dircfh = NULL;
+	struct rgw_file_handle *rgw_fh = NULL;
+	struct stat st = {0};
+	struct vfs_ceph_rgw_config *config = NULL;
+	START_PROFILE_X(SNUM(handle->conn), syscall_mkdirat);
+
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				return -1);
+	DBG_NOTICE("[CEPH_RGW] mkdirat: name [%s]\n", name);
+	rc = vfs_ceph_rgw_fetch_fh(handle, dirfsp, &dircfh);
+	if (rc != 0) {
+		DBG_ERR("[CEPH_RGW] Unable to locate dir handle for [%s]\n",
+			FSP_NAME(dirfsp));
+		goto out;
+	}
+
+	rc = config->rgw_mkdir_fn(config->rgw_root_fs,
+				  dircfh->rgw_fh,
+				  name,
+				  &st,
+				  (uint32_t)mode,
+				  &rgw_fh,
+				  RGW_MKDIR_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to create directory [%s]. rc=%d\n",
+			name, rc);
+		goto out;
+	}
+
+	rc = config->rgw_fh_rele_fn(config->rgw_root_fs,
+				    rgw_fh,
+				    RGW_FH_RELE_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Error release handle for [%s]. rc=%d\n",
+			name, rc);
+		goto out;
+	}
+	DBG_NOTICE("[CEPH_RGW] mkdirat: [%s] success.\n", name);
+out:
+	END_PROFILE_X(syscall_mkdirat);
+	return status_code(rc);
+}
+
+static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
+				 files_struct *src_dirfsp,
+				 const struct smb_filename *smb_fname_src,
+				 files_struct *dst_dirfsp,
+				 const struct smb_filename *smb_fname_dst,
+				 const struct vfs_rename_how *how)
+{
+	struct vfs_ceph_rgw_fh *src_dircfh = NULL;
+	struct vfs_ceph_rgw_fh *dst_dircfh = NULL;
+	struct vfs_ceph_rgw_config *config = NULL;
+	int rc = -1;
+	char *src_name = NULL;
+	char *dst_name = NULL;
+	START_PROFILE_X(SNUM(handle->conn), syscall_renameat);
+
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				return -1);
+	DBG_NOTICE("[CEPH_RGW] renameat: src [%s] dst [%s]\n",
+		  smb_fname_src->base_name,
+		  smb_fname_dst->base_name);
+
+	if (smb_fname_src->stream_name || smb_fname_dst->stream_name) {
+		DBG_ERR("[CEPH_RGW] rename out#1\n");
+		rc = -ENOENT;
+		goto out;
+	}
+
+	if (how->flags != 0) {
+		DBG_ERR("[CEPH_RGW] rename out#2. how->flags=%u\n", how->flags);
+		rc = -EINVAL;
+		goto out;
+	}
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, src_dirfsp, &src_dircfh);
+	if (rc != 0) {
+		DBG_NOTICE("[CEPH_RGW] failed to fetch file handle for [%s]\n",
+			  smb_fname_src->base_name);
+		goto out;
+	}
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, dst_dirfsp, &dst_dircfh);
+	if (rc != 0) {
+		DBG_NOTICE("[CEPH_RGW] failed to fetch file handle for [%s]\n",
+			  smb_fname_dst->base_name);
+		goto out;
+	}
+
+	/* Dir names must end with '/' */
+	if (src_dirfsp->fsp_flags.is_directory) {
+		src_name = talloc_asprintf(handle->conn, "%s/",
+			   smb_fname_src->base_name);
+	} else {
+		src_name = talloc_strdup(handle->conn, smb_fname_src->base_name);
+	}
+
+	if (dst_dirfsp->fsp_flags.is_directory) {
+		dst_name = talloc_asprintf(handle->conn, "%s/",
+			   smb_fname_dst->base_name);
+	} else {
+		dst_name = talloc_strdup(handle->conn, smb_fname_dst->base_name);
+	}
+
+	if (src_name == NULL || dst_name == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory for filenames\n");
+		rc = -ENOMEM;
+		goto out_free;
+	}
+
+	rc = config->rgw_rename_fn(config->rgw_root_fs,
+				   src_dircfh->rgw_fh,
+				   src_name,
+				   dst_dircfh->rgw_fh,
+				   dst_name,
+				   RGW_RENAME_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW]: Unable to rename [%s] to [%s]. rc=%d\n",
+			smb_fname_src->base_name, smb_fname_dst->base_name, rc);
+		goto out_free;
+	}
+
+	DBG_NOTICE("[CEPH_RGW]: rename [%s]->[%s] succes\n",
+		   smb_fname_src->base_name, smb_fname_dst->base_name);
+out_free:
+	TALLOC_FREE(src_name);
+	TALLOC_FREE(dst_name);
+out:
+	END_PROFILE_X(syscall_renameat);
+	return status_code(rc);
+}
+
+static int vfs_ceph_rgw_unlinkat(struct vfs_handle_struct *handle,
+				 struct files_struct *dirfsp,
+				 const struct smb_filename *smb_fname,
+				 int flags)
+{
+	struct vfs_ceph_rgw_fh *dircfh = NULL;
+	const char *name = smb_fname_str_dbg(smb_fname);
+	struct vfs_ceph_rgw_config *config = NULL;
+	int rc = -1;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_unlinkat);
+
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				return -1);
+	if (smb_fname->stream_name) {
+		DBG_ERR("[CEPH_RGW] unlinkat out#1\n");
+		rc = -ENOENT;
+		goto out;
+	}
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, dirfsp, &dircfh);
+	if (rc != 0) {
+		DBG_ERR("Unable to get handle for [%s]\n",
+			FSP_NAME(dirfsp));
+		goto out;
+	}
+
+	rc = config->rgw_unlink_fn(config->rgw_root_fs,
+				   dircfh->rgw_fh,
+				   name,
+				   RGW_UNLINK_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("Unable to unlink [%s]. rc = %d\n",
+			name, rc);
+		goto out;
+	}
+	DBG_NOTICE("[CEPH_RGW] unlinkat: name=%s success\n", name);
+out:
+	END_PROFILE_X(syscall_unlinkat);
+	return status_code(rc);
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
@@ -1170,7 +1370,7 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.fdopendir_fn = vfs_ceph_rgw_fdopendir,
 	.readdir_fn = vfs_ceph_rgw_readdir,
 	.rewind_dir_fn = vfs_ceph_rgw_rewinddir,
-	.mkdirat_fn = vfs_not_implemented_mkdirat,
+	.mkdirat_fn = vfs_ceph_rgw_mkdirat,
 	.closedir_fn = vfs_ceph_rgw_closedir,
 
 	/* File operations */
@@ -1188,14 +1388,14 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.lseek_fn = vfs_not_implemented_lseek,
 	.sendfile_fn = vfs_not_implemented_sendfile,
 	.recvfile_fn = vfs_not_implemented_recvfile,
-	.renameat_fn = vfs_not_implemented_renameat,
+	.renameat_fn = vfs_ceph_rgw_renameat,
 	.fsync_send_fn = vfs_not_implemented_fsync_send,
 	.fsync_recv_fn = vfs_not_implemented_fsync_recv,
 	.stat_fn = vfs_ceph_rgw_stat,
 	.fstat_fn = vfs_ceph_rgw_fstat,
 	.lstat_fn = vfs_not_implemented_lstat,
 	.fstatat_fn = vfs_not_implemented_fstatat,
-	.unlinkat_fn = vfs_not_implemented_unlinkat,
+	.unlinkat_fn = vfs_ceph_rgw_unlinkat,
 	.fchmod_fn = vfs_not_implemented_fchmod,
 	.fchown_fn = vfs_not_implemented_fchown,
 	.lchown_fn = vfs_not_implemented_lchown,
