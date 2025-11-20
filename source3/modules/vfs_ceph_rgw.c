@@ -148,6 +148,15 @@ static int status_code(int ret)
 	return ret;
 }
 
+static ssize_t lstatus_code(intmax_t ret)
+{
+	if (ret < 0) {
+		errno = -((int)ret);
+		return -1;
+	}
+	return (ssize_t)ret;
+}
+
 static bool vfs_ceph_rgw_mount_bucket(struct connection_struct *conn,
 				      struct vfs_ceph_rgw_config *config)
 {
@@ -1377,6 +1386,109 @@ out:
 	return status_code(rc);
 }
 
+static ssize_t vfs_ceph_rgw_pread(struct vfs_handle_struct *handle,
+				  files_struct *fsp,
+				  void *data,
+				  size_t n,
+				  off_t offset)
+{
+	int rc;
+	ssize_t bytes_read = -1;
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct vfs_ceph_rgw_fh *cfh = NULL;
+
+	START_PROFILE_BYTES_X(SNUM(handle->conn), syscall_pread, n);
+
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				return -1);
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &cfh);
+	if (rc != 0) {
+		DBG_ERR("[CEPH_RGW] Unable to fetch handle for [%s]\n",
+			FSP_NAME(fsp));
+		goto out;
+	}
+
+	rc = config->rgw_read_fn(config->rgw_root_fs,
+				 cfh->rgw_fh,
+				 offset,
+				 n,
+				 (size_t *)&bytes_read,
+				 data,
+				 RGW_READ_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Read failed for [%s]. rc = %d\n",
+			FSP_NAME(fsp), rc);
+		goto out;
+	}
+out:
+	DBG_DEBUG("[CEPH] pread: handle=%p name=%s n=%" PRIu64
+		  "offset=%" PRIu64 " bytes_read=%" PRIu64 "\n",
+		  handle,
+		  fsp_str_dbg(fsp),
+		  n,
+		  (intmax_t)offset,
+		  bytes_read);
+	END_PROFILE_BYTES_X(syscall_pread);
+	return lstatus_code(bytes_read);
+}
+
+static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
+				  files_struct *fsp,
+				  const void *data,
+				  size_t n,
+				  off_t offset)
+{
+	int rc = 0;
+	ssize_t bytes_written = -1;
+	struct vfs_ceph_rgw_fh *cfh = NULL;
+	struct vfs_ceph_rgw_config *config = NULL;
+	void *buffer = NULL;
+	START_PROFILE_BYTES_X(SNUM(handle->conn), syscall_pwrite, n);
+
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				return -1);
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &cfh);
+	if (rc != 0) {
+		DBG_ERR("[CEPH_RGW] Unable to fetch hande for [%s]\n",
+			FSP_NAME(fsp));
+		goto out;
+	}
+
+	buffer = talloc_memdup(handle->conn, data, n);
+	if (buffer == NULL) {
+		DBG_ERR("Not enough memory for write op\n");
+		goto out;
+	}
+
+	rc = config->rgw_write_fn(config->rgw_root_fs,
+				  cfh->rgw_fh,
+				  offset,
+				  n,
+				  (size_t *)&bytes_written,
+				  buffer,
+				  RGW_WRITE_FLAG_NONE);
+	TALLOC_FREE(buffer);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Error writing to [%s]. rc = %d\n",
+			 FSP_NAME(fsp), rc);
+		goto out;
+	}
+out:
+	DBG_NOTICE("[CEPH_RGW] pwrite: name=%s data=%p"
+		   "n=%" PRIu64 "offset=%" PRIu64
+		   "bytes_written=%" PRIu64
+		   "\n",
+		   fsp_str_dbg(fsp),
+		   data,
+		   n,
+		   (intmax_t)offset,
+		   bytes_written);
+	END_PROFILE_BYTES_X(syscall_pwrite);
+	return lstatus_code(bytes_written);
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
@@ -1402,10 +1514,10 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.read_dfs_pathat_fn = vfs_not_implemented_read_dfs_pathat,
 	.openat_fn = vfs_ceph_rgw_openat,
 	.close_fn = vfs_ceph_rgw_close,
-	.pread_fn = vfs_not_implemented_pread,
+	.pread_fn = vfs_ceph_rgw_pread,
 	.pread_send_fn = vfs_not_implemented_pread_send,
 	.pread_recv_fn = vfs_not_implemented_pread_recv,
-	.pwrite_fn = vfs_not_implemented_pwrite,
+	.pwrite_fn = vfs_ceph_rgw_pwrite,
 	.pwrite_send_fn = vfs_not_implemented_pwrite_send,
 	.pwrite_recv_fn = vfs_not_implemented_pwrite_recv,
 	.lseek_fn = vfs_not_implemented_lseek,
