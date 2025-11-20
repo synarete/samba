@@ -412,7 +412,7 @@ static struct smb_filename *vfs_ceph_rgw_realpath(
 		goto out;
 	}
 
-	DBG_DEBUG("[CEPH_RGW] realpath(%p, %s) = %s\n", handle, path, result);
+	DBG_NOTICE("[CEPH_RGW] realpath(%p, %s) = %s\n", handle, path, result);
 	result_fname = cp_smb_basename(ctx, result);
 	TALLOC_FREE(result);
 out:
@@ -545,7 +545,7 @@ static int vfs_ceph_rgw_stat(
 		goto out;
 	}
 
-	DBG_DEBUG("[CEPH_RGW] stat: [%s] Success.\n", smb_fname->base_name);
+	DBG_NOTICE("[CEPH_RGW] stat: [%s] Success.\n", smb_fname->base_name);
 	smb_stat_from_ceph_rgw_stat(&smb_fname->st, &st);
 out:
 	END_PROFILE_X(syscall_stat);
@@ -921,7 +921,7 @@ static int vfs_ceph_rgw_fstat(struct vfs_handle_struct *handle,
 	}
 #endif
 
-	DBG_DEBUG("[CEPH_RGW] fstatat: name [%s]\n", FSP_NAME(fsp));
+	DBG_NOTICE("[CEPH_RGW] fstatat: name [%s]\n", FSP_NAME(fsp));
 
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &openfh);
 	if (rc < 0) {
@@ -940,7 +940,7 @@ static int vfs_ceph_rgw_fstat(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
-	DBG_DEBUG("[CEPH_RGW] fstatat: [%s] success\n", FSP_NAME(fsp));
+	DBG_NOTICE("[CEPH_RGW] fstatat: [%s] success\n", FSP_NAME(fsp));
 	smb_stat_from_ceph_rgw_stat(sbuf, &st);
 
 out:
@@ -1030,7 +1030,7 @@ static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
 	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
 				return NULL);
 
-	DBG_DEBUG("[CEPH_RGW] fdopendir: name [%s]\n", FSP_NAME(fsp));
+	DBG_NOTICE("[CEPH_RGW] fdopendir: name [%s]\n", FSP_NAME(fsp));
 
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &openfh);
 	if (rc < 0) {
