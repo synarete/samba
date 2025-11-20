@@ -632,7 +632,6 @@ static struct smb_filename *vfs_ceph_rgw_getwd(
 
 static void vfs_ceph_rgw_put_fh_dirent(struct vfs_ceph_rgw_fh *cfh)
 {
-	TALLOC_FREE(cfh->dirp);
 }
 
 static int vfs_ceph_rgw_release_fh(struct vfs_ceph_rgw_fh *cfh)
@@ -1094,8 +1093,15 @@ static int vfs_ceph_rgw_closedir(struct vfs_handle_struct *handle, DIR *dirp)
 	struct vfs_ceph_rgw_fh *cfh = (struct vfs_ceph_rgw_fh *)dirp;
 
 	START_PROFILE_X(SNUM(handle->conn), syscall_closedir);
+
+	if (cfh == NULL) {
+		/* TODO: Why would this happen */
+		DBG_NOTICE("[CEPH_RGW] cfh is NULL for in closedir\n");
+		rc = -1;
+		goto out;
+	}
 	DBG_NOTICE("[CEPH_RGW] closedir: handle=%p dirp=%p\n", handle, dirp);
-	TALLOC_FREE(cfh->dirp);
+out:
 	END_PROFILE_X(syscall_closedir);
 	return status_code(rc);
 }
@@ -1108,12 +1114,20 @@ static struct dirent *vfs_ceph_rgw_readdir(struct vfs_handle_struct *handle,
 	struct vfs_ceph_rgw_dir *rgw_dirp = (struct vfs_ceph_rgw_dir *)dirp;
 	START_PROFILE_X(SNUM(handle->conn), syscall_readdir);
 
-	DBG_DEBUG("[CEPH_RGW] readdir: name [%s]\n", FSP_NAME(dirfsp));
+	if (rgw_dirp == NULL) {
+		/* TODO: Why would this happen */
+		DBG_NOTICE("rgw_dirp is NULL for [%s]\n", FSP_NAME(dirfsp));
+		ret = NULL;
+		goto out;
+	}
+
+	DBG_NOTICE("[CEPH_RGW] readdir: name [%s]\n", FSP_NAME(dirfsp));
 
 	if (rgw_dirp->pos < rgw_dirp->num) {
 		ret = (struct dirent *)&rgw_dirp->dirs[rgw_dirp->pos++];
 	}
 	DBG_NOTICE("[CEPH_RGW] readdir: [%s] success.\n", FSP_NAME(dirfsp));
+out:
 	END_PROFILE_X(syscall_readdir);
 	return ret;
 }
@@ -1122,8 +1136,17 @@ static void vfs_ceph_rgw_rewinddir(struct vfs_handle_struct *handle, DIR *dirp)
 {
 	struct vfs_ceph_rgw_dir *rgw_dirp = (struct vfs_ceph_rgw_dir *)dirp;
 	START_PROFILE_X(SNUM(handle->conn), syscall_rewinddir);
+
+	if (rgw_dirp == NULL) {
+		/* TODO: Why would this happen */
+		DBG_NOTICE("rgw_dirp is NULL for in rewinddir\n");
+		goto out;
+	}
+
 	rgw_dirp->pos = 0;
+out:
 	END_PROFILE_X(syscall_rewinddir);
+	return;
 }
 
 static NTSTATUS vfs_ceph_rgw_get_real_filename_at(
