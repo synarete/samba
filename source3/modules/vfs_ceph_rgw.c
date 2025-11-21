@@ -722,15 +722,18 @@ static int vfs_ceph_rgw_openat(
 	struct stat st = {0};
 	int flags = how->flags;
 	mode_t mode = how->mode;
-	/* TODO: Figure out what to do with mask */
 	uint32_t mask = RGW_SETATTR_UID | RGW_SETATTR_GID | RGW_SETATTR_MODE;
 	bool skip_open = false;
 	uint32_t file_type = 0;
+	const struct security_unix_token *utok = NULL;
 
 	START_PROFILE_X(SNUM(handle->conn), syscall_openat);
 
 	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
 				return -ENOMEM);
+
+	utok = get_current_utok(handle->conn);
+
 	DBG_NOTICE("[CEPH_RGW] smb_fname->base_name=[%s] dirfsp->name=[%s] fsp->name=[%s] flags=%d mode=%d\n",
 		  smb_fname->base_name, FSP_NAME(dirfsp), FSP_NAME(fsp), flags, mode);
 
@@ -779,6 +782,12 @@ static int vfs_ceph_rgw_openat(
 	}
 
 	if (flags & O_CREAT) {
+		st.st_uid = utok->uid;
+		st.st_gid = utok->gid;
+		st.st_mode = mode;
+		DBG_NOTICE("[CEPH_RGW] create file: uid = %u gid = %u mode = %u flags = %u\n",
+			    utok->uid, utok->gid, mode, flags);
+
 		rc = config->rgw_create_fn(config->rgw_root_fs,
 					   config->rgw_root_fh,
 					   FSP_NAME(fsp),
@@ -812,8 +821,8 @@ static int vfs_ceph_rgw_openat(
 				FSP_NAME(fsp), rc);
 			goto out;
 		}
-		DBG_NOTICE("[CEPH_RGW] After lookup [%s]. rgw_fh=%p\n",
-			   FSP_NAME(fsp), rgw_fh);
+		DBG_NOTICE("[CEPH_RGW] After lookup [%s]. uid=%u gid=%u\n",
+			   FSP_NAME(fsp), st.st_uid, st.st_gid);
 		file_type = st.st_mode & S_IFMT;
 		if (file_type == S_IFREG) {
 			rc = config->rgw_open_fn(config->rgw_root_fs,
@@ -1210,15 +1219,18 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 				mode_t mode)
 {
 	int rc = -1;
+	uint32_t mask = RGW_SETATTR_UID | RGW_SETATTR_GID | RGW_SETATTR_MODE;
 	const char *name = smb_fname->base_name;
 	struct vfs_ceph_rgw_fh *dircfh = NULL;
 	struct rgw_file_handle *rgw_fh = NULL;
-	struct stat st = {0};
 	struct vfs_ceph_rgw_config *config = NULL;
+	const struct security_unix_token *utok = NULL;
+	struct stat st = {0};
 	START_PROFILE_X(SNUM(handle->conn), syscall_mkdirat);
 
 	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
 				return -1);
+
 	DBG_NOTICE("[CEPH_RGW] mkdirat: name [%s]\n", name);
 	rc = vfs_ceph_rgw_fetch_fh(handle, dirfsp, &dircfh);
 	if (rc != 0) {
@@ -1227,11 +1239,18 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
+	utok = get_current_utok(handle->conn);
+	st.st_uid = utok->uid;
+	st.st_gid = utok->gid;
+	st.st_mode = mode;
+	DBG_NOTICE("[CEPH_RGW] mkdirat: uid = %u gid = %u mode = %u\n",
+		   utok->uid, utok->gid, mode);
+
 	rc = config->rgw_mkdir_fn(config->rgw_root_fs,
 				  dircfh->rgw_fh,
 				  name,
 				  &st,
-				  (uint32_t)mode,
+				  mask,
 				  &rgw_fh,
 				  RGW_MKDIR_FLAG_NONE);
 	if (rc < 0) {
