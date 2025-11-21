@@ -1449,6 +1449,8 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
 				return -1);
 
+	DBG_NOTICE("[CEPH_RGW] write: [%s]\n", FSP_NAME(fsp));
+
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &cfh);
 	if (rc != 0) {
 		DBG_ERR("[CEPH_RGW] Unable to fetch hande for [%s]\n",
@@ -1468,7 +1470,7 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 				  n,
 				  (size_t *)&bytes_written,
 				  buffer,
-				  RGW_WRITE_FLAG_NONE);
+				  RGW_OPEN_FLAG_V3); /* TODO: Why works with this flag */
 	TALLOC_FREE(buffer);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Error writing to [%s]. rc = %d\n",
@@ -1476,12 +1478,11 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 		goto out;
 	}
 out:
-	DBG_NOTICE("[CEPH_RGW] pwrite: name=%s data=%p"
-		   "n=%" PRIu64 "offset=%" PRIu64
-		   "bytes_written=%" PRIu64
+	DBG_NOTICE("[CEPH_RGW] pwrite: name=%s "
+		   "n=%" PRIu64 " offset=%" PRIu64
+		   " bytes_written=%" PRIu64
 		   "\n",
 		   fsp_str_dbg(fsp),
-		   data,
 		   n,
 		   (intmax_t)offset,
 		   bytes_written);
