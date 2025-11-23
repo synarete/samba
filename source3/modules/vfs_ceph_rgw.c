@@ -50,12 +50,6 @@
 		}                                                      \
 	} while (0);
 
-#define TIME_T_TO_TIMESPEC(tt, ts)  \
-	do {                        \
-		(ts).tv_sec = (tt); \
-		(ts).tv_nsec = 0;   \
-	} while (0);
-
 #define FSP_NAME(fsp) ((fsp)->fsp_name->base_name)
 
 struct vfs_ceph_rgw_config {
@@ -502,9 +496,9 @@ static void smb_stat_from_ceph_rgw_stat(SMB_STRUCT_STAT *st,
 	st->st_ex_gid = st_rgw->st_gid;
 	st->st_ex_size = st_rgw->st_size;
 	st->st_ex_nlink = st_rgw->st_nlink;
-	TIME_T_TO_TIMESPEC(st_rgw->st_atime, st->st_ex_atime);
-	TIME_T_TO_TIMESPEC(st_rgw->st_ctime, st->st_ex_ctime);
-	TIME_T_TO_TIMESPEC(st_rgw->st_mtime, st->st_ex_mtime);
+	st->st_ex_atime.tv_sec = st_rgw->st_atim.tv_sec;
+	st->st_ex_ctime.tv_sec = st_rgw->st_ctim.tv_sec;
+	st->st_ex_mtime.tv_sec = st_rgw->st_mtim.tv_sec;
 	make_create_timespec(st_rgw, st, false);
 	st->st_ex_blksize = st_rgw->st_blksize;
 	st->st_ex_blocks = st_rgw->st_blocks;
@@ -582,50 +576,50 @@ static int vfs_ceph_rgw_chdir(struct vfs_handle_struct *handle,
 	END_PROFILE_X(syscall_chdir);
 	return status_code(rc);
 #if 0
-        int rc = -1;
-        struct vfs_ceph_rgw_config *config = NULL;
-        struct rgw_file_handle *rgw_fh = NULL;
-        const char *path = smb_fname->base_name;
-        struct stat st = {0};
+	int rc = -1;
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct rgw_file_handle *rgw_fh = NULL;
+	const char *path = smb_fname->base_name;
+	struct stat st = {0};
 
-        START_PROFILE_X(SNUM(handle->conn), syscall_chdir);
-        SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
-                                return -ENOMEM);
+	START_PROFILE_X(SNUM(handle->conn), syscall_chdir);
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				return -ENOMEM);
 
-        DBG_NOTICE("[CEPH_RGW] chdir called with path=%s\n", path);
+	DBG_NOTICE("[CEPH_RGW] chdir called with path=%s\n", path);
 
-        len = strlen(path);
+	len = strlen(path);
 
-        if (path[0] == '/') {
-                path++;
-        }
+	if (path[0] == '/') {
+		path++;
+	}
 
-        /* Return success, if chdir path is bucket itself */
-        if (strncmp(config->bkt_name, path, strlen(config->bkt_name)) == 0) {
-                rc = 0;
-                goto out;
-        }
+	/* Return success, if chdir path is bucket itself */
+	if (strncmp(config->bkt_name, path, strlen(config->bkt_name)) == 0) {
+		rc = 0;
+		goto out;
+	}
 
-        rc = config->rgw_lookup_fn(config->rgw_root_fs,
-                                   config->rgw_root_fh,
-                                   path,
-                                   &rgw_fh,
-                                   &st,
-                                   0,
-                                   RGW_LOOKUP_TYPE_FLAGS);
-        if (rc < 0) {
-                DBG_ERR("[CEPH_RGW] Error changing dir to %s. rc=%d\n",
-                        path, rc);
-        } else {
-                /* release handle returned by lookup operation */
-                (void)config->rgw_fh_rele_fn(config->rgw_root_fs,
-                                             rgw_fh,
-                                             RGW_FH_RELE_FLAG_NONE);
-        }
+	rc = config->rgw_lookup_fn(config->rgw_root_fs,
+				   config->rgw_root_fh,
+				   path,
+				   &rgw_fh,
+				   &st,
+				   0,
+				   RGW_LOOKUP_TYPE_FLAGS);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Error changing dir to %s. rc=%d\n",
+			path, rc);
+	} else {
+		/* release handle returned by lookup operation */
+		(void)config->rgw_fh_rele_fn(config->rgw_root_fs,
+					     rgw_fh,
+					     RGW_FH_RELE_FLAG_NONE);
+	}
 
 out:
-        END_PROFILE_X(syscall_chdir);
-        return status_code(rc);
+	END_PROFILE_X(syscall_chdir);
+	return status_code(rc);
 #endif
 }
 
@@ -753,14 +747,14 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 		   mode);
 
 #if 0
-        if (strlen(FSP_NAME(fsp)) == 1) {
-                if ((strncmp(FSP_NAME(fsp), ".", 1) == 0) ||
-                    (strncmp(FSP_NAME(fsp), "/", 1) == 0)) {
-                        rc = ceph_rgw_fd;
-                        ceph_rgw_fd++;
-                        return rc;
-                }
-        }
+	if (strlen(FSP_NAME(fsp)) == 1) {
+		if ((strncmp(FSP_NAME(fsp), ".", 1) == 0) ||
+		    (strncmp(FSP_NAME(fsp), "/", 1) == 0)) {
+			rc = ceph_rgw_fd;
+			ceph_rgw_fd++;
+			return rc;
+		}
+	}
 #endif
 
 	if (strlen(FSP_NAME(fsp)) == 1) {
@@ -961,20 +955,20 @@ static int vfs_ceph_rgw_fstat(struct vfs_handle_struct *handle,
 				struct vfs_ceph_rgw_config,
 				return -ENOMEM);
 #if 0
-        if (strlen(FSP_NAME(fsp)) == 1) {
-                if ((strncmp(FSP_NAME(fsp), ".", 1) == 0) ||
-                    (strncmp(FSP_NAME(fsp), "/", 1) == 0)) {
-                        rc = config->rgw_getattr_fn(config->rgw_root_fs,
-                                        config->rgw_root_fh,
-                                        &st,
-                                        RGW_GETATTR_FLAG_NONE);
-                        if (rc < 0) {
-                                goto out;
-                        }
-                        smb_stat_from_ceph_rgw_stat(sbuf, &st);
-                        goto out;
-                }
-        }
+	if (strlen(FSP_NAME(fsp)) == 1) {
+		if ((strncmp(FSP_NAME(fsp), ".", 1) == 0) ||
+		    (strncmp(FSP_NAME(fsp), "/", 1) == 0)) {
+			rc = config->rgw_getattr_fn(config->rgw_root_fs,
+					config->rgw_root_fh,
+					&st,
+					RGW_GETATTR_FLAG_NONE);
+			if (rc < 0) {
+				goto out;
+			}
+			smb_stat_from_ceph_rgw_stat(sbuf, &st);
+			goto out;
+		}
+	}
 #endif
 
 	DBG_NOTICE("[CEPH_RGW] fstatat: name [%s]\n", FSP_NAME(fsp));
@@ -1008,9 +1002,9 @@ out:
 
 #if 0
 struct vfs_ceph_rgw_dir {
-        int pos;
-        int num;
-        struct dirent *dirs;
+	int pos;
+	int num;
+	struct dirent *dirs;
 };
 #endif
 
@@ -1108,15 +1102,15 @@ static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
 
 	/* We might not need this */
 #if 0
-        rc = config->rgw_getattr_fn(config->rgw_root_fs,
-                                    openfh,
-                                    &st,
-                                    RGW_GETATTR_FLAG_NONE);
-        if (rc < 0) {
-                DBG_ERR("[CEPH_RGW] Unable to get attr for [%s]. rc = %d\n",
-                        FSP_NAME(fsp), rc);
-                goto out;
-        }
+	rc = config->rgw_getattr_fn(config->rgw_root_fs,
+				    openfh,
+				    &st,
+				    RGW_GETATTR_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to get attr for [%s]. rc = %d\n",
+			FSP_NAME(fsp), rc);
+		goto out;
+	}
 #endif
 
 	dirp = talloc_zero(handle->conn, struct vfs_ceph_rgw_dir);
