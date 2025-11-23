@@ -1,24 +1,21 @@
 /*
-   Unix SMB/CIFS implementation.
-   Wrap disk only vfs functions to sidestep dodgy compilers.
-   Copyright (C) Tim Potter 1998
-   Copyright (C) Jeremy Allison 2007
-   Copyright (C) Brian Chrisman 2011 <bchrisman@gmail.com>
-   Copyright (C) Richard Sharpe 2011 <realrichardsharpe@gmail.com>
-
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+ * Bridge between Samba's VFS layer and Ceph-RGW.
+ *
+ * Copyright (c) 2025 Vinit Agnihotri <vagnihot@redhat.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ */
 
 /*
  * Add the following smb.conf parameter to each share that will be hosted on
