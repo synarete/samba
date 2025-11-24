@@ -369,12 +369,12 @@ static int vfs_ceph_rgw_connect(struct vfs_handle_struct *handle,
 
 	ok = vfs_ceph_rgw_load_lib(config);
 	if (!ok) {
-		return false;
+		return -1;
 	}
 
 	ok = vfs_ceph_rgw_mount_bucket(handle->conn, config);
 	if (!ok) {
-		return false;
+		return -1;
 	}
 
 	return 0;
