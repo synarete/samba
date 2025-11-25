@@ -776,6 +776,7 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 		}
 		rc = newfh->fd;
 	}
+	newfh->o_flags = flags;
 
 	DBG_NOTICE("[CEPH_RGW] openat: [%s] success\n", fsp_name(fsp));
 out:
@@ -1425,6 +1426,7 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 	struct vfs_ceph_rgw_fh *cfh = NULL;
 	struct vfs_ceph_rgw_config *config = NULL;
 	void *buffer = NULL;
+	TALLOC_CTX *ctx = talloc_stackframe();
 	START_PROFILE_BYTES_X(SNUM(handle->conn), syscall_pwrite, n);
 
 	SMB_VFS_HANDLE_GET_DATA(handle,
@@ -1441,9 +1443,19 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
-	buffer = talloc_memdup(handle->conn, data, n);
+	buffer = talloc_memdup(ctx, data, n);
 	if (buffer == NULL) {
-		DBG_ERR("Not enough memory for write op\n");
+		DBG_ERR("[CEPH_RGW] Not enough memory for write op\n");
+		goto out;
+	}
+
+	rc = rgw_open(config->rgw_root_fs,
+		      cfh->rgw_fh,
+		      cfh->o_flags,
+		      RGW_OPEN_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to open %s for write\n",
+			fsp_name(fsp));
 		goto out;
 	}
 
@@ -1453,8 +1465,7 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 		       n,
 		       (size_t *)&bytes_written,
 		       buffer,
-		       RGW_OPEN_FLAG_V3); /* TODO: Why works with this flag */
-	TALLOC_FREE(buffer);
+		       RGW_OPEN_FLAG_NONE);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Error writing to [%s]. rc = %d\n",
 			fsp_name(fsp),
@@ -1462,6 +1473,7 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 		goto out;
 	}
 out:
+	TALLOC_FREE(ctx);
 	DBG_NOTICE("[CEPH_RGW] pwrite: name=%s "
 		   "n=%" PRIu64 " offset=%" PRIu64 " bytes_written=%" PRIu64
 		   "\n",
