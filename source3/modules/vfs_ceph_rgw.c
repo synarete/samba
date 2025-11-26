@@ -1165,6 +1165,74 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 {
 	int rc = -1;
 	uint32_t mask = RGW_SETATTR_UID | RGW_SETATTR_GID | RGW_SETATTR_MODE;
+	struct vfs_ceph_rgw_fh *dircfh = NULL;
+	struct rgw_file_handle *rgw_fh = NULL;
+	struct vfs_ceph_rgw_config *config = NULL;
+	const struct security_unix_token *utok = NULL;
+	struct stat st = {0};
+	char *name = NULL;
+	START_PROFILE_X(SNUM(handle->conn), syscall_mkdirat);
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_rgw_config,
+				return -1);
+
+	/* Prepare dir name, i.e. add '/' to end of dir name */
+	name = talloc_asprintf(handle->conn, "%s/", smb_fname->base_name);
+	if (name == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory for dir name\n");
+		goto out;
+	}
+
+	DBG_NOTICE("[CEPH_RGW] mkdirat: name [%s]\n", name);
+	rc = vfs_ceph_rgw_fetch_fh(handle, dirfsp, &dircfh);
+	if (rc != 0) {
+		DBG_ERR("[CEPH_RGW] Unable to locate dir handle for [%s]\n",
+			fsp_name(dirfsp));
+		goto out;
+	}
+
+	utok = get_current_utok(handle->conn);
+	st.st_uid = utok->uid;
+	st.st_gid = utok->gid;
+	st.st_mode = mode;
+	DBG_NOTICE("[CEPH_RGW] mkdirat: uid = %u gid = %u mode = %u\n",
+		   utok->uid,
+		   utok->gid,
+		   mode);
+
+	rc = rgw_create(config->rgw_root_fs,
+			dircfh->rgw_fh,
+			name,
+			&st,
+			mask,
+			&rgw_fh,
+			mode,
+			RGW_CREATE_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Error creating [%s]. rc = %d\n",
+			name,
+			rc);
+		goto out;
+	}
+
+	DBG_NOTICE("[CEPH_RGW] mkdirat: [%s] success.\n", name);
+out:
+	TALLOC_FREE(name);
+	END_PROFILE_X(syscall_mkdirat);
+	return status_code(rc);
+}
+
+
+#if 0
+static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
+				files_struct *dirfsp,
+				const struct smb_filename *smb_fname,
+				mode_t mode)
+{
+	int rc = -1;
+	uint32_t mask = RGW_SETATTR_UID | RGW_SETATTR_GID | RGW_SETATTR_MODE;
 	const char *name = smb_fname->base_name;
 	struct vfs_ceph_rgw_fh *dircfh = NULL;
 	struct rgw_file_handle *rgw_fh = NULL;
@@ -1223,6 +1291,7 @@ out:
 	END_PROFILE_X(syscall_mkdirat);
 	return status_code(rc);
 }
+#endif
 
 static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 				 files_struct *src_dirfsp,
