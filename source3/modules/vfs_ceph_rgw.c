@@ -1378,7 +1378,7 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 	if (src_name == NULL || dst_name == NULL) {
 		DBG_ERR("[CEPH_RGW] Not enough memory for filenames\n");
 		rc = -ENOMEM;
-		goto out_free;
+		goto out;
 	}
 
 	rc = rgw_rename(config->rgw_root_fs,
@@ -1392,15 +1392,14 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 			smb_fname_src->base_name,
 			smb_fname_dst->base_name,
 			rc);
-		goto out_free;
+		goto out;
 	}
 
-	DBG_NOTICE("[CEPH_RGW]: rename [%s]->[%s] succes\n",
+	DBG_NOTICE("[CEPH_RGW]: rename [%s]->[%s] success\n",
 		   smb_fname_src->base_name,
 		   smb_fname_dst->base_name);
-out_free:
-	TALLOC_FREE(ctx);
 out:
+	TALLOC_FREE(ctx);
 	END_PROFILE_X(syscall_renameat);
 	return status_code(rc);
 }
