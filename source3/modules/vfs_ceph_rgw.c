@@ -45,6 +45,7 @@ struct vfs_ceph_rgw_config {
 	const char *secret_access_key;
 	const char *config_file;
 	const char *keyring_file;
+	bool debug_enable;
 
 	/* rgw objects */
 	librgw_t rgw_lib_handle;
@@ -114,6 +115,7 @@ static bool vfs_ceph_rgw_mount_bucket(struct connection_struct *conn,
 		NULL, /* --cluster: Must be ceph */
 		NULL, /* cluster config file */
 		NULL, /* keyring file */
+		NULL, /* ceph debug param */ /* remove later */
 		NULL  /* Last param must be NULL */
 	};
 
@@ -136,6 +138,12 @@ static bool vfs_ceph_rgw_mount_bucket(struct connection_struct *conn,
 						 "--keyring=%s",
 						 config->keyring_file);
 	nparams++;
+
+	if (config->debug_enable) {
+		librgw_params[nparams] = talloc_strdup(conn,
+						       "-d --debug-rgw=20");
+		nparams++;
+	}
 
 	for (i = 0; i < nparams; i++) {
 		if (librgw_params[i] == NULL) {
@@ -246,6 +254,11 @@ static bool vfs_ceph_rgw_load_config(struct vfs_handle_struct *handle,
 	if (config_tmp->bkt_name == NULL) {
 		return false;
 	}
+
+	config_tmp->debug_enable = lp_parm_bool(SNUM(handle->conn),
+						"ceph_rgw",
+						"debug",
+						"off");
 
 	SMB_VFS_HANDLE_SET_DATA(handle,
 				config_tmp,

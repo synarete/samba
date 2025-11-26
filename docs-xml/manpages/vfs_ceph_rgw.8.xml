@@ -157,6 +157,19 @@
 		</listitem>
 		</varlistentry>
 
+		<varlistentry>
+		<term>ceph_rgw:debug = boolean</term>
+		<listitem>
+		<para>
+			Control debug logs for librgw
+			Default: off
+		</para>
+		<para>
+			Example: ceph_rgw:debug = on
+		</para>
+		</listitem>
+		</varlistentry>
+
 	</variablelist>
 
 </refsect1>
