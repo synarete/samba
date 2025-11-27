@@ -950,13 +950,17 @@ static int vfs_ceph_rgw_rd_cb(const char *name,
 		return 0;
 	}
 
-	d = talloc_zero(cb_arg->ctx, struct dirent);
-	if (d == NULL) {
-		DBG_ERR("[CEPH_RGW] Not enough memory for dir entry\n");
+	dirp->dirs = talloc_realloc(cb_arg->ctx,
+				    dirp->dirs,
+				    struct dirent,
+				    dirp->num + 1);
+	if (dirp->dirs == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory for dir entries\n");
 		return 0;
 	}
 
 	/* prepare dentry */
+	d = &dirp->dirs[dirp->num];
 	d->d_ino = st->st_ino;
 	d->d_off = dirp->pos;
 	d->d_reclen = strlen(name);
@@ -968,17 +972,7 @@ static int vfs_ceph_rgw_rd_cb(const char *name,
 		d->d_type = DT_UNKNOWN;
 	}
 	strncpy(d->d_name, name, sizeof(d->d_name) - 1);
-
-	dirp->dirs = talloc_realloc(cb_arg->ctx,
-				    dirp->dirs,
-				    struct dirent,
-				    dirp->num + 1);
-	if (dirp->dirs == NULL) {
-		DBG_ERR("[CEPH_RGW] Not enough memory for dir entries\n");
-		return 0;
-	}
-
-	dirp->dirs[dirp->num++] = *d;
+	dirp->num += 1;
 
 	/* Since its not end of dir listing, return non-zero value to continue
 	 * listing.
@@ -1066,18 +1060,10 @@ out:
 static int vfs_ceph_rgw_closedir(struct vfs_handle_struct *handle, DIR *dirp)
 {
 	int rc = 0;
-	struct vfs_ceph_rgw_fh *cfh = (struct vfs_ceph_rgw_fh *)dirp;
-
 	START_PROFILE_X(SNUM(handle->conn), syscall_closedir);
 
-	if (cfh == NULL) {
-		/* TODO: Why would this happen */
-		DBG_NOTICE("[CEPH_RGW] cfh is NULL for in closedir\n");
-		rc = -1;
-		goto out;
-	}
-	DBG_NOTICE("[CEPH_RGW] closedir: handle=%p dirp=%p\n", handle, dirp);
-out:
+	DBG_NOTICE("[CEPH_RGW] closedir: dirp=%p\n", dirp);
+
 	END_PROFILE_X(syscall_closedir);
 	return status_code(rc);
 }
