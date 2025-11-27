@@ -1178,7 +1178,7 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 				return -1);
 
 	/* Prepare dir name, i.e. add '/' to end of dir name */
-	name = talloc_asprintf(handle->conn, "%s/", smb_fname->base_name);
+	name = talloc_asprintf(talloc_tos(), "%s/", smb_fname->base_name);
 	if (name == NULL) {
 		DBG_ERR("[CEPH_RGW] Not enough memory for dir name\n");
 		goto out;
@@ -1305,7 +1305,6 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 	int rc = -1;
 	char *src_name = NULL;
 	char *dst_name = NULL;
-	TALLOC_CTX *ctx = talloc_stackframe();
 	START_PROFILE_X(SNUM(handle->conn), syscall_renameat);
 
 	SMB_VFS_HANDLE_GET_DATA(handle,
@@ -1344,20 +1343,20 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 
 	/* Dir names must end with '/' */
 	if (src_dirfsp->fsp_flags.is_directory) {
-		src_name = talloc_asprintf(ctx,
+		src_name = talloc_asprintf(talloc_tos(),
 					   "%s/",
 					   smb_fname_src->base_name);
 	} else {
-		src_name = talloc_strdup(ctx,
+		src_name = talloc_strdup(talloc_tos(),
 					 smb_fname_src->base_name);
 	}
 
 	if (dst_dirfsp->fsp_flags.is_directory) {
-		dst_name = talloc_asprintf(ctx,
+		dst_name = talloc_asprintf(talloc_tos(),
 					   "%s/",
 					   smb_fname_dst->base_name);
 	} else {
-		dst_name = talloc_strdup(ctx,
+		dst_name = talloc_strdup(talloc_tos(),
 					 smb_fname_dst->base_name);
 	}
 
@@ -1385,7 +1384,8 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 		   smb_fname_src->base_name,
 		   smb_fname_dst->base_name);
 out:
-	TALLOC_FREE(ctx);
+	TALLOC_FREE(src_name);
+	TALLOC_FREE(dst_name);
 	END_PROFILE_X(syscall_renameat);
 	return status_code(rc);
 }
