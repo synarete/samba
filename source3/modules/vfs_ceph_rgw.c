@@ -1639,6 +1639,43 @@ out:
 	return lstatus_code(bytes_written);
 }
 
+static int vfs_ceph_rgw_ftruncate(struct vfs_handle_struct *handle,
+				  files_struct *fsp,
+				  off_t len)
+{
+	int rc = -1;
+	struct vfs_ceph_rgw_fh *fh = NULL;
+	struct vfs_ceph_rgw_config *config = NULL;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_ftruncate);
+
+	DBG_DEBUG("[CEPH_RGW] ftruncate: name='%s' len=%zd\n",
+		  fsp_str_dbg(fsp),
+		  (intmax_t)len);
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_rgw_config,
+				goto out);
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &fh);
+	if (rc != 0) {
+		goto out;
+	}
+
+	rc = rgw_truncate(config->rgw_root_fs,
+			  fh->rgw_fh,
+			  (uint64_t)len,
+			  RGW_TRUNCATE_FLAG_NONE);
+out:
+	DBG_DEBUG("[CEPH_RGW] ftruncate done: name=%s len=%zd rc=%d\n",
+		  fsp_str_dbg(fsp),
+		  (intmax_t)len,
+		  rc);
+	END_PROFILE_X(syscall_ftruncate);
+	return status_code(rc);
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
@@ -1687,7 +1724,7 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.chdir_fn = vfs_ceph_rgw_chdir,
 	.getwd_fn = vfs_ceph_rgw_getwd,
 	.fntimes_fn = vfs_not_implemented_fntimes,
-	.ftruncate_fn = vfs_not_implemented_ftruncate,
+	.ftruncate_fn = vfs_ceph_rgw_ftruncate,
 	.fallocate_fn = vfs_not_implemented_fallocate,
 	.lock_fn = vfs_not_implemented_lock,
 	.filesystem_sharemode_fn = vfs_not_implemented_filesystem_sharemode,
