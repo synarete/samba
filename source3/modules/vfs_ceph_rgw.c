@@ -116,6 +116,25 @@ static int cephrgw_next_fd(struct vfs_ceph_rgw_config *config)
 	return (int)next;
 }
 
+/*
+ * Trim trailing '/', '.', '..'
+ */
+static char *normalise_name(void *ctx, const char *recv_name)
+{
+	int len = 0;
+
+	len = strlen(recv_name);
+	while(len != 0) {
+		if (recv_name[len-1] == '.' || recv_name[len-1] == '/') {
+			len--;
+			continue;
+		}
+		break;
+	}
+
+	return talloc_strndup(ctx, recv_name, len);
+}
+
 static bool vfs_ceph_rgw_mount_bucket(struct connection_struct *conn,
 				      struct vfs_ceph_rgw_config *config)
 {
@@ -594,6 +613,7 @@ static int vfs_ceph_rgw_add_fh(struct vfs_handle_struct *handle,
 {
 	struct vfs_ceph_rgw_config *config = NULL;
 	int ret = 0;
+	char *name = normalise_name(talloc_tos(), fsp_name(fsp));
 
 	SMB_VFS_HANDLE_GET_DATA(handle,
 				config,
@@ -614,8 +634,9 @@ static int vfs_ceph_rgw_add_fh(struct vfs_handle_struct *handle,
 	(*out_cfh)->fd = -1;
 out:
 	DBG_NOTICE("[CEPH_RGW] vfs_ceph_add_fh: name = %s ret = %d\n",
-		   fsp_name(fsp),
+		   name,
 		   ret);
+	TALLOC_FREE(name);
 	return ret;
 }
 
@@ -655,6 +676,7 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 	bool skip_open = false;
 	uint32_t file_type = 0;
 	const struct security_unix_token *utok = NULL;
+	char *open_name = NULL;
 
 	START_PROFILE_X(SNUM(handle->conn), syscall_openat);
 
@@ -665,23 +687,21 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 
 	utok = get_current_utok(handle->conn);
 
-	DBG_NOTICE("[CEPH_RGW] smb_fname->base_name=[%s] dirfsp->name=[%s] "
-		   "fsp->name=[%s] flags=%d mode=%d\n",
+	open_name = normalise_name(talloc_tos(), fsp_name(fsp));
+	if (open_name == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory for name\n");
+		rc = -ENOMEM;
+		goto out;
+	}
+
+	DBG_NOTICE("[CEPH_RGW] base_name=[%s] dir->name=[%s] "
+		   "fsp->name=[%s] open_name=[%s]\n",
 		   smb_fname->base_name,
 		   fsp_name(dirfsp),
 		   fsp_name(fsp),
-		   flags,
-		   mode);
+		   open_name);
 
-	if (strlen(fsp_name(fsp)) == 1) {
-		if ((strncmp(fsp_name(fsp), ".", 1) == 0) ||
-		    (strncmp(fsp_name(fsp), "/", 1) == 0))
-		{
-			skip_open = true;
-		}
-	}
-
-	if (strlen(fsp_name(fsp)) == 0) {
+	if (strlen(open_name) == 0) {
 		skip_open = true;
 	}
 
@@ -719,7 +739,7 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 
 		rc = rgw_create(config->rgw_root_fs,
 				config->rgw_root_fh,
-				fsp_name(fsp),
+				open_name,
 				&st,
 				mask,
 				&rgw_fh,
@@ -728,13 +748,13 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 		if (rc < 0) {
 			vfs_ceph_rgw_remove_fh(handle, fsp);
 			DBG_ERR("[CEPH_RGW] Error creating [%s]. rc = %d\n",
-				fsp_name(fsp),
+				open_name,
 				rc);
 			goto out;
 		}
 		newfh->rgw_fh = rgw_fh;
 		DBG_NOTICE("[CEPH_RGW] In create [%s]. rgw_fh=%p\n",
-			   fsp_name(fsp),
+			   open_name,
 			   rgw_fh);
 	} else {
 		DBG_NOTICE("[CEPH_RGW] Before lookup [%s]. newfh->rgw_fh=%p\n",
@@ -742,7 +762,7 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 			   newfh->rgw_fh);
 		rc = rgw_lookup(config->rgw_root_fs,
 				config->rgw_root_fh,
-				fsp_name(fsp),
+				open_name,
 				&rgw_fh,
 				&st,
 				flags,
@@ -750,7 +770,7 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 		if (rc < 0) {
 			vfs_ceph_rgw_remove_fh(handle, fsp);
 			DBG_ERR("[CEPH_RGW] Error looking up [%s]. rc = %d\n",
-				fsp_name(fsp),
+				open_name,
 				rc);
 			goto out;
 		}
@@ -768,12 +788,12 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 				vfs_ceph_rgw_remove_fh(handle, fsp);
 				DBG_ERR("[CEPH_RGW] Unable to open [%s]. rc = "
 					"%d\n",
-					fsp_name(fsp),
+					open_name,
 					rc);
 				goto out;
 			}
 			DBG_NOTICE("[CEPH_RGW] After open [%s]. rgw_fh=%p\n",
-				   fsp_name(fsp),
+				   open_name,
 				   rgw_fh);
 		}
 		newfh->rgw_fh = rgw_fh;
@@ -785,7 +805,7 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 			vfs_ceph_rgw_remove_fh(handle, fsp);
 			DBG_ERR("[CEPH_RGW] Error releasing handle [%s]. rc = "
 				"%d\n",
-				fsp_name(fsp),
+				open_name,
 				rc);
 			goto out;
 		}
@@ -793,8 +813,9 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 	}
 	newfh->o_flags = flags;
 
-	DBG_NOTICE("[CEPH_RGW] openat: [%s] success\n", fsp_name(fsp));
+	DBG_NOTICE("[CEPH_RGW] openat: [%s] success\n", open_name);
 out:
+	TALLOC_FREE(open_name);
 	END_PROFILE_X(syscall_openat);
 	return status_code(rc);
 }
@@ -1172,6 +1193,7 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 	const struct security_unix_token *utok = NULL;
 	struct stat st = {0};
 	char *name = NULL;
+	char *abs_path = NULL;
 	START_PROFILE_X(SNUM(handle->conn), syscall_mkdirat);
 
 	SMB_VFS_HANDLE_GET_DATA(handle,
@@ -1179,8 +1201,25 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 				struct vfs_ceph_rgw_config,
 				return -1);
 
+	/* Get abs name */
+	abs_path = normalise_name(talloc_tos(), fsp_name(dirfsp));
+	if (abs_path == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory for abs path\n");
+		goto out;
+	}
+
 	/* Prepare dir name, i.e. add '/' to end of dir name */
-	name = talloc_asprintf(talloc_tos(), "%s/", smb_fname->base_name);
+	if (strlen(abs_path) != 0) {
+		name = talloc_asprintf(talloc_tos(),
+			       "%s/%s/",
+			       abs_path,
+			       smb_fname->base_name);
+	} else {
+		name = talloc_asprintf(talloc_tos(),
+			       "%s/",
+			       smb_fname->base_name);
+	}
+
 	if (name == NULL) {
 		DBG_ERR("[CEPH_RGW] Not enough memory for dir name\n");
 		goto out;
@@ -1197,14 +1236,18 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 	utok = get_current_utok(handle->conn);
 	st.st_uid = utok->uid;
 	st.st_gid = utok->gid;
-	st.st_mode = mode;
+	if (mode == 0) {
+		mask &= ~RGW_SETATTR_MODE;
+	} else {
+		st.st_mode = mode;
+	}
 	DBG_NOTICE("[CEPH_RGW] mkdirat: uid = %u gid = %u mode = %u\n",
 		   utok->uid,
 		   utok->gid,
 		   mode);
 
 	rc = rgw_create(config->rgw_root_fs,
-			dircfh->rgw_fh,
+			config->rgw_root_fh,
 			name,
 			&st,
 			mask,
@@ -1218,8 +1261,10 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
-	DBG_NOTICE("[CEPH_RGW] mkdirat: [%s] success.\n", name);
+	DBG_NOTICE("[CEPH_RGW] mkdirat: [%s] success. mode = %u\n",
+		   name, st.st_mode);
 out:
+	TALLOC_FREE(abs_path);
 	TALLOC_FREE(name);
 	END_PROFILE_X(syscall_mkdirat);
 	return status_code(rc);
@@ -1307,6 +1352,9 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 	int rc = -1;
 	char *src_name = NULL;
 	char *dst_name = NULL;
+	char *src_abs_path = NULL;
+	char *dst_abs_path = NULL;
+	TALLOC_CTX *ctx = talloc_stackframe();
 	START_PROFILE_X(SNUM(handle->conn), syscall_renameat);
 
 	SMB_VFS_HANDLE_GET_DATA(handle,
@@ -1344,22 +1392,60 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 	}
 
 	/* Dir names must end with '/' */
+	src_abs_path = normalise_name(ctx, fsp_name(src_dirfsp));
+	dst_abs_path = normalise_name(ctx, fsp_name(dst_dirfsp));
+	if (src_abs_path == NULL || dst_abs_path == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory\n");
+		rc = -ENOMEM;
+		goto out;
+	}
+
 	if (src_dirfsp->fsp_flags.is_directory) {
-		src_name = talloc_asprintf(talloc_tos(),
-					   "%s/",
-					   smb_fname_src->base_name);
+		if (strlen(src_abs_path) != 0) {
+			src_name = talloc_asprintf(ctx,
+						   "%s/%s/",
+						   src_abs_path,
+						   smb_fname_src->base_name);
+		} else {
+			src_name = talloc_asprintf(ctx,
+						   "%s/",
+						   smb_fname_src->base_name);
+		}
 	} else {
-		src_name = talloc_strdup(talloc_tos(),
-					 smb_fname_src->base_name);
+		if (strlen(src_abs_path) != 0) {
+			src_name = talloc_asprintf(ctx,
+					"%s/%s",
+					src_abs_path,
+					smb_fname_src->base_name);
+		} else {
+			src_name = talloc_asprintf(ctx,
+					"%s",
+					smb_fname_src->base_name);
+		}
 	}
 
 	if (dst_dirfsp->fsp_flags.is_directory) {
-		dst_name = talloc_asprintf(talloc_tos(),
-					   "%s/",
-					   smb_fname_dst->base_name);
+		if (strlen(dst_abs_path) != 0) {
+			dst_name = talloc_asprintf(ctx,
+					"%s/%s/",
+					dst_abs_path,
+					smb_fname_dst->base_name);
+		} else {
+			dst_name = talloc_asprintf(ctx,
+					"%s/",
+					smb_fname_dst->base_name);
+		}
 	} else {
-		dst_name = talloc_strdup(talloc_tos(),
-					 smb_fname_dst->base_name);
+		if (strlen(dst_abs_path) != 0) {
+		dst_name = talloc_asprintf(ctx,
+					   "%s/%s",
+					   dst_abs_path,
+					   smb_fname_dst->base_name);
+		} else {
+			dst_name = talloc_asprintf(ctx,
+					"%s",
+					smb_fname_dst->base_name);
+		}
 	}
 
 	if (src_name == NULL || dst_name == NULL) {
@@ -1369,9 +1455,9 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 	}
 
 	rc = rgw_rename(config->rgw_root_fs,
-			src_dircfh->rgw_fh,
+			config->rgw_root_fh,
 			src_name,
-			dst_dircfh->rgw_fh,
+			config->rgw_root_fh,
 			dst_name,
 			RGW_RENAME_FLAG_NONE);
 	if (rc < 0) {
@@ -1386,8 +1472,7 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 		   smb_fname_src->base_name,
 		   smb_fname_dst->base_name);
 out:
-	TALLOC_FREE(src_name);
-	TALLOC_FREE(dst_name);
+	TALLOC_FREE(ctx);
 	END_PROFILE_X(syscall_renameat);
 	return status_code(rc);
 }
