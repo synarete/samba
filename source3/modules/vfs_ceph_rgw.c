@@ -102,6 +102,20 @@ static const char *fsp_name(const files_struct *fsp)
 	return fsp->fsp_name->base_name;
 }
 
+static int cephrgw_next_fd(struct vfs_ceph_rgw_config *config)
+{
+	/*
+	 * Those file-descriptor numbers are reported back to VFS layer
+	 * (debug-hints only). Using numbers within a large range of
+	 * [1000, 1001000], thus the chances of (annoying but harmless)
+	 * collision are low.
+	 */
+	uint64_t next;
+
+	next = (config->ceph_rgw_fd++ % 1000000) + 1000;
+	return (int)next;
+}
+
 static bool vfs_ceph_rgw_mount_bucket(struct connection_struct *conn,
 				      struct vfs_ceph_rgw_config *config)
 {
@@ -180,7 +194,7 @@ static bool vfs_ceph_rgw_mount_bucket(struct connection_struct *conn,
 	}
 
 	config->rgw_root_fh = config->rgw_root_fs->root_fh;
-	config->ceph_rgw_fd = 10000;
+	config->ceph_rgw_fd = 0;
 
 	return true;
 };
@@ -659,17 +673,6 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 		   flags,
 		   mode);
 
-#if 0
-	if (strlen(fsp_name(fsp)) == 1) {
-		if ((strncmp(fsp_name(fsp), ".", 1) == 0) ||
-		    (strncmp(fsp_name(fsp), "/", 1) == 0)) {
-			rc = config->ceph_rgw_fd;
-			config->ceph_rgw_fd++;
-			return rc;
-		}
-	}
-#endif
-
 	if (strlen(fsp_name(fsp)) == 1) {
 		if ((strncmp(fsp_name(fsp), ".", 1) == 0) ||
 		    (strncmp(fsp_name(fsp), "/", 1) == 0))
@@ -693,8 +696,7 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 			DBG_ERR("Unable to add handle. rc=%d\n", rc);
 			goto out;
 		}
-		newfh->fd = config->ceph_rgw_fd;
-		config->ceph_rgw_fd++;
+		newfh->fd = cephrgw_next_fd(config);
 	}
 
 	if (skip_open) {
