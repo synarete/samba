@@ -1826,6 +1826,191 @@ out:
 	return res;
 }
 
+static rgw_xattrlist *prepare_xattr_list(void *ctx,
+					 const char *name,
+					 const char *value)
+{
+	rgw_xattr *attr = NULL;
+	rgw_xattrlist *attr_list = NULL;
+
+	attr = talloc(ctx, rgw_xattr);
+	if (attr == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory\n");
+		return NULL;
+	}
+
+	attr->key.val = talloc_strdup(ctx, name);
+	attr->key.len = strlen(name);
+	if (attr->key.val == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory\n");
+		goto out_free;
+	}
+
+	if (value != NULL) {
+		attr->val.val = talloc_strdup(ctx, value);
+		attr->val.len = strlen(value);
+		if (attr->val.val == NULL) {
+			DBG_ERR("[CEPH_RGW] Not enough memory\n");
+			goto out_free;
+		}
+	} else {
+		attr->val.val = NULL;
+		attr->val.len = 0;
+	}
+
+	attr_list = talloc(ctx, rgw_xattrlist);
+	if (attr_list == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory\n");
+		goto out_free;
+	}
+	attr_list->xattrs = attr;
+	attr_list->xattr_cnt = 1;
+
+	return attr_list;
+
+out_free:
+	TALLOC_FREE(attr);
+	return NULL;
+}
+
+static int vfs_ceph_rgw_fsetxattr(struct vfs_handle_struct *handle,
+				  struct files_struct *fsp,
+				  const char *name,
+				  const void *value,
+				  size_t size,
+				  int flags)
+{
+	int rc = -ENOMEM;
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct vfs_ceph_rgw_fh *fh = NULL;
+	rgw_xattrlist *attr_list = NULL;
+
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				goto out);
+
+	DBG_DEBUG("[CEPH_RGW] fsetxattr [%s] %s\n",
+		  fsp_name(fsp),
+		  name);
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &fh);
+	if (rc != 0) {
+		DBG_ERR("[CEPH_RGW] Unable to fetch handle\n");
+		goto out;
+	}
+
+	attr_list = prepare_xattr_list(talloc_tos(), name, value);
+	if (attr_list == NULL) {
+		rc = -ENOMEM;
+		DBG_ERR("[CEPH_RGW] Not enough memory\n");
+		goto out;
+	}
+
+	rc = rgw_setxattrs(config->rgw_root_fs,
+			   fh->rgw_fh,
+			   attr_list,
+			   RGW_SETXATTR_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to set x attributes\n");
+		goto out;
+	}
+
+out:
+	TALLOC_FREE(attr_list);
+	DBG_DEBUG("[CEPH_RGW] fsetxattr(...) = %d\n", rc);
+	return status_code(rc);
+}
+
+struct vfs_ceph_rgw_getxattr_arg {
+	int rc;
+	char *val;
+	size_t size;
+};
+
+static int ceph_rgw_getxattr_cb(rgw_xattrlist *attr_list,
+				void *arg,
+				uint32_t flags)
+{
+	struct vfs_ceph_rgw_getxattr_arg *cb_arg =
+		(struct vfs_ceph_rgw_getxattr_arg *)arg;
+
+	cb_arg->rc = 0;
+	if (cb_arg->size < attr_list->xattrs->val.len) {
+		cb_arg->rc = ENOSPC;
+		goto out;
+	}
+	memcpy(cb_arg->val,
+	       attr_list->xattrs->val.val,
+	       attr_list->xattrs->val.len);
+out:
+	return cb_arg->rc;
+}
+
+static ssize_t vfs_ceph_rgw_fgetxattr(struct vfs_handle_struct *handle,
+				      struct files_struct *fsp,
+				      const char *name,
+				      void *value,
+				      size_t size)
+{
+	int rc = -ENOMEM;
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct vfs_ceph_rgw_fh *fh = NULL;
+	rgw_xattrlist *attr_list = NULL;
+	struct vfs_ceph_rgw_getxattr_arg *cb_arg = NULL;
+
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				goto out);
+
+	DBG_DEBUG("[CEPH] fgetxattr: [%s] %s\n",
+		  fsp_name(fsp),
+		  name);
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &fh);
+	if (rc != 0) {
+		DBG_ERR("[CEPH_RGW] Unable to fetch handle\n");
+		goto out;
+	}
+
+	attr_list = prepare_xattr_list(talloc_tos(), name, NULL);
+	if (attr_list == NULL) {
+		rc = -ENOMEM;
+		DBG_ERR("[CEPH_RGW] Not enough memory\n");
+		goto out;
+	}
+
+	cb_arg = talloc(talloc_tos(), struct vfs_ceph_rgw_getxattr_arg);
+	if (cb_arg == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory\n");
+		rc = -ENOMEM;
+		goto out;
+	}
+
+	cb_arg->rc = 0;
+	cb_arg->val = value;
+	cb_arg->size = size;
+
+	rc = rgw_getxattrs(config->rgw_root_fs,
+			   fh->rgw_fh,
+			   attr_list,
+			   ceph_rgw_getxattr_cb,
+			   cb_arg,
+			   RGW_GETXATTR_FLAG_NONE);
+
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Error getting x attrs\n");
+		if (cb_arg->rc < 0) {
+			rc = cb_arg->rc;
+		}
+		goto out;
+	}
+
+
+out:
+	TALLOC_FREE(cb_arg);
+	TALLOC_FREE(attr_list);
+	DBG_DEBUG("[CEPH] fgetxattr(...) = %d\n", rc);
+	return lstatus_code(rc);
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
@@ -1894,10 +2079,10 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* EA operations. */
 	.getxattrat_send_fn = vfs_not_implemented_getxattrat_send,
 	.getxattrat_recv_fn = vfs_not_implemented_getxattrat_recv,
-	.fgetxattr_fn = vfs_not_implemented_fgetxattr,
+	.fgetxattr_fn = vfs_ceph_rgw_fgetxattr,
 	.flistxattr_fn = vfs_not_implemented_flistxattr,
 	.fremovexattr_fn = vfs_not_implemented_fremovexattr,
-	.fsetxattr_fn = vfs_not_implemented_fsetxattr,
+	.fsetxattr_fn = vfs_ceph_rgw_fsetxattr,
 
 	/* Posix ACL Operations */
 	.sys_acl_get_fd_fn = vfs_not_implemented_sys_acl_get_fd,
