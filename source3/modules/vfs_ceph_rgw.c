@@ -2011,6 +2011,48 @@ out:
 	return lstatus_code(rc);
 }
 
+static NTSTATUS vfs_ceph_rgw_fget_dos_attributes(
+					struct vfs_handle_struct *handle,
+					struct files_struct *fsp,
+					uint32_t *dosmode)
+{
+	struct timespec saved_btime = fsp->fsp_name->st.st_ex_btime;
+	NTSTATUS status;
+
+	status = fget_ea_dos_attribute(fsp, dosmode);
+
+	/*
+	 * Restore previously stored btime from statx timestamps as it should be
+	 * the only source of truth. create_time from dos attribute, if any, may
+	 * have older values which isn't trustworthy to be looked at for other
+	 * open file handle operations.
+	 */
+	fsp->fsp_name->st.st_ex_btime = saved_btime;
+
+	return status;
+}
+
+static NTSTATUS vfs_ceph_rgw_fset_dos_attributes(
+					struct vfs_handle_struct *handle,
+					struct files_struct *fsp,
+					uint32_t dosmode)
+{
+	NTSTATUS status;
+	struct timespec saved_btime = fsp->fsp_name->st.st_ex_btime;
+
+	status = set_ea_dos_attribute(handle->conn, fsp->fsp_name, dosmode);
+
+	/*
+	 * Restore previously stored btime from statx timestamps. This is done
+	 * to ensure that we have the exact btime in fsp stat information while
+	 * the file handle is still open since the create_time stored as part of
+	 * dos attributes can loose its precision when converted back to btime.
+	 */
+	fsp->fsp_name->st.st_ex_btime = saved_btime;
+
+	return status;
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
@@ -2073,8 +2115,8 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.realpath_fn = vfs_ceph_rgw_realpath,
 	.fchflags_fn = vfs_not_implemented_fchflags,
 	.get_real_filename_at_fn = vfs_ceph_rgw_get_real_filename_at,
-	.fget_dos_attributes_fn = vfs_not_implemented_fget_dos_attributes,
-	.fset_dos_attributes_fn = vfs_not_implemented_fset_dos_attributes,
+	.fget_dos_attributes_fn = vfs_ceph_rgw_fget_dos_attributes,
+	.fset_dos_attributes_fn = vfs_ceph_rgw_fset_dos_attributes,
 
 	/* EA operations. */
 	.getxattrat_send_fn = vfs_not_implemented_getxattrat_send,
