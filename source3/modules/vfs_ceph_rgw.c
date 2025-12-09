@@ -2053,6 +2053,83 @@ static NTSTATUS vfs_ceph_rgw_fset_dos_attributes(
 	return status;
 }
 
+static void vfs_ceph_rgw_fill_statx_mask_from_ft(struct smb_file_time *ft,
+						 struct stat *st,
+						 uint32_t *mask)
+{
+	struct timespec time_now = timespec_current();
+
+	if (!is_omit_timespec(&ft->atime)) {
+		if (ft->atime.tv_nsec == UTIME_NOW) {
+			ft->atime = time_now;
+		}
+		st->st_atim.tv_sec = ft->atime.tv_sec;
+		*mask |= RGW_SETATTR_ATIME;
+	}
+	if (!is_omit_timespec(&ft->mtime)) {
+		if (ft->mtime.tv_nsec == UTIME_NOW) {
+			ft->mtime = time_now;
+		}
+		st->st_mtim.tv_sec = ft->mtime.tv_sec;
+		*mask |= RGW_SETATTR_MTIME;
+	}
+	if (!is_omit_timespec(&ft->ctime)) {
+		if (ft->ctime.tv_nsec == UTIME_NOW) {
+			ft->ctime = time_now;
+		}
+		st->st_ctim.tv_sec = ft->ctime.tv_sec;
+		*mask |= RGW_SETATTR_CTIME;
+	}
+
+	return;
+}
+
+static int vfs_ceph_rgw_fntimes(struct vfs_handle_struct *handle,
+			    files_struct *fsp,
+			    struct smb_file_time *ft)
+{
+	int rc = -ENOMEM;
+	uint32_t mask = 0;
+	struct stat st = {0};
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct vfs_ceph_rgw_fh *fh = NULL;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_fntimes);
+
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				goto out);
+
+	vfs_ceph_rgw_fill_statx_mask_from_ft(ft, &st, &mask);
+	if (mask == 0) {
+		rc = 0;
+		goto out;
+	}
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &fh);
+	if (rc != 0) {
+		DBG_ERR("[CEPH_RGW] Unable to fetch handle\n");
+		goto out;
+	}
+
+	rc = rgw_setattr(config->rgw_root_fs,
+			 fh->rgw_fh,
+			 &st,
+			 mask,
+			 RGW_SETATTR_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to set attributes\n");
+		goto out;
+	}
+
+	if (!is_omit_timespec(&ft->create_time)) {
+		set_create_timespec_ea(fsp, ft->create_time);
+	}
+
+out:
+	END_PROFILE_X(syscall_fntimes);
+	return status_code(rc);
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
@@ -2100,7 +2177,7 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.lchown_fn = vfs_not_implemented_lchown,
 	.chdir_fn = vfs_ceph_rgw_chdir,
 	.getwd_fn = vfs_ceph_rgw_getwd,
-	.fntimes_fn = vfs_not_implemented_fntimes,
+	.fntimes_fn = vfs_ceph_rgw_fntimes,
 	.ftruncate_fn = vfs_ceph_rgw_ftruncate,
 	.fallocate_fn = vfs_not_implemented_fallocate,
 	.lock_fn = vfs_not_implemented_lock,
