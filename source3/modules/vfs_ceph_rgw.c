@@ -1826,6 +1826,54 @@ out:
 	return res;
 }
 
+static int vfs_ceph_rgw_fntimes(struct vfs_handle_struct *handle,
+			    files_struct *fsp,
+			    struct smb_file_time *ft)
+{
+	int rc = -ENOMEM;
+	struct vfs_ceph_rgw_fh *fh = NULL;
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct stat st = {0};
+	uint32_t mask = 0;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_fntimes);
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_rgw_config,
+				goto out);
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &fh);
+	if (rc != 0) {
+		goto out;
+	}
+
+	if (!is_omit_timespec(&ft->mtime)) {
+		st.st_mtim = ft->mtime;
+		mask |= RGW_SETATTR_MTIME;
+	}
+	if (!is_omit_timespec(&ft->atime)) {
+		st.st_atim = ft->atime;
+		mask |= RGW_SETATTR_ATIME;
+	}
+	if (!is_omit_timespec(&ft->ctime)) {
+		st.st_ctim = ft->ctime;
+		mask |= RGW_SETATTR_CTIME;
+	}
+	rc = rgw_setattr(config->rgw_root_fs, fh->rgw_fh, &st, mask,
+		 RGW_SETATTR_FLAG_NONE);
+out:
+	DBG_DEBUG("[CEPH_RGW] fntimes: fsp->name=%s {mtime=%ld atime=%ld "
+		  "ctime=%ld} rc=%d\n",
+		  fsp_str_dbg(fsp),
+		  ft->mtime.tv_sec,
+		  ft->atime.tv_sec,
+		  ft->ctime.tv_sec,
+		  rc);
+	END_PROFILE_X(syscall_fntimes);
+	return status_code(rc);
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
@@ -1873,7 +1921,7 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.lchown_fn = vfs_not_implemented_lchown,
 	.chdir_fn = vfs_ceph_rgw_chdir,
 	.getwd_fn = vfs_ceph_rgw_getwd,
-	.fntimes_fn = vfs_not_implemented_fntimes,
+	.fntimes_fn = vfs_ceph_rgw_fntimes,
 	.ftruncate_fn = vfs_ceph_rgw_ftruncate,
 	.fallocate_fn = vfs_not_implemented_fallocate,
 	.lock_fn = vfs_not_implemented_lock,
