@@ -1251,11 +1251,8 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 	utok = get_current_utok(handle->conn);
 	st.st_uid = utok->uid;
 	st.st_gid = utok->gid;
-	if (mode == 0) {
-		mask &= ~RGW_SETATTR_MODE;
-	} else {
-		st.st_mode = mode;
-	}
+	st.st_mode = mode;
+
 	DBG_NOTICE("[CEPH_RGW] mkdirat: uid = %u gid = %u mode = %u\n",
 		   utok->uid,
 		   utok->gid,
