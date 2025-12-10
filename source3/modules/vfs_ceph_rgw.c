@@ -121,15 +121,14 @@ static int cephrgw_next_fd(struct vfs_ceph_rgw_config *config)
  */
 static char *normalise_name(void *ctx, const char *recv_name)
 {
-	int len = 0;
+	size_t len = 0;
 
 	len = strlen(recv_name);
 	while(len != 0) {
-		if (recv_name[len-1] == '.' || recv_name[len-1] == '/') {
-			len--;
-			continue;
+		if (recv_name[len-1] != '.' && recv_name[len-1] != '/') {
+			break;
 		}
-		break;
+		len--;
 	}
 
 	return talloc_strndup(ctx, recv_name, len);
