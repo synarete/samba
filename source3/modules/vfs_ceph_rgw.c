@@ -1366,6 +1366,7 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 	char *dst_name = NULL;
 	char *src_abs_path = NULL;
 	char *dst_abs_path = NULL;
+	mode_t mode = 0;
 	TALLOC_CTX *ctx = talloc_stackframe();
 	START_PROFILE_X(SNUM(handle->conn), syscall_renameat);
 
@@ -1373,6 +1374,7 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 				config,
 				struct vfs_ceph_rgw_config,
 				goto out);
+
 	DBG_NOTICE("[CEPH_RGW] renameat: src [%s] dst [%s]\n",
 		   smb_fname_src->base_name,
 		   smb_fname_dst->base_name);
@@ -1380,6 +1382,13 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 	if (smb_fname_src->stream_name || smb_fname_dst->stream_name) {
 		DBG_ERR("[CEPH_RGW] rename out#1\n");
 		rc = -ENOENT;
+		goto out;
+	}
+
+	mode = smb_fname_src->st.st_ex_mode;
+	if (S_ISDIR(mode)) {
+		DBG_ERR("[CEPH_RGW] Directory renaming not supported\n");
+		rc = -ENOSYS;
 		goto out;
 	}
 
@@ -1403,7 +1412,6 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
-	/* Dir names must end with '/' */
 	src_abs_path = normalise_name(ctx, fsp_name(src_dirfsp));
 	dst_abs_path = normalise_name(ctx, fsp_name(dst_dirfsp));
 	if (src_abs_path == NULL || dst_abs_path == NULL) {
@@ -1412,52 +1420,27 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
-	if (src_dirfsp->fsp_flags.is_directory) {
-		if (strlen(src_abs_path) != 0) {
-			src_name = talloc_asprintf(ctx,
-						   "%s/%s/",
-						   src_abs_path,
-						   smb_fname_src->base_name);
-		} else {
-			src_name = talloc_asprintf(ctx,
-						   "%s/",
-						   smb_fname_src->base_name);
-		}
+	/* prepare absolute path for filenames */
+	if (strlen(src_abs_path) != 0) {
+		src_name = talloc_asprintf(ctx,
+				"%s/%s",
+				src_abs_path,
+				smb_fname_src->base_name);
 	} else {
-		if (strlen(src_abs_path) != 0) {
-			src_name = talloc_asprintf(ctx,
-					"%s/%s",
-					src_abs_path,
-					smb_fname_src->base_name);
-		} else {
-			src_name = talloc_asprintf(ctx,
-					"%s",
-					smb_fname_src->base_name);
-		}
+		src_name = talloc_asprintf(ctx,
+				"%s",
+				smb_fname_src->base_name);
 	}
 
-	if (dst_dirfsp->fsp_flags.is_directory) {
-		if (strlen(dst_abs_path) != 0) {
-			dst_name = talloc_asprintf(ctx,
-					"%s/%s/",
-					dst_abs_path,
-					smb_fname_dst->base_name);
-		} else {
-			dst_name = talloc_asprintf(ctx,
-					"%s/",
-					smb_fname_dst->base_name);
-		}
-	} else {
-		if (strlen(dst_abs_path) != 0) {
+	if (strlen(dst_abs_path) != 0) {
 		dst_name = talloc_asprintf(ctx,
-					   "%s/%s",
-					   dst_abs_path,
-					   smb_fname_dst->base_name);
-		} else {
-			dst_name = talloc_asprintf(ctx,
-					"%s",
-					smb_fname_dst->base_name);
-		}
+				"%s/%s",
+				dst_abs_path,
+				smb_fname_dst->base_name);
+	} else {
+		dst_name = talloc_asprintf(ctx,
+				"%s",
+				smb_fname_dst->base_name);
 	}
 
 	if (src_name == NULL || dst_name == NULL) {
