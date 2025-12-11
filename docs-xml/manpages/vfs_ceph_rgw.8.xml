@@ -44,7 +44,14 @@
 	</para>
 
 	<para>
-		This module can not be combined with other modules, but it
+		This module can not be combined with other modules.
+
+		librgw do not support renaming directories. Therefore
+		param 'vfs mkdir use tmp name' must be set to 'no'.
+		This would ensure samba do not use temporary names while
+		creating directory and rename it to give name.
+		Thus vfs module sets 'vfs mkdir use tmp name' to 'no',
+		to ensure samba does not use temporary names for dir creation.
 	</para>
 
 </refsect1>

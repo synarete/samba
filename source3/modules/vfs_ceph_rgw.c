@@ -292,6 +292,14 @@ static bool vfs_ceph_rgw_load_config(struct vfs_handle_struct *handle,
 						"debug",
 						"off");
 
+	/*
+	 * librgw do not support directory renaming.
+	 * This option ensures that samba do not use temporary names for
+	 * directory creation and thereby preventing rename while creating
+	 * directory.
+	 */
+	lp_do_parameter(SNUM(handle->conn), "vfs mkdir use tmp name", "no");
+
 	SMB_VFS_HANDLE_SET_DATA(handle,
 				config_tmp,
 				NULL,
