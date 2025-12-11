@@ -1529,10 +1529,12 @@ static ssize_t vfs_ceph_rgw_pread(struct vfs_handle_struct *handle,
 				  size_t n,
 				  off_t offset)
 {
-	int rc;
-	ssize_t bytes_read = -1;
+	int rc = -1;
+	size_t nbytes_read = 0;
+	ssize_t bytes_read = -ENOMEM;
 	struct vfs_ceph_rgw_config *config = NULL;
 	struct vfs_ceph_rgw_fh *cfh = NULL;
+	struct stat st = {};
 
 	START_PROFILE_BYTES_X(SNUM(handle->conn), syscall_pread, n);
 
@@ -1544,31 +1546,51 @@ static ssize_t vfs_ceph_rgw_pread(struct vfs_handle_struct *handle,
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &cfh);
 	if (rc != 0) {
 		DBG_ERR("[CEPH_RGW] Unable to fetch handle for [%s]\n",
-			fsp_name(fsp));
+			fsp_str_dbg(fsp));
+		bytes_read = rc;
 		goto out;
+	}
+
+	rc = rgw_getattr(config->rgw_root_fs,
+			 cfh->rgw_fh,
+			 &st,
+			 RGW_GETATTR_FLAG_NONE);
+	if (rc != 0) {
+		DBG_ERR("[CEPH_RGW] Unable to getattr for [%s]. rc = %d\n",
+			fsp_str_dbg(fsp),
+			rc);
+		bytes_read = rc;
+		goto out;
+	}
+	if (offset >= st.st_size) {
+		goto out_ok;
 	}
 
 	rc = rgw_read(config->rgw_root_fs,
 		      cfh->rgw_fh,
 		      offset,
 		      n,
-		      (size_t *)&bytes_read,
+		      &nbytes_read,
 		      data,
 		      RGW_READ_FLAG_NONE);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Read failed for [%s]. rc = %d\n",
-			fsp_name(fsp),
+			fsp_str_dbg(fsp),
 			rc);
+		bytes_read = rc;
 		goto out;
 	}
+
+out_ok:
+	bytes_read = (ssize_t)nbytes_read;
 out:
-	DBG_DEBUG("[CEPH] pread: handle=%p name=%s n=%" PRIu64 "offset=%" PRIu64
-		  " bytes_read=%" PRIu64 "\n",
-		  handle,
+	DBG_DEBUG("[CEPH_RGW] pread: fsp_name=%s n=%" PRIu64 "offset=%" PRIu64
+		  " bytes_read=%" PRId64 " rc=%d\n",
 		  fsp_str_dbg(fsp),
 		  n,
 		  (intmax_t)offset,
-		  bytes_read);
+		  bytes_read,
+		  rc);
 	END_PROFILE_BYTES_X(syscall_pread);
 	return lstatus_code(bytes_read);
 }
