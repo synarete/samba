@@ -6295,6 +6295,17 @@ static struct persistent_reconnect_contend_results contend_results_so[] = {
 	{NULL,	NULL,	false,	NULL,	NULL,   0,	false,	NT_STATUS_INTERNAL_ERROR,	false,	 NULL,	NULL}
 };
 
+static struct persistent_reconnect_contend_results contend_results_so_failover[] = {
+	{"R",	"R",	true,	"R",	"R",    RO,	false,	NT_STATUS_FILE_NOT_AVAILABLE,	false,	"RWH",	""},
+	{"R",	"RW",	true,	"R",	"R",    RO,	false,	NT_STATUS_FILE_NOT_AVAILABLE,	false,	"RWH",	""},
+	{"R",	"RWD",	true,	"R",	"R",    RO,	false,	NT_STATUS_FILE_NOT_AVAILABLE,	false,	"RWH",	""},
+	{"R",	"R",	true,	"R",	"R",    RO,	true,	NT_STATUS_FILE_NOT_AVAILABLE,	false,	"RWH",	""},
+	{"R",	"RW",	true,	"R",	"R",    RO,	true,	NT_STATUS_FILE_NOT_AVAILABLE,	false,	"RWH",	""},
+	{"R",	"RWD",	true,	"R",	"R",    RO,	true,	NT_STATUS_FILE_NOT_AVAILABLE,	false,	"RWH",	""},
+
+	{NULL,	NULL,	false,	NULL,	NULL,   0,	false,	NT_STATUS_INTERNAL_ERROR,	false,	 NULL,	NULL}
+};
+
 #undef RO
 #undef RW
 #undef RWD
@@ -6328,13 +6339,16 @@ static bool test_persistent_reconnect_contended_do_one(
 		struct torture_context *tctx,
 		struct smb2_tree *_tree,
 		struct persistent_reconnect_contend_results *table,
-		int testnum)
+		int testnum,
+		bool node_failure)
 {
 	TALLOC_CTX *mem_ctx = talloc_new(tctx);
 	struct smbcli_options options1 = _tree->session->transport->options;
 	struct smbcli_options options2 = _tree->session->transport->options;
 	struct smb2_tree *tree1 = NULL;
 	struct smb2_tree *tree2 = NULL;
+	uint8_t pnn;
+	bool stopped = false;
 	struct smb2_request *req = NULL;
 	struct smb2_create io;
 	struct smb2_create io2;
@@ -6481,7 +6495,14 @@ static bool test_persistent_reconnect_contended_do_one(
 	/*
 	 * Now disconnect
 	 */
-	TALLOC_FREE(tree1);
+	if (!node_failure) {
+		TALLOC_FREE(tree1);
+	} else {
+		ret = torture_stop_ctdb_node(tctx, &tree1, &pnn);
+		torture_assert_goto(tctx, ret, ret, done,
+				    "torture_ctdb_stop_node failed\n");
+		stopped = true;
+	}
 	ZERO_STRUCT(h1);
 	smb_msleep(100);
 
@@ -6667,7 +6688,21 @@ static bool test_persistent_reconnect_contended_do_one(
 					"smb2_close failed\n");
 	ZERO_STRUCT(h1);
 
+	if (stopped) {
+		ret = torture_start_ctdb_node(tctx, _tree, pnn);
+		torture_assert_goto(tctx, ret, ret, done,
+				    "torture_ctdb_start_node failed\n");
+		stopped = false;
+	}
+
 done:
+	if (stopped) {
+		ret = torture_start_ctdb_node(tctx, _tree, pnn);
+		if (!ret) {
+			torture_fail(tctx, "torture_ctdb_start_node failed");
+		}
+	}
+
 	if (!smb2_util_handle_empty(h1)) {
 		smb2_util_close(tree1, h1);
 	}
@@ -6688,7 +6723,8 @@ done:
 static bool test_persistent_reconnect_contended_do_table(
 		struct torture_context *tctx,
 		struct smb2_tree *_tree,
-		struct persistent_reconnect_contend_results *table)
+		struct persistent_reconnect_contend_results *table,
+		bool failover)
 {
 	int i;
 	bool single;
@@ -6699,7 +6735,7 @@ static bool test_persistent_reconnect_contended_do_table(
 
 	for (; table[i].held_lease != NULL; i++) {
 		ok = test_persistent_reconnect_contended_do_one(
-			tctx, _tree, &table[i], i);
+			tctx, _tree, &table[i], i, failover);
 		if (!ok) {
 			return false;
 		}
@@ -6733,7 +6769,8 @@ static bool test_persistent_reconnect_contended(struct torture_context *tctx,
 		table = contend_results_fo;
 	}
 
-	return test_persistent_reconnect_contended_do_table(tctx, _tree, table);
+	return test_persistent_reconnect_contended_do_table(
+		tctx, _tree, table, false);
 }
 
 static bool test_persistent_reconnect_contended_win_broken(
@@ -6762,7 +6799,7 @@ static bool test_persistent_reconnect_contended_win_broken(
 	}
 
 	return test_persistent_reconnect_contended_do_table(
-		tctx, _tree, contend_results_fo_win_broken);
+		tctx, _tree, contend_results_fo_win_broken, false);
 }
 
 #define RO (SEC_RIGHTS_FILE_READ)
@@ -9293,6 +9330,194 @@ struct torture_suite *torture_smb2_persistent_open_init(TALLOC_CTX *ctx)
 	torture_suite_add_1smb2_test(suite, "directory-disconnect", test_directory_disconnect);
 	torture_suite_add_1smb2_test(suite, "deleteonclose-reconnect", test_persistent_deleteonclose_reconnect);
 	torture_suite_add_1smb2_test(suite, "deleteonclose-expire", test_persistent_deleteonclose_expire);
+
+	return suite;
+}
+
+static bool test_persistent_failover_reconnect(struct torture_context *tctx,
+					       struct smb2_tree *tree)
+{
+	struct smbcli_options options = tree->session->transport->options;
+	char *fname = NULL;
+	uint64_t previous_session_id;
+	struct GUID create_guid = GUID_random();
+	struct smb2_create c;
+	struct smb2_lease ls;
+	struct smb2_handle h1 = {};
+	uint32_t tcon_caps;
+	bool share_is_so;
+	uint8_t pnn;
+	bool stopped = false;
+	NTSTATUS status;
+	bool ret = true;
+
+	tcon_caps = smb2cli_tcon_capabilities(tree->smbXcli);
+	if (!(tcon_caps & SMB2_SHARE_CAP_CONTINUOUS_AVAILABILITY)) {
+		torture_skip(tctx, "PH are not supported\n");
+	}
+
+	share_is_so = (tcon_caps & SMB2_SHARE_CAP_SCALEOUT);
+	if (!share_is_so) {
+		torture_skip(tctx, "Need SO share\n");
+	}
+
+	previous_session_id = smb2cli_session_current_id(tree->session->smbXcli);
+
+	fname = talloc_asprintf(tctx, "lease_break-%ld.dat", random());
+	torture_assert_not_null_goto(tctx, fname, ret, done,
+				     "talloc_asprintf failed\n");
+
+	smb2_lease_v2_create_share(&c,
+				   &ls,
+				   false,
+				   fname,
+				   smb2_util_share_access("RWD"),
+				   1,
+				   NULL,
+				   smb2_util_lease_state("RWH"),
+				   0);
+
+	c.in.durable_open_v2 = true;
+	c.in.persistent_open = true;
+	c.in.create_guid = create_guid;
+
+	status = smb2_create(tree, tree, &c);
+	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
+						"smb2_create failed\n");
+	h1 = c.out.file.handle;
+
+	torture_assert_int_equal_goto(
+		tctx,
+		c.out.oplock_level,
+		SMB2_OPLOCK_LEVEL_LEASE,
+		ret, done,
+		"Bad lease level\n");
+	torture_assert_int_equal_goto(
+		tctx,
+		c.out.lease_response_v2.lease_state,
+		smb2_util_lease_state("R"),
+		ret, done,
+		"Bad lease level\n");
+
+	/*
+	 * Trigger a node shutdown
+	 */
+
+	ret = torture_stop_ctdb_node(tctx, &tree, &pnn);
+	torture_assert_goto(tctx, ret, ret, done,
+			    "torture_ctdb_stop_node failed\n");
+	stopped = true;
+	sleep(1);
+
+	/*
+	 * Now reconnect the session and the persistent handle
+	 */
+	ret = torture_smb2_connection_ext(tctx, previous_session_id,
+					  &options, &tree);
+	torture_assert_goto(tctx, ret, ret, done,
+			    "torture_smb2_connection_ext failed\n");
+
+	smb2_lease_v2_create_share(&c,
+				   &ls,
+				   false,
+				   fname,
+				   smb2_util_share_access("RWD"),
+				   1,
+				   NULL,
+				   smb2_util_lease_state("RWH"),
+				   100);
+
+	c.in.durable_handle_v2 = &h1;
+	c.in.create_guid = create_guid;
+	c.in.persistent_open = true;
+
+	status = smb2_create(tree, tree, &c);
+	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
+					"reconnect failed\n");
+	h1 = c.out.file.handle;
+
+	torture_assert_int_equal_goto(
+		tctx,
+		c.out.oplock_level,
+		SMB2_OPLOCK_LEVEL_LEASE,
+		ret, done,
+		"Bad lease level\n");
+	torture_assert_int_equal_goto(
+		tctx,
+		c.out.lease_response_v2.lease_state,
+		smb2_util_lease_state("R"),
+		ret, done,
+		"Bad lease level\n");
+	torture_assert_int_equal_goto(
+		tctx,
+		c.out.lease_response_v2.lease_epoch,
+		101,
+		ret, done,
+		"Bad lease level\n");
+
+	status = smb2_util_close(tree, h1);
+	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
+					"smb2_util_close failed\n");
+	ZERO_STRUCT(h1);
+
+	ret = torture_start_ctdb_node(tctx, tree, pnn);
+	torture_assert_goto(tctx, ret, ret, done,
+			    "torture_ctdb_start_node failed\n");
+	stopped = false;
+
+done:
+	if (stopped) {
+		ret = torture_start_ctdb_node(tctx, tree, pnn);
+		if (!ret) {
+			torture_fail(tctx, "torture_ctdb_start_node failed");
+		}
+	}
+
+	if (!smb2_util_handle_empty(h1)) {
+		smb2_util_close(tree, h1);
+	}
+
+	smb2_util_unlink(tree, fname);
+
+	TALLOC_FREE(tree);
+	TALLOC_FREE(fname);
+	return ret;
+}
+
+static bool test_persistent_reconnect_contended_failover(
+	struct torture_context *tctx,
+	struct smb2_tree *_tree)
+{
+	uint32_t caps;
+	uint32_t tcon_caps;
+
+	caps = smb2cli_conn_server_capabilities(_tree->session->transport->conn);
+	if (!(caps & SMB2_CAP_LEASING)) {
+		torture_skip(tctx, "leases are not supported");
+	}
+
+	tcon_caps = smb2cli_tcon_capabilities(_tree->smbXcli);
+	if (!(tcon_caps & SMB2_SHARE_CAP_CONTINUOUS_AVAILABILITY)) {
+		torture_skip(tctx, "PH are not supported\n");
+	}
+
+	if (!(tcon_caps & SMB2_SHARE_CAP_SCALEOUT)) {
+		torture_skip(tctx, "Need SO");
+	}
+
+	return test_persistent_reconnect_contended_do_table(
+		tctx, _tree, contend_results_so_failover, true);
+}
+
+struct torture_suite *torture_smb2_persistent_open_failover_init(TALLOC_CTX *ctx)
+{
+	struct torture_suite *suite =
+	    torture_suite_create(ctx, "persistent-open-failover");
+
+	suite->description = talloc_strdup(suite, "SMB3-Persistent-Open Failover Tests");
+
+	torture_suite_add_1smb2_test(suite, "failover-reconnect", test_persistent_failover_reconnect);
+	torture_suite_add_1smb2_test(suite, "reconnect-contended-failover", test_persistent_reconnect_contended_failover);
 
 	return suite;
 }
