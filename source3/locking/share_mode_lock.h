@@ -212,3 +212,6 @@ void fsp_apply_share_entry_flags(struct files_struct *fsp, uint16_t flags);
 
 struct dbwrap_wipe_flags;
 NTSTATUS locking_wipe(struct dbwrap_wipe_flags flags);
+bool share_mode_cleanup_disconnected(struct file_id fid,
+				     uint64_t open_persistent_id,
+				     uint32_t name_hash);
