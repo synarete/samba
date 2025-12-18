@@ -463,6 +463,7 @@ static int vfs_ceph_rgw_stat(struct vfs_handle_struct *handle,
 {
 	int result = -ENOMEM;
 	struct vfs_ceph_rgw_config *config = NULL;
+	struct rgw_file_handle *rgw_fh = NULL;
 	struct stat st = {0};
 
 	START_PROFILE_X(SNUM(handle->conn), syscall_stat);
@@ -471,6 +472,11 @@ static int vfs_ceph_rgw_stat(struct vfs_handle_struct *handle,
 				config,
 				struct vfs_ceph_rgw_config,
 				goto out);
+
+	if (smb_fname->stream_name) {
+		result = -ENOENT;
+		goto out;
+	}
 
 	if (strlen(smb_fname->base_name) == 1) {
 		if ((strncmp(smb_fname->base_name, ".", 1) == 0) ||
@@ -493,21 +499,23 @@ static int vfs_ceph_rgw_stat(struct vfs_handle_struct *handle,
 		}
 	}
 
-	if (smb_fname->stream_name) {
-		result = -ENOENT;
-		goto out;
-	}
-
-	result = rgw_getattr(config->rgw_root_fs,
-			     config->rgw_root_fh,
-			     &st,
-			     RGW_GETATTR_FLAG_NONE);
+	result = rgw_lookup(config->rgw_root_fs,
+			    config->rgw_root_fh,
+			    smb_fname->base_name,
+			    &rgw_fh,
+			    &st,
+			    0,
+			    RGW_LOOKUP_TYPE_FLAGS);
 	if (result < 0) {
-		DBG_ERR("[CEPH_RGW] Unable to get attr for [%s]. rc = %d\n",
+		DBG_ERR("[CEPH_RGW] Unable to lookup [%s]. rc = %d\n",
 			smb_fname->base_name,
 			result);
 		goto out;
 	}
+
+	(void)rgw_fh_rele(config->rgw_root_fs,
+			  rgw_fh,
+			  RGW_FH_RELE_FLAG_NONE);
 
 	DBG_NOTICE("[CEPH_RGW] stat: [%s] Success.\n", smb_fname->base_name);
 	smb_stat_from_ceph_rgw_stat(&smb_fname->st, &st);
