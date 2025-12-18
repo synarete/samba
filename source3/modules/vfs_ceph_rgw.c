@@ -97,11 +97,6 @@ static ssize_t lstatus_code(intmax_t ret)
 	return (ssize_t)ret;
 }
 
-static const char *fsp_name(const files_struct *fsp)
-{
-	return fsp->fsp_name->base_name;
-}
-
 static int cephrgw_next_fd(struct vfs_ceph_rgw_config *config)
 {
 	/*
@@ -692,7 +687,7 @@ static int vfs_ceph_rgw_add_fh(struct vfs_handle_struct *handle,
 	int ret = -ENOMEM;
 	char *name = NULL;
 
-	name = normalise_name(talloc_tos(), fsp_name(fsp));
+	name = normalise_name(talloc_tos(), fsp_str_dbg(fsp));
 	if (name == NULL) {
 		DBG_ERR("[CEPH_RGW] Not enough memory for name\n");
 		goto out;
@@ -738,7 +733,7 @@ static int vfs_ceph_rgw_fetch_fh(struct vfs_handle_struct *handle,
 	*out_cfh = VFS_FETCH_FSP_EXTENSION(handle, fsp);
 	ret = (*out_cfh == NULL) ? -EBADF : 0;
 	DBG_NOTICE("[CEPH_RGW] vfs_ceph_fetch_fh: name = %s ret = %d\n",
-		   fsp_name(fsp),
+		   fsp_str_dbg(fsp),
 		   ret);
 	return ret;
 }
@@ -785,7 +780,7 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 
 	utok = get_current_utok(handle->conn);
 
-	open_name = normalise_name(talloc_tos(), fsp_name(fsp));
+	open_name = normalise_name(talloc_tos(), fsp_str_dbg(fsp));
 	if (open_name == NULL) {
 		DBG_ERR("[CEPH_RGW] Not enough memory for name\n");
 		rc = -ENOMEM;
@@ -795,8 +790,8 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 	DBG_NOTICE("[CEPH_RGW] base_name=[%s] dir->name=[%s] "
 		   "fsp->name=[%s] open_name=[%s]\n",
 		   smb_fname->base_name,
-		   fsp_name(dirfsp),
-		   fsp_name(fsp),
+		   fsp_str_dbg(dirfsp),
+		   fsp_str_dbg(fsp),
 		   open_name);
 
 	if (strlen(open_name) == 0) {
@@ -856,7 +851,7 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 			   rgw_fh);
 	} else {
 		DBG_NOTICE("[CEPH_RGW] Before lookup [%s]. newfh->rgw_fh=%p\n",
-			   fsp_name(fsp),
+			   fsp_str_dbg(fsp),
 			   newfh->rgw_fh);
 		rc = rgw_lookup(config->rgw_root_fs,
 				config->rgw_root_fh,
@@ -873,7 +868,7 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 			goto out;
 		}
 		DBG_NOTICE("[CEPH_RGW] After lookup [%s]. uid=%u gid=%u\n",
-			   fsp_name(fsp),
+			   fsp_str_dbg(fsp),
 			   st.st_uid,
 			   st.st_gid);
 		file_type = st.st_mode & S_IFMT;
@@ -931,10 +926,10 @@ static int vfs_ceph_rgw_close(struct vfs_handle_struct *handle,
 				struct vfs_ceph_rgw_config,
 				goto out);
 
-	DBG_NOTICE("[CEPH_RGW] close is for [%s]\n", fsp_name(fsp));
-	if (strlen(fsp_name(fsp)) == 1) {
-		if ((strncmp(fsp_name(fsp), ".", 1) == 0) ||
-		    (strncmp(fsp_name(fsp), "/", 1) == 0))
+	DBG_NOTICE("[CEPH_RGW] close is for [%s]\n", fsp_str_dbg(fsp));
+	if (strlen(fsp_str_dbg(fsp)) == 1) {
+		if ((strncmp(fsp_str_dbg(fsp), ".", 1) == 0) ||
+		    (strncmp(fsp_str_dbg(fsp), "/", 1) == 0))
 		{
 			vfs_ceph_rgw_remove_fh(handle, fsp);
 			rc = 0;
@@ -942,7 +937,7 @@ static int vfs_ceph_rgw_close(struct vfs_handle_struct *handle,
 		}
 	}
 
-	if (strlen(fsp_name(fsp)) == 0) {
+	if (strlen(fsp_str_dbg(fsp)) == 0) {
 		vfs_ceph_rgw_remove_fh(handle, fsp);
 		rc = 0;
 		goto out;
@@ -951,7 +946,7 @@ static int vfs_ceph_rgw_close(struct vfs_handle_struct *handle,
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &openfh);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Unable to find open handle for %s. rc=%d\n",
-			fsp_name(fsp),
+			fsp_str_dbg(fsp),
 			rc);
 		goto out;
 	}
@@ -961,12 +956,12 @@ static int vfs_ceph_rgw_close(struct vfs_handle_struct *handle,
 		       RGW_CLOSE_FLAG_NONE);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Unable to close [%s]. rc = %d\n",
-			fsp_name(fsp),
+			fsp_str_dbg(fsp),
 			rc);
 		goto err_out;
 	}
 
-	DBG_NOTICE("[CEPH_RGW] close: [%s] success\n", fsp_name(fsp));
+	DBG_NOTICE("[CEPH_RGW] close: [%s] success\n", fsp_str_dbg(fsp));
 
 err_out:
 	vfs_ceph_rgw_remove_fh(handle, fsp);
@@ -991,9 +986,9 @@ static int vfs_ceph_rgw_fstat(struct vfs_handle_struct *handle,
 				struct vfs_ceph_rgw_config,
 				goto out);
 #if 0
-	if (strlen(fsp_name(fsp)) == 1) {
-		if ((strncmp(fsp_name(fsp), ".", 1) == 0) ||
-		    (strncmp(fsp_name(fsp), "/", 1) == 0)) {
+	if (strlen(fsp_str_dbg(fsp)) == 1) {
+		if ((strncmp(fsp_str_dbg(fsp), ".", 1) == 0) ||
+		    (strncmp(fsp_str_dbg(fsp), "/", 1) == 0)) {
 			rc = rgw_getattr(config->rgw_root_fs,
 					 config->rgw_root_fh,
 					 &st,
@@ -1007,12 +1002,12 @@ static int vfs_ceph_rgw_fstat(struct vfs_handle_struct *handle,
 	}
 #endif
 
-	DBG_NOTICE("[CEPH_RGW] fstatat: name [%s]\n", fsp_name(fsp));
+	DBG_NOTICE("[CEPH_RGW] fstatat: name [%s]\n", fsp_str_dbg(fsp));
 
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &openfh);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Unable to find open handle for %s. rc=%d\n",
-			fsp_name(fsp),
+			fsp_str_dbg(fsp),
 			rc);
 		goto out;
 	}
@@ -1023,12 +1018,12 @@ static int vfs_ceph_rgw_fstat(struct vfs_handle_struct *handle,
 			 RGW_GETATTR_FLAG_NONE);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Unable to stat [%s]. rc=%d\n",
-			fsp_name(fsp),
+			fsp_str_dbg(fsp),
 			rc);
 		goto out;
 	}
 
-	DBG_NOTICE("[CEPH_RGW] fstatat: [%s] success\n", fsp_name(fsp));
+	DBG_NOTICE("[CEPH_RGW] fstatat: [%s] success\n", fsp_str_dbg(fsp));
 	smb_stat_from_ceph_rgw_stat(sbuf, &st);
 
 out:
@@ -1120,12 +1115,12 @@ static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
 				struct vfs_ceph_rgw_config,
 				goto out);
 
-	DBG_NOTICE("[CEPH_RGW] fdopendir: name [%s]\n", fsp_name(fsp));
+	DBG_NOTICE("[CEPH_RGW] fdopendir: name [%s]\n", fsp_str_dbg(fsp));
 
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &openfh);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Unable to find open handle for %s. rc=%d\n",
-			fsp_name(fsp),
+			fsp_str_dbg(fsp),
 			rc);
 		goto out;
 	}
@@ -1138,7 +1133,7 @@ static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
 			 RGW_GETATTR_FLAG_NONE);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Unable to get attr for [%s]. rc = %d\n",
-			fsp_name(fsp), rc);
+			fsp_str_dbg(fsp), rc);
 		goto out;
 	}
 #endif
@@ -1172,7 +1167,7 @@ static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
 	}
 
 	TALLOC_FREE(cb_arg);
-	DBG_NOTICE("[CEPH_RGW] fdopendir: [%s] success.\n", fsp_name(fsp));
+	DBG_NOTICE("[CEPH_RGW] fdopendir: [%s] success.\n", fsp_str_dbg(fsp));
 
 out:
 	END_PROFILE_X(syscall_fdopendir);
@@ -1200,17 +1195,17 @@ static struct dirent *vfs_ceph_rgw_readdir(struct vfs_handle_struct *handle,
 
 	if (rgw_dirp == NULL) {
 		/* TODO: Why would this happen */
-		DBG_NOTICE("rgw_dirp is NULL for [%s]\n", fsp_name(dirfsp));
+		DBG_NOTICE("rgw_dirp is NULL for [%s]\n", fsp_str_dbg(dirfsp));
 		ret = NULL;
 		goto out;
 	}
 
-	DBG_NOTICE("[CEPH_RGW] readdir: name [%s]\n", fsp_name(dirfsp));
+	DBG_NOTICE("[CEPH_RGW] readdir: name [%s]\n", fsp_str_dbg(dirfsp));
 
 	if (rgw_dirp->pos < rgw_dirp->num) {
 		ret = (struct dirent *)&rgw_dirp->dirs[rgw_dirp->pos++];
 	}
-	DBG_NOTICE("[CEPH_RGW] readdir: [%s] success.\n", fsp_name(dirfsp));
+	DBG_NOTICE("[CEPH_RGW] readdir: [%s] success.\n", fsp_str_dbg(dirfsp));
 out:
 	END_PROFILE_X(syscall_readdir);
 	return ret;
@@ -1301,7 +1296,7 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 				goto out);
 
 	/* Get abs name */
-	abs_path = normalise_name(talloc_tos(), fsp_name(dirfsp));
+	abs_path = normalise_name(talloc_tos(), fsp_str_dbg(dirfsp));
 	if (abs_path == NULL) {
 		DBG_ERR("[CEPH_RGW] Not enough memory for abs path\n");
 		goto out;
@@ -1328,7 +1323,7 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 	rc = vfs_ceph_rgw_fetch_fh(handle, dirfsp, &dircfh);
 	if (rc != 0) {
 		DBG_ERR("[CEPH_RGW] Unable to locate dir handle for [%s]\n",
-			fsp_name(dirfsp));
+			fsp_str_dbg(dirfsp));
 		goto out;
 	}
 
@@ -1392,7 +1387,7 @@ static int vfs_ceph_rgw_mkdirat(struct vfs_handle_struct *handle,
 	rc = vfs_ceph_rgw_fetch_fh(handle, dirfsp, &dircfh);
 	if (rc != 0) {
 		DBG_ERR("[CEPH_RGW] Unable to locate dir handle for [%s]\n",
-			fsp_name(dirfsp));
+			fsp_str_dbg(dirfsp));
 		goto out;
 	}
 
@@ -1496,8 +1491,8 @@ static int vfs_ceph_rgw_renameat(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
-	src_abs_path = normalise_name(ctx, fsp_name(src_dirfsp));
-	dst_abs_path = normalise_name(ctx, fsp_name(dst_dirfsp));
+	src_abs_path = normalise_name(ctx, fsp_str_dbg(src_dirfsp));
+	dst_abs_path = normalise_name(ctx, fsp_str_dbg(dst_dirfsp));
 	if (src_abs_path == NULL || dst_abs_path == NULL) {
 		DBG_ERR("[CEPH_RGW] Not enough memory\n");
 		rc = -ENOMEM;
@@ -1581,7 +1576,7 @@ static int vfs_ceph_rgw_unlinkat(struct vfs_handle_struct *handle,
 
 	rc = vfs_ceph_rgw_fetch_fh(handle, dirfsp, &dircfh);
 	if (rc != 0) {
-		DBG_ERR("Unable to get handle for [%s]\n", fsp_name(dirfsp));
+		DBG_ERR("Unable to get handle for [%s]\n", fsp_str_dbg(dirfsp));
 		goto out;
 	}
 
@@ -1660,7 +1655,7 @@ static ssize_t vfs_ceph_rgw_pread(struct vfs_handle_struct *handle,
 out_ok:
 	bytes_read = (ssize_t)nbytes_read;
 out:
-	DBG_DEBUG("[CEPH_RGW] pread: fsp_name=%s n=%" PRIu64 "offset=%" PRIu64
+	DBG_DEBUG("[CEPH_RGW] pread: fsp_str_dbg=%s n=%" PRIu64 "offset=%" PRIu64
 		  " bytes_read=%" PRId64 " rc=%d\n",
 		  fsp_str_dbg(fsp),
 		  n,
@@ -1690,12 +1685,12 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 				struct vfs_ceph_rgw_config,
 				goto out);
 
-	DBG_NOTICE("[CEPH_RGW] write: [%s]\n", fsp_name(fsp));
+	DBG_NOTICE("[CEPH_RGW] write: [%s]\n", fsp_str_dbg(fsp));
 
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &cfh);
 	if (rc != 0) {
 		DBG_ERR("[CEPH_RGW] Unable to fetch hande for [%s]\n",
-			fsp_name(fsp));
+			fsp_str_dbg(fsp));
 		goto out;
 	}
 
@@ -1711,7 +1706,7 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 		      RGW_OPEN_FLAG_NONE);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Unable to open %s for write\n",
-			fsp_name(fsp));
+			fsp_str_dbg(fsp));
 		goto out;
 	}
 
@@ -1724,7 +1719,7 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 		       RGW_OPEN_FLAG_NONE);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Error writing to [%s]. rc = %d\n",
-			fsp_name(fsp),
+			fsp_str_dbg(fsp),
 			rc);
 		goto out;
 	}
@@ -1974,7 +1969,7 @@ static int vfs_ceph_rgw_fsetxattr(struct vfs_handle_struct *handle,
 				goto out);
 
 	DBG_DEBUG("[CEPH_RGW] fsetxattr [%s] %s\n",
-		  fsp_name(fsp),
+		  fsp_str_dbg(fsp),
 		  name);
 
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &fh);
@@ -2046,7 +2041,7 @@ static ssize_t vfs_ceph_rgw_fgetxattr(struct vfs_handle_struct *handle,
 				goto out);
 
 	DBG_DEBUG("[CEPH] fgetxattr: [%s] %s\n",
-		  fsp_name(fsp),
+		  fsp_str_dbg(fsp),
 		  name);
 
 	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &fh);
