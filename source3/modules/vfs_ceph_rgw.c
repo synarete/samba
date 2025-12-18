@@ -516,6 +516,74 @@ out:
 	return status_code(result);
 }
 
+static int vfs_ceph_rgw_lstat(struct vfs_handle_struct *handle,
+			      struct smb_filename *smb_fname)
+{
+	int result = -ENOMEM;
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct rgw_file_handle *rgw_fh = NULL;
+	struct stat st = {0};
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_lstat);
+
+	DBG_NOTICE("[CEPH_RGW] lstat: [%s] Entry.\n", smb_fname->base_name);
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_rgw_config,
+				goto out);
+
+	if (smb_fname->stream_name) {
+		result = -ENOENT;
+		goto out;
+	}
+
+	if (strlen(smb_fname->base_name) == 1) {
+		if ((strncmp(smb_fname->base_name, ".", 1) == 0) ||
+		    (strncmp(smb_fname->base_name, "/", 1) == 0))
+		{
+			result = rgw_getattr(config->rgw_root_fs,
+					     config->rgw_root_fh,
+					     &st,
+					     RGW_GETATTR_FLAG_NONE);
+			if (result < 0) {
+				DBG_ERR("[CEPH_RGW] Unable to get attr for "
+					"[%s]. "
+					"rc = %d\n",
+					smb_fname->base_name,
+					result);
+				goto out;
+			}
+			smb_stat_from_ceph_rgw_stat(&smb_fname->st, &st);
+			goto out;
+		}
+	}
+
+	result = rgw_lookup(config->rgw_root_fs,
+			    config->rgw_root_fh,
+			    smb_fname->base_name,
+			    &rgw_fh,
+			    &st,
+			    0,
+			    RGW_LOOKUP_TYPE_FLAGS);
+	if (result < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to lookup [%s]. rc = %d\n",
+			smb_fname->base_name,
+			result);
+		goto out;
+	}
+
+	(void)rgw_fh_rele(config->rgw_root_fs,
+			  rgw_fh,
+			  RGW_FH_RELE_FLAG_NONE);
+
+	DBG_NOTICE("[CEPH_RGW] lstat: [%s] Success.\n", smb_fname->base_name);
+	smb_stat_from_ceph_rgw_stat(&smb_fname->st, &st);
+out:
+	END_PROFILE_X(syscall_lstat);
+	return status_code(result);
+}
+
 /*
  * librgw do not have concept of current working directory.
  * Thus we just perform a lookup if its not same as bucket name.
@@ -2178,7 +2246,7 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.fsync_recv_fn = vfs_ceph_rgw_fsync_recv,
 	.stat_fn = vfs_ceph_rgw_stat,
 	.fstat_fn = vfs_ceph_rgw_fstat,
-	.lstat_fn = vfs_not_implemented_lstat,
+	.lstat_fn = vfs_ceph_rgw_lstat,
 	.fstatat_fn = vfs_not_implemented_fstatat,
 	.unlinkat_fn = vfs_ceph_rgw_unlinkat,
 	.fchmod_fn = vfs_not_implemented_fchmod,
