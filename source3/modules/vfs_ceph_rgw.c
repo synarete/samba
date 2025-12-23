@@ -1673,11 +1673,11 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 				   off_t offset)
 {
 	int rc = 0;
-	ssize_t bytes_written = -1;
+	size_t nbytes_written = 0;
+	ssize_t bytes_written = -ENOMEM;
 	struct vfs_ceph_rgw_fh *cfh = NULL;
 	struct vfs_ceph_rgw_config *config = NULL;
-	void *buffer = NULL;
-	TALLOC_CTX *ctx = talloc_stackframe();
+
 	START_PROFILE_BYTES_X(SNUM(handle->conn), syscall_pwrite, n);
 
 	SMB_VFS_HANDLE_GET_DATA(handle,
@@ -1691,12 +1691,6 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 	if (rc != 0) {
 		DBG_ERR("[CEPH_RGW] Unable to fetch hande for [%s]\n",
 			fsp_str_dbg(fsp));
-		goto out;
-	}
-
-	buffer = talloc_memdup(ctx, data, n);
-	if (buffer == NULL) {
-		DBG_ERR("[CEPH_RGW] Not enough memory for write op\n");
 		goto out;
 	}
 
@@ -1714,19 +1708,20 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 		       cfh->rgw_fh,
 		       offset,
 		       n,
-		       (size_t *)&bytes_written,
-		       buffer,
+		       &nbytes_written,
+		       discard_const(data),
 		       RGW_OPEN_FLAG_NONE);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Error writing to [%s]. rc = %d\n",
 			fsp_str_dbg(fsp),
 			rc);
+		bytes_written = rc;
 		goto out;
 	}
+	bytes_written = (ssize_t)nbytes_written;
 out:
-	TALLOC_FREE(ctx);
 	DBG_NOTICE("[CEPH_RGW] pwrite: name=%s "
-		   "n=%" PRIu64 " offset=%" PRIu64 " bytes_written=%" PRIu64
+		   "n=%" PRIu64 " offset=%" PRIu64 " bytes_written=%" PRId64
 		   "\n",
 		   fsp_str_dbg(fsp),
 		   n,
