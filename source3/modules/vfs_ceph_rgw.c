@@ -845,10 +845,6 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 				rc);
 			goto out;
 		}
-		newfh->rgw_fh = rgw_fh;
-		DBG_NOTICE("[CEPH_RGW] In create [%s]. rgw_fh=%p\n",
-			   open_name,
-			   rgw_fh);
 	} else {
 		DBG_NOTICE("[CEPH_RGW] Before lookup [%s]. newfh->rgw_fh=%p\n",
 			   fsp_str_dbg(fsp),
@@ -871,25 +867,6 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 			   fsp_str_dbg(fsp),
 			   st.st_uid,
 			   st.st_gid);
-		file_type = st.st_mode & S_IFMT;
-		if (file_type == S_IFREG) {
-			rc = rgw_open(config->rgw_root_fs,
-				      rgw_fh,
-				      flags,
-				      RGW_OPEN_FLAG_NONE);
-			if (rc < 0) {
-				vfs_ceph_rgw_remove_fh(handle, fsp);
-				DBG_ERR("[CEPH_RGW] Unable to open [%s]. rc = "
-					"%d\n",
-					open_name,
-					rc);
-				goto out;
-			}
-			DBG_NOTICE("[CEPH_RGW] After open [%s]. rgw_fh=%p\n",
-				   open_name,
-				   rgw_fh);
-		}
-		newfh->rgw_fh = rgw_fh;
 
 		rc = rgw_fh_rele(config->rgw_root_fs,
 				rgw_fh,
@@ -897,13 +874,33 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 		if (rc < 0) {
 			vfs_ceph_rgw_remove_fh(handle, fsp);
 			DBG_ERR("[CEPH_RGW] Error releasing handle [%s]. rc = "
-				"%d\n",
+					"%d\n",
+					open_name,
+					rc);
+			goto out;
+		}
+	}
+
+	file_type = st.st_mode & S_IFMT;
+	if (file_type == S_IFREG) {
+		rc = rgw_open(config->rgw_root_fs,
+				rgw_fh,
+				flags,
+				RGW_OPEN_FLAG_NONE);
+		if (rc < 0) {
+			vfs_ceph_rgw_remove_fh(handle, fsp);
+			DBG_ERR("[CEPH_RGW] Unable to open [%s]. rc = %d\n",
 				open_name,
 				rc);
 			goto out;
 		}
-		rc = newfh->fd;
+		DBG_NOTICE("[CEPH_RGW] After open [%s]. rgw_fh=%p\n",
+			   open_name,
+			   rgw_fh);
 	}
+	newfh->rgw_fh = rgw_fh;
+
+	rc = newfh->fd;
 	newfh->o_flags = flags;
 
 	DBG_NOTICE("[CEPH_RGW] openat: [%s] success\n", open_name);
