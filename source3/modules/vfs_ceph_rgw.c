@@ -1691,23 +1691,13 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
-	rc = rgw_open(config->rgw_root_fs,
-		      cfh->rgw_fh,
-		      cfh->o_flags,
-		      RGW_OPEN_FLAG_NONE);
-	if (rc < 0) {
-		DBG_ERR("[CEPH_RGW] Unable to open %s for write\n",
-			fsp_str_dbg(fsp));
-		goto out;
-	}
-
 	rc = rgw_write(config->rgw_root_fs,
 		       cfh->rgw_fh,
 		       offset,
 		       n,
 		       &nbytes_written,
 		       discard_const(data),
-		       RGW_OPEN_FLAG_NONE);
+		       RGW_WRITE_FLAG_NONE);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Error writing to [%s]. rc = %d\n",
 			fsp_str_dbg(fsp),
@@ -1716,6 +1706,7 @@ static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
 		goto out;
 	}
 	bytes_written = (ssize_t)nbytes_written;
+
 out:
 	DBG_NOTICE("[CEPH_RGW] pwrite: name=%s "
 		   "n=%" PRIu64 " offset=%" PRIu64 " bytes_written=%" PRId64
