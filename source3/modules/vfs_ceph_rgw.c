@@ -770,6 +770,7 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 	uint32_t file_type = 0;
 	const struct security_unix_token *utok = NULL;
 	char *open_name = NULL;
+	bool do_release = false;
 
 	START_PROFILE_X(SNUM(handle->conn), syscall_openat);
 
@@ -863,22 +864,11 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 				rc);
 			goto out;
 		}
+		do_release = true;
 		DBG_NOTICE("[CEPH_RGW] After lookup [%s]. uid=%u gid=%u\n",
 			   fsp_str_dbg(fsp),
 			   st.st_uid,
 			   st.st_gid);
-
-		rc = rgw_fh_rele(config->rgw_root_fs,
-				rgw_fh,
-				RGW_FH_RELE_FLAG_NONE);
-		if (rc < 0) {
-			vfs_ceph_rgw_remove_fh(handle, fsp);
-			DBG_ERR("[CEPH_RGW] Error releasing handle [%s]. rc = "
-					"%d\n",
-					open_name,
-					rc);
-			goto out;
-		}
 	}
 
 	file_type = st.st_mode & S_IFMT;
@@ -899,6 +889,20 @@ static int vfs_ceph_rgw_openat(struct vfs_handle_struct *handle,
 			   rgw_fh);
 	}
 	newfh->rgw_fh = rgw_fh;
+
+	if (do_release) {
+		/* Release handle if lookup is performed */
+		rc = rgw_fh_rele(config->rgw_root_fs,
+				rgw_fh,
+				RGW_FH_RELE_FLAG_NONE);
+		if (rc < 0) {
+			vfs_ceph_rgw_remove_fh(handle, fsp);
+			DBG_ERR("[CEPH_RGW] Error in release [%s]. rc = %d\n",
+				open_name,
+				rc);
+			goto out;
+		}
+	}
 
 	rc = newfh->fd;
 	newfh->o_flags = flags;
