@@ -1595,6 +1595,39 @@ out:
 	return status_code(rc);
 }
 
+static ssize_t vfs_ceph_rgw_do_pread(struct vfs_ceph_rgw_config *config,
+				     struct vfs_ceph_rgw_fh *cfh,
+				     off_t offset,
+				     size_t n,
+				     void *data)
+{
+	int rc;
+	size_t nbytes_read = 0;
+	struct stat st;
+
+	rc = rgw_getattr(config->rgw_root_fs,
+			 cfh->rgw_fh,
+			 &st,
+			 RGW_GETATTR_FLAG_NONE);
+	if (rc < 0) {
+		return rc;
+	}
+	if (offset >= st.st_size) {
+		return 0;
+	}
+	rc = rgw_read(config->rgw_root_fs,
+		      cfh->rgw_fh,
+		      offset,
+		      n,
+		      &nbytes_read,
+		      data,
+		      RGW_READ_FLAG_NONE);
+	if (rc < 0) {
+		return rc;
+	}
+	return (ssize_t)nbytes_read;
+}
+
 static ssize_t vfs_ceph_rgw_pread(struct vfs_handle_struct *handle,
 				  files_struct *fsp,
 				  void *data,
@@ -1602,11 +1635,9 @@ static ssize_t vfs_ceph_rgw_pread(struct vfs_handle_struct *handle,
 				  off_t offset)
 {
 	int rc = -1;
-	size_t nbytes_read = 0;
 	ssize_t bytes_read = -ENOMEM;
 	struct vfs_ceph_rgw_config *config = NULL;
 	struct vfs_ceph_rgw_fh *cfh = NULL;
-	struct stat st = {};
 
 	START_PROFILE_BYTES_X(SNUM(handle->conn), syscall_pread, n);
 
@@ -1623,48 +1654,152 @@ static ssize_t vfs_ceph_rgw_pread(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
-	rc = rgw_getattr(config->rgw_root_fs,
-			 cfh->rgw_fh,
-			 &st,
-			 RGW_GETATTR_FLAG_NONE);
-	if (rc != 0) {
-		DBG_ERR("[CEPH_RGW] Unable to getattr for [%s]. rc = %d\n",
-			fsp_str_dbg(fsp),
-			rc);
-		bytes_read = rc;
-		goto out;
-	}
-	if (offset >= st.st_size) {
-		goto out_ok;
-	}
-
-	rc = rgw_read(config->rgw_root_fs,
-		      cfh->rgw_fh,
-		      offset,
-		      n,
-		      &nbytes_read,
-		      data,
-		      RGW_READ_FLAG_NONE);
-	if (rc < 0) {
-		DBG_ERR("[CEPH_RGW] Read failed for [%s]. rc = %d\n",
-			fsp_str_dbg(fsp),
-			rc);
-		bytes_read = rc;
-		goto out;
-	}
-
-out_ok:
-	bytes_read = (ssize_t)nbytes_read;
+	bytes_read = vfs_ceph_rgw_do_pread(config, cfh, offset, n, data);
 out:
-	DBG_DEBUG("[CEPH_RGW] pread: fsp_str_dbg=%s n=%" PRIu64 "offset=%" PRIu64
-		  " bytes_read=%" PRId64 " rc=%d\n",
+	DBG_DEBUG("[CEPH_RGW] pread: fsp_str_dbg=%s n=%" PRIu64
+		  "offset=%" PRIu64 " bytes_read=%" PRId64 "\n",
 		  fsp_str_dbg(fsp),
 		  n,
 		  (intmax_t)offset,
-		  bytes_read,
-		  rc);
+		  bytes_read);
 	END_PROFILE_BYTES_X(syscall_pread);
 	return lstatus_code(bytes_read);
+}
+
+struct vfs_ceph_rgw_aio_state {
+	struct vfs_ceph_rgw_config *config;
+	struct vfs_ceph_rgw_fh *fh;
+	size_t len;
+	off_t off;
+	struct timespec start_time;
+	struct timespec finish_time;
+	ssize_t result;
+	struct vfs_aio_state vfs_aio_state;
+	SMBPROFILE_BYTES_ASYNC_STATE_X(profile_bytes, profile_bytes_x);
+};
+
+static void vfs_ceph_rgw_aio_start(struct vfs_ceph_rgw_aio_state *state)
+{
+	SMBPROFILE_BYTES_ASYNC_SET_BUSY_X(state->profile_bytes,
+					  state->profile_bytes_x);
+	PROFILE_TIMESTAMP(&state->start_time);
+}
+
+static void vfs_ceph_rgw_aio_finish(struct vfs_ceph_rgw_aio_state *state,
+				    ssize_t result)
+{
+	PROFILE_TIMESTAMP(&state->finish_time);
+	state->vfs_aio_state.duration = nsec_time_diff(&state->finish_time,
+						       &state->start_time);
+	if (result < 0) {
+		state->vfs_aio_state.error = (int)result;
+	}
+
+	state->result = result;
+	SMBPROFILE_BYTES_ASYNC_SET_IDLE_X(state->profile_bytes,
+					  state->profile_bytes_x);
+}
+
+static void vfs_ceph_rgw_aio_prepare(struct vfs_handle_struct *handle,
+				     struct tevent_req *req,
+				     struct tevent_context *ev,
+				     struct files_struct *fsp)
+{
+	int rc;
+	struct vfs_ceph_rgw_aio_state *state = NULL;
+	struct vfs_ceph_rgw_config *config = NULL;
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_rgw_config,
+				(void)0);
+	if (config == NULL) {
+		tevent_req_error(req, EINVAL);
+		return;
+	}
+
+	state = tevent_req_data(req, struct vfs_ceph_rgw_aio_state);
+	state->config = config;
+
+	rc = vfs_ceph_rgw_fetch_io_fh(handle, fsp, &state->fh);
+	if (rc != 0) {
+		tevent_req_error(req, -rc);
+	}
+}
+
+static struct tevent_req *vfs_ceph_rgw_pread_send(
+	struct vfs_handle_struct *handle,
+	TALLOC_CTX *mem_ctx,
+	struct tevent_context *ev,
+	struct files_struct *fsp,
+	void *data,
+	size_t n,
+	off_t offset)
+{
+	ssize_t result = 0;
+	struct tevent_req *req = NULL;
+	struct vfs_ceph_rgw_aio_state *state = NULL;
+
+	DBG_DEBUG("[CEPH_RGW] pread_send: name=%s data=%p n=%zu offset=%zd\n",
+		  fsp_str_dbg(fsp),
+		  data,
+		  n,
+		  offset);
+
+	req = tevent_req_create(mem_ctx, &state, struct vfs_ceph_rgw_aio_state);
+	if (req == NULL) {
+		return NULL;
+	}
+
+	vfs_ceph_rgw_aio_prepare(handle, req, ev, fsp);
+	if (!tevent_req_is_in_progress(req)) {
+		return tevent_req_post(req, ev);
+	}
+
+	SMBPROFILE_BYTES_ASYNC_START_X(SNUM(handle->conn),
+				       syscall_asys_pread,
+				       state->profile_bytes,
+				       state->profile_bytes_x,
+				       n);
+	SMBPROFILE_BYTES_ASYNC_SET_IDLE_X(state->profile_bytes,
+					  state->profile_bytes_x);
+
+	vfs_ceph_rgw_aio_start(state);
+	result = vfs_ceph_rgw_do_pread(
+		state->config, state->fh, offset, n, data);
+	vfs_ceph_rgw_aio_finish(state, result);
+
+	tevent_req_done(req);
+	/* Return and schedule the completion of the call. */
+	return tevent_req_post(req, ev);
+}
+
+static ssize_t vfs_ceph_rgw_pread_recv(struct tevent_req *req,
+				       struct vfs_aio_state *vfs_aio_state)
+{
+	struct vfs_ceph_rgw_aio_state *state = tevent_req_data(
+		req, struct vfs_ceph_rgw_aio_state);
+	ssize_t rc = -1;
+
+	DBG_DEBUG("[CEPH_RGW] pread_recv: bytes_read=%zd"
+		  " fd=%d off=%jd len=%ju\n",
+		  state->result,
+		  state->fh->fd,
+		  state->off,
+		  state->len);
+
+	SMBPROFILE_BYTES_ASYNC_END_X(state->profile_bytes,
+				     state->profile_bytes_x);
+
+	if (tevent_req_is_unix_error(req, &vfs_aio_state->error)) {
+		goto out;
+	}
+
+	*vfs_aio_state = state->vfs_aio_state;
+	rc = state->result;
+out:
+	tevent_req_received(req);
+	return rc;
 }
 
 static ssize_t vfs_ceph_rgw_pwrite(struct vfs_handle_struct *handle,
@@ -1758,67 +1893,6 @@ out:
 		  rc);
 	END_PROFILE_X(syscall_ftruncate);
 	return status_code(rc);
-}
-
-struct vfs_ceph_rgw_aio_state {
-	struct vfs_ceph_rgw_config *config;
-	struct vfs_ceph_rgw_fh *fh;
-	size_t len;
-	off_t off;
-	struct timespec start_time;
-	struct timespec finish_time;
-	ssize_t result;
-	struct vfs_aio_state vfs_aio_state;
-	SMBPROFILE_BYTES_ASYNC_STATE_X(profile_bytes, profile_bytes_x);
-};
-
-static void vfs_ceph_rgw_aio_start(struct vfs_ceph_rgw_aio_state *state)
-{
-	SMBPROFILE_BYTES_ASYNC_SET_BUSY_X(state->profile_bytes,
-					  state->profile_bytes_x);
-	PROFILE_TIMESTAMP(&state->start_time);
-}
-
-static void vfs_ceph_rgw_aio_finish(struct vfs_ceph_rgw_aio_state *state,
-				    ssize_t result)
-{
-	PROFILE_TIMESTAMP(&state->finish_time);
-	state->vfs_aio_state.duration = nsec_time_diff(&state->finish_time,
-						       &state->start_time);
-	if (result < 0) {
-		state->vfs_aio_state.error = (int)result;
-	}
-
-	state->result = result;
-	SMBPROFILE_BYTES_ASYNC_SET_IDLE_X(state->profile_bytes,
-					  state->profile_bytes_x);
-}
-
-static void vfs_ceph_rgw_aio_prepare(struct vfs_handle_struct *handle,
-				     struct tevent_req *req,
-				     struct tevent_context *ev,
-				     struct files_struct *fsp)
-{
-	struct vfs_ceph_rgw_config *config = NULL;
-	struct vfs_ceph_rgw_aio_state *state = NULL;
-	int ret = -1;
-
-	SMB_VFS_HANDLE_GET_DATA(handle,
-				config,
-				struct vfs_ceph_rgw_config,
-				(void)0);
-	if (config == NULL) {
-		tevent_req_error(req, EINVAL);
-		return;
-	}
-
-	state = tevent_req_data(req, struct vfs_ceph_rgw_aio_state);
-	state->config = config;
-
-	ret = vfs_ceph_rgw_fetch_io_fh(handle, fsp, &state->fh);
-	if (ret != 0) {
-		tevent_req_error(req, -ret);
-	}
 }
 
 static struct tevent_req *vfs_ceph_rgw_fsync_send(
@@ -2223,8 +2297,8 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.openat_fn = vfs_ceph_rgw_openat,
 	.close_fn = vfs_ceph_rgw_close,
 	.pread_fn = vfs_ceph_rgw_pread,
-	.pread_send_fn = vfs_not_implemented_pread_send,
-	.pread_recv_fn = vfs_not_implemented_pread_recv,
+	.pread_send_fn = vfs_ceph_rgw_pread_send,
+	.pread_recv_fn = vfs_ceph_rgw_pread_recv,
 	.pwrite_fn = vfs_ceph_rgw_pwrite,
 	.pwrite_send_fn = vfs_not_implemented_pwrite_send,
 	.pwrite_recv_fn = vfs_not_implemented_pwrite_recv,
