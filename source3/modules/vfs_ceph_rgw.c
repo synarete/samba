@@ -1967,51 +1967,24 @@ out:
 	return res;
 }
 
-static rgw_xattrlist *prepare_xattr_list(void *ctx,
-					 const char *name,
-					 const char *value)
+static void prepare_xattr_list(rgw_xattrlist *attr_list,
+			       char *name,
+			       char *value)
 {
-	rgw_xattr *attr = NULL;
-	rgw_xattrlist *attr_list = NULL;
+	rgw_xattr *attr = attr_list->xattrs;
 
-	attr = talloc(ctx, rgw_xattr);
-	if (attr == NULL) {
-		DBG_ERR("[CEPH_RGW] Not enough memory\n");
-		return NULL;
-	}
-
-	attr->key.val = talloc_strdup(ctx, name);
+	attr->key.val = name;
 	attr->key.len = strlen(name);
-	if (attr->key.val == NULL) {
-		DBG_ERR("[CEPH_RGW] Not enough memory\n");
-		goto out_free;
-	}
 
 	if (value != NULL) {
-		attr->val.val = talloc_strdup(ctx, value);
+		attr->val.val = value;
 		attr->val.len = strlen(value);
-		if (attr->val.val == NULL) {
-			DBG_ERR("[CEPH_RGW] Not enough memory\n");
-			goto out_free;
-		}
 	} else {
 		attr->val.val = NULL;
 		attr->val.len = 0;
 	}
 
-	attr_list = talloc(ctx, rgw_xattrlist);
-	if (attr_list == NULL) {
-		DBG_ERR("[CEPH_RGW] Not enough memory\n");
-		goto out_free;
-	}
-	attr_list->xattrs = attr;
-	attr_list->xattr_cnt = 1;
-
-	return attr_list;
-
-out_free:
-	TALLOC_FREE(attr);
-	return NULL;
+	return;
 }
 
 static int vfs_ceph_rgw_fsetxattr(struct vfs_handle_struct *handle,
@@ -2024,7 +1997,8 @@ static int vfs_ceph_rgw_fsetxattr(struct vfs_handle_struct *handle,
 	int rc = -ENOMEM;
 	struct vfs_ceph_rgw_config *config = NULL;
 	struct vfs_ceph_rgw_fh *fh = NULL;
-	rgw_xattrlist *attr_list = NULL;
+	rgw_xattr attr = {{0}, {0}};
+	rgw_xattrlist attr_list = { &attr, 1 };
 
 	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
 				goto out);
@@ -2039,16 +2013,13 @@ static int vfs_ceph_rgw_fsetxattr(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
-	attr_list = prepare_xattr_list(talloc_tos(), name, value);
-	if (attr_list == NULL) {
-		rc = -ENOMEM;
-		DBG_ERR("[CEPH_RGW] Not enough memory\n");
-		goto out;
-	}
+	prepare_xattr_list(&attr_list,
+			   discard_const(name),
+			   discard_const(value));
 
 	rc = rgw_setxattrs(config->rgw_root_fs,
 			   fh->rgw_fh,
-			   attr_list,
+			   &attr_list,
 			   RGW_SETXATTR_FLAG_NONE);
 	if (rc < 0) {
 		DBG_ERR("[CEPH_RGW] Unable to set x attributes\n");
@@ -2056,7 +2027,6 @@ static int vfs_ceph_rgw_fsetxattr(struct vfs_handle_struct *handle,
 	}
 
 out:
-	TALLOC_FREE(attr_list);
 	DBG_DEBUG("[CEPH_RGW] fsetxattr(...) = %d\n", rc);
 	return status_code(rc);
 }
@@ -2095,8 +2065,9 @@ static ssize_t vfs_ceph_rgw_fgetxattr(struct vfs_handle_struct *handle,
 	int rc = -ENOMEM;
 	struct vfs_ceph_rgw_config *config = NULL;
 	struct vfs_ceph_rgw_fh *fh = NULL;
-	rgw_xattrlist *attr_list = NULL;
-	struct vfs_ceph_rgw_getxattr_arg *cb_arg = NULL;
+	struct vfs_ceph_rgw_getxattr_arg cb_arg = {0};
+	rgw_xattr attr = {{0}, {0}};
+	rgw_xattrlist attr_list = { &attr, 1 };
 
 	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
 				goto out);
@@ -2111,43 +2082,28 @@ static ssize_t vfs_ceph_rgw_fgetxattr(struct vfs_handle_struct *handle,
 		goto out;
 	}
 
-	attr_list = prepare_xattr_list(talloc_tos(), name, NULL);
-	if (attr_list == NULL) {
-		rc = -ENOMEM;
-		DBG_ERR("[CEPH_RGW] Not enough memory\n");
-		goto out;
-	}
+	prepare_xattr_list(&attr_list, discard_const(name), NULL);
 
-	cb_arg = talloc(talloc_tos(), struct vfs_ceph_rgw_getxattr_arg);
-	if (cb_arg == NULL) {
-		DBG_ERR("[CEPH_RGW] Not enough memory\n");
-		rc = -ENOMEM;
-		goto out;
-	}
-
-	cb_arg->rc = 0;
-	cb_arg->val = value;
-	cb_arg->size = size;
+	cb_arg.rc = 0;
+	cb_arg.val = value;
+	cb_arg.size = size;
 
 	rc = rgw_getxattrs(config->rgw_root_fs,
 			   fh->rgw_fh,
-			   attr_list,
+			   &attr_list,
 			   ceph_rgw_getxattr_cb,
-			   cb_arg,
+			   &cb_arg,
 			   RGW_GETXATTR_FLAG_NONE);
 
 	if (rc < 0) {
-		DBG_ERR("[CEPH_RGW] Error getting x attrs\n");
-		if (cb_arg->rc < 0) {
-			rc = cb_arg->rc;
+		if (cb_arg.rc < 0) {
+			rc = cb_arg.rc;
 		}
+		DBG_ERR("[CEPH_RGW] Error getting x attrs. rc = %d\n", rc);
 		goto out;
 	}
 
-
 out:
-	TALLOC_FREE(cb_arg);
-	TALLOC_FREE(attr_list);
 	DBG_DEBUG("[CEPH] fgetxattr(...) = %d\n", rc);
 	return lstatus_code(rc);
 }
