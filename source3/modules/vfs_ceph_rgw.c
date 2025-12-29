@@ -2043,17 +2043,20 @@ static int ceph_rgw_getxattr_cb(rgw_xattrlist *attr_list,
 {
 	struct vfs_ceph_rgw_getxattr_arg *cb_arg =
 		(struct vfs_ceph_rgw_getxattr_arg *)arg;
+	rgw_xattr *xattr = attr_list->xattrs;
 
-	cb_arg->rc = 0;
-	if (cb_arg->size < attr_list->xattrs->val.len) {
-		cb_arg->rc = ENOSPC;
-		goto out;
+	if ((cb_arg->size != 0) &&
+	    (cb_arg->size < xattr->val.len)) {
+		cb_arg->rc = -ERANGE;
+		return 0;
 	}
-	memcpy(cb_arg->val,
-	       attr_list->xattrs->val.val,
-	       attr_list->xattrs->val.len);
-out:
-	return cb_arg->rc;
+	if (cb_arg->val != NULL) {
+		memcpy(cb_arg->val,
+		       xattr->val.val,
+		       xattr->val.len);
+	}
+	cb_arg->rc = xattr->val.len;
+	return 0;
 }
 
 static ssize_t vfs_ceph_rgw_fgetxattr(struct vfs_handle_struct *handle,
@@ -2096,13 +2099,11 @@ static ssize_t vfs_ceph_rgw_fgetxattr(struct vfs_handle_struct *handle,
 			   RGW_GETXATTR_FLAG_NONE);
 
 	if (rc < 0) {
-		if (cb_arg.rc < 0) {
-			rc = cb_arg.rc;
-		}
-		DBG_ERR("[CEPH_RGW] Error getting x attrs. rc = %d\n", rc);
+		DBG_ERR("[CEPH_RGW] Error getting x attrs. rc = %d cbErr = %d\n",
+			rc, cb_arg.rc);
 		goto out;
 	}
-
+	rc = cb_arg.rc;
 out:
 	DBG_DEBUG("[CEPH] fgetxattr(...) = %d\n", rc);
 	return lstatus_code(rc);
