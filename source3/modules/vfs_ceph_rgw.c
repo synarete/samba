@@ -56,6 +56,278 @@ struct vfs_ceph_rgw_config {
 	uint64_t ceph_rgw_fd;
 };
 
+/*
+ * Note, librgw's return code model is to return -errno. Thus we have to
+ * convert to what Samba expects: set errno to non-negative value and return -1.
+ *
+ * Using convenience helper functions to avoid non-hygienic macro.
+ */
+static int status_code(int ret)
+{
+	if (ret < 0) {
+		errno = -ret;
+		return -1;
+	}
+	return ret;
+}
+
+static struct smb_filename *vfs_ceph_rgw_realpath(
+	struct vfs_handle_struct *handle,
+	TALLOC_CTX *ctx,
+	const struct smb_filename *smb_fname)
+{
+	char *result = NULL;
+	const char *path = smb_fname->base_name;
+	struct smb_filename *result_fname = NULL;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_realpath);
+
+	result = talloc_strdup(ctx, path);
+	if (result == NULL) {
+		goto out;
+	}
+
+	DBG_DEBUG("[CEPH_RGW] realpath (%s) = %s\n", path, result);
+	result_fname = cp_smb_basename(ctx, result);
+	TALLOC_FREE(result);
+out:
+	END_PROFILE_X(syscall_realpath);
+	return result_fname;
+}
+
+/*
+ * Return the best approximation to a 'create time' under UNIX from a stat
+ * structure.
+ */
+static struct timespec calc_create_time_stat(const struct stat *st)
+{
+	struct timespec ret, ret1;
+	struct timespec c_time = get_ctimespec(st);
+	struct timespec m_time = get_mtimespec(st);
+	struct timespec a_time = get_atimespec(st);
+
+	ret = timespec_compare(&c_time, &m_time) < 0 ? c_time : m_time;
+	ret1 = timespec_compare(&ret, &a_time) < 0 ? ret : a_time;
+
+	if (!null_timespec(ret1)) {
+		return ret1;
+	}
+
+	/*
+	 * One of ctime, mtime or atime was zero (probably atime).
+	 * Just return MIN(ctime, mtime).
+	 */
+	return ret;
+}
+
+static void make_create_timespec(const struct stat *pst,
+				 struct stat_ex *dst,
+				 bool fake_dir_create_times)
+{
+	if (S_ISDIR(pst->st_mode) && fake_dir_create_times) {
+		dst->st_ex_btime.tv_sec = 315493200L; /* 1/1/1980 */
+		dst->st_ex_btime.tv_nsec = 0;
+		return;
+	}
+
+	dst->st_ex_iflags &= ~ST_EX_IFLAG_CALCULATED_BTIME;
+
+#if defined(HAVE_STRUCT_STAT_ST_BIRTHTIMESPEC_TV_NSEC)
+	dst->st_ex_btime = pst->st_birthtimespec;
+#elif defined(HAVE_STRUCT_STAT_ST_BIRTHTIMENSEC)
+	dst->st_ex_btime.tv_sec = pst->st_birthtime;
+	dst->st_ex_btime.tv_nsec = pst->st_birthtimenspec;
+#elif defined(HAVE_STRUCT_STAT_ST_BIRTHTIME)
+	dst->st_ex_btime.tv_sec = pst->st_birthtime;
+	dst->st_ex_btime.tv_nsec = 0;
+#else
+	dst->st_ex_btime = calc_create_time_stat(pst);
+	dst->st_ex_iflags |= ST_EX_IFLAG_CALCULATED_BTIME;
+#endif
+
+	/* Deal with systems that don't initialize birthtime correctly.
+	 * Pointed out by SATOH Fumiyasu <fumiyas@osstech.jp>.
+	 */
+	if (null_timespec(dst->st_ex_btime)) {
+		dst->st_ex_btime = calc_create_time_stat(pst);
+		dst->st_ex_iflags |= ST_EX_IFLAG_CALCULATED_BTIME;
+	}
+}
+
+static void smb_stat_from_ceph_rgw_stat(SMB_STRUCT_STAT *st,
+					const struct stat *st_rgw)
+{
+	ZERO_STRUCTP(st);
+
+	st->st_ex_dev = st_rgw->st_dev;
+	st->st_ex_rdev = st_rgw->st_rdev;
+	st->st_ex_ino = st_rgw->st_ino;
+	st->st_ex_mode = st_rgw->st_mode;
+	st->st_ex_uid = st_rgw->st_uid;
+	st->st_ex_gid = st_rgw->st_gid;
+	st->st_ex_size = st_rgw->st_size;
+	st->st_ex_nlink = st_rgw->st_nlink;
+	st->st_ex_atime.tv_sec = st_rgw->st_atim.tv_sec;
+	st->st_ex_ctime.tv_sec = st_rgw->st_ctim.tv_sec;
+	st->st_ex_mtime.tv_sec = st_rgw->st_mtim.tv_sec;
+	make_create_timespec(st_rgw, st, false);
+	st->st_ex_blksize = st_rgw->st_blksize;
+	st->st_ex_blocks = st_rgw->st_blocks;
+}
+
+static int vfs_ceph_rgw_stat(struct vfs_handle_struct *handle,
+			     struct smb_filename *smb_fname)
+{
+	int result = -ENOMEM;
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct rgw_file_handle *rgw_fh = NULL;
+	struct stat st = {0};
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_stat);
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_rgw_config,
+				goto out);
+
+	if (smb_fname->stream_name) {
+		result = -ENOENT;
+		goto out;
+	}
+
+	if (strlen(smb_fname->base_name) == 1) {
+		if ((strncmp(smb_fname->base_name, ".", 1) == 0) ||
+		    (strncmp(smb_fname->base_name, "/", 1) == 0))
+		{
+			result = rgw_getattr(config->rgw_root_fs,
+					     config->rgw_root_fh,
+					     &st,
+					     RGW_GETATTR_FLAG_NONE);
+			if (result < 0) {
+				DBG_ERR("[CEPH_RGW] Unable to get attr for "
+					"[%s]. "
+					"rc = %d\n",
+					smb_fname->base_name,
+					result);
+				goto out;
+			}
+			smb_stat_from_ceph_rgw_stat(&smb_fname->st, &st);
+			goto out;
+		}
+	}
+
+	result = rgw_lookup(config->rgw_root_fs,
+			    config->rgw_root_fh,
+			    smb_fname->base_name,
+			    &rgw_fh,
+			    &st,
+			    0,
+			    RGW_LOOKUP_TYPE_FLAGS);
+	if (result < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to lookup [%s]. rc = %d\n",
+			smb_fname->base_name,
+			result);
+		goto out;
+	}
+
+	(void)rgw_fh_rele(config->rgw_root_fs,
+			  rgw_fh,
+			  RGW_FH_RELE_FLAG_NONE);
+
+	smb_stat_from_ceph_rgw_stat(&smb_fname->st, &st);
+out:
+	END_PROFILE_X(syscall_stat);
+	return status_code(result);
+}
+
+static int vfs_ceph_rgw_lstat(struct vfs_handle_struct *handle,
+			      struct smb_filename *smb_fname)
+{
+	int rc = -ENOMEM;
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct rgw_file_handle *rgw_fh = NULL;
+	struct stat st = {0};
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_lstat);
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_rgw_config,
+				goto out);
+
+	if (smb_fname->stream_name) {
+		rc = -ENOENT;
+		goto out;
+	}
+
+	if (strlen(smb_fname->base_name) == 1) {
+		if ((strncmp(smb_fname->base_name, ".", 1) == 0) ||
+		    (strncmp(smb_fname->base_name, "/", 1) == 0))
+		{
+			rc = rgw_getattr(config->rgw_root_fs,
+					     config->rgw_root_fh,
+					     &st,
+					     RGW_GETATTR_FLAG_NONE);
+			if (rc < 0) {
+				DBG_ERR("[CEPH_RGW] Unable to get attr for "
+					"[%s]. "
+					"rc = %d\n",
+					smb_fname->base_name,
+					rc);
+				goto out;
+			}
+			smb_stat_from_ceph_rgw_stat(&smb_fname->st, &st);
+			goto out;
+		}
+	}
+
+	rc = rgw_lookup(config->rgw_root_fs,
+			config->rgw_root_fh,
+			smb_fname->base_name,
+			&rgw_fh,
+			&st,
+			0,
+			RGW_LOOKUP_TYPE_FLAGS);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to lookup [%s]. rc = %d\n",
+			smb_fname->base_name,
+			rc);
+		goto out;
+	}
+
+	(void)rgw_fh_rele(config->rgw_root_fs,
+			  rgw_fh,
+			  RGW_FH_RELE_FLAG_NONE);
+
+	smb_stat_from_ceph_rgw_stat(&smb_fname->st, &st);
+out:
+	END_PROFILE_X(syscall_lstat);
+	return status_code(rc);
+}
+
+/*
+ * librgw do not have concept of current working directory.
+ * Therefore chdir, getwd methods are sort of no-op.
+ */
+static int vfs_ceph_rgw_chdir(struct vfs_handle_struct *handle,
+			      const struct smb_filename *smb_fname)
+{
+	int rc = 0;
+	START_PROFILE_X(SNUM(handle->conn), syscall_chdir);
+	END_PROFILE_X(syscall_chdir);
+	return status_code(rc);
+}
+
+static struct smb_filename *vfs_ceph_rgw_getwd(struct vfs_handle_struct *handle,
+					       TALLOC_CTX *ctx)
+{
+	const char *cwd = "/";
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_getwd);
+	END_PROFILE_X(syscall_getwd);
+	return cp_smb_basename(ctx, cwd);
+}
+
 static bool vfs_ceph_rgw_mount_bucket(struct connection_struct *conn,
 				      struct vfs_ceph_rgw_config *config)
 {
@@ -320,16 +592,16 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.renameat_fn = vfs_not_implemented_renameat,
 	.fsync_send_fn = vfs_not_implemented_fsync_send,
 	.fsync_recv_fn = vfs_not_implemented_fsync_recv,
-	.stat_fn = vfs_not_implemented_stat,
+	.stat_fn = vfs_ceph_rgw_stat,
 	.fstat_fn = vfs_not_implemented_fstat,
-	.lstat_fn = vfs_not_implemented_lstat,
+	.lstat_fn = vfs_ceph_rgw_lstat,
 	.fstatat_fn = vfs_not_implemented_fstatat,
 	.unlinkat_fn = vfs_not_implemented_unlinkat,
 	.fchmod_fn = vfs_not_implemented_fchmod,
 	.fchown_fn = vfs_not_implemented_fchown,
 	.lchown_fn = vfs_not_implemented_lchown,
-	.chdir_fn = vfs_not_implemented_chdir,
-	.getwd_fn = vfs_not_implemented_getwd,
+	.chdir_fn = vfs_ceph_rgw_chdir,
+	.getwd_fn = vfs_ceph_rgw_getwd,
 	.fntimes_fn = vfs_not_implemented_fntimes,
 	.ftruncate_fn = vfs_not_implemented_ftruncate,
 	.fallocate_fn = vfs_not_implemented_fallocate,
@@ -342,7 +614,7 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.readlinkat_fn = vfs_not_implemented_vfs_readlinkat,
 	.linkat_fn = vfs_not_implemented_linkat,
 	.mknodat_fn = vfs_not_implemented_mknodat,
-	.realpath_fn = vfs_not_implemented_realpath,
+	.realpath_fn = vfs_ceph_rgw_realpath,
 	.fchflags_fn = vfs_not_implemented_fchflags,
 	.get_real_filename_at_fn = vfs_not_implemented_get_real_filename_at,
 	.fget_dos_attributes_fn = vfs_not_implemented_fget_dos_attributes,
