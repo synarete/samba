@@ -33,11 +33,261 @@
 #include <rados/librgw.h>
 #include <rados/rgw_file.h>
 
+#undef DBGC_CLASS
+#define DBGC_CLASS DBGC_VFS
+
+struct vfs_ceph_rgw_config {
+
+	/* Module parameters */
+	const char *bkt_name;
+	const char *user_id;
+	const char *access_key;
+	const char *secret_access_key;
+	const char *config_file;
+	const char *keyring_file;
+	bool debug_enable;
+
+	/* rgw objects */
+	librgw_t rgw_lib_handle;
+	struct rgw_fs *rgw_root_fs;
+	struct rgw_file_handle *rgw_root_fh;
+
+	/* misc parameters */
+	uint64_t ceph_rgw_fd;
+};
+
+static bool vfs_ceph_rgw_mount_bucket(struct connection_struct *conn,
+				      struct vfs_ceph_rgw_config *config)
+{
+	int rc = 0;
+	int nparams = 0;
+	int i = 0;
+	bool ret = false;
+	char *librgw_params[] = {
+		NULL, /* program name="vfs_ceph_rgw" */
+		NULL, /* --name: Must be client.admin */
+		NULL, /* --cluster: Must be ceph */
+		NULL, /* cluster config file */
+		NULL, /* keyring file */
+		NULL, /* ceph debug param */
+		NULL  /* Last param must be NULL */
+	};
+
+	/* Prepare parameters */
+	librgw_params[nparams] = talloc_asprintf(talloc_tos(), "vfs_ceph_rgw");
+	nparams++;
+
+	librgw_params[nparams] = talloc_asprintf(talloc_tos(),
+						 "--name=client.admin");
+	nparams++;
+
+	librgw_params[nparams] = talloc_asprintf(talloc_tos(),
+						 "--cluster=ceph");
+	nparams++;
+
+	librgw_params[nparams] = talloc_asprintf(talloc_tos(),
+						 "--conf=%s",
+						 config->config_file);
+	nparams++;
+
+	librgw_params[nparams] = talloc_asprintf(talloc_tos(),
+						 "--keyring=%s",
+						 config->keyring_file);
+	nparams++;
+
+	if (config->debug_enable) {
+		librgw_params[nparams] = talloc_strdup(talloc_tos(),
+						       "-d --debug-rgw=20");
+		nparams++;
+	}
+
+	for (i = 0; i < nparams; i++) {
+		if (librgw_params[i] == NULL) {
+			DBG_ERR("[CEPH_RGW] Not enough memory for librgw "
+				"params\n");
+			goto out_fail;
+		}
+	}
+
+	rc = librgw_create(&config->rgw_lib_handle,
+			   nparams,
+			   librgw_params);
+	if (rc != 0) {
+		DBG_ERR("[CEPH_RGW] Failed to init librgw. rc=%d\n", rc);
+		goto out_fail;
+	}
+
+	rc = rgw_mount2(config->rgw_lib_handle,
+			config->user_id,
+			config->access_key,
+			config->secret_access_key,
+			config->bkt_name,
+			&config->rgw_root_fs,
+			RGW_MOUNT_FLAG_NONE);
+	if (rc != 0) {
+		DBG_ERR("[CEPH_ERR] Unable to mount bucket=%s.Err=%d\n",
+			config->bkt_name,
+			rc);
+		if (rc == -EINVAL) {
+			DBG_ERR("[CEPH_RGW]Unable to authorise user=%s\n",
+				config->user_id);
+		}
+		goto out_fail;
+	}
+
+	config->rgw_root_fh = config->rgw_root_fs->root_fh;
+	config->ceph_rgw_fd = 0;
+	ret = true;
+
+out_fail:
+	for (i = 0; i < nparams; i++) {
+		if (librgw_params[i] != NULL) {
+			TALLOC_FREE(librgw_params[i]);
+		}
+	}
+	return ret;
+};
+
+static const char *vfs_ceph_rgw_parm(const struct vfs_handle_struct *handle,
+				     const char *opt, const char *def)
+{
+	const int snum = SNUM(handle->conn);
+	const char *parm = NULL;
+
+	parm = lp_parm_const_string(snum, "ceph_rgw", opt, def);
+	if ((parm == NULL) || !strlen(parm)) {
+		DBG_ERR("[CEPH_RGW] missing config: '%s' for snum=%d\n",
+			opt, snum);
+		return NULL;
+	}
+	return parm;
+}
+
+
+static bool vfs_ceph_rgw_load_config(struct vfs_handle_struct *handle,
+				     struct vfs_ceph_rgw_config **config)
+{
+	struct vfs_ceph_rgw_config *config_tmp = NULL;
+
+	config_tmp = talloc_zero(handle->conn, struct vfs_ceph_rgw_config);
+	if (config_tmp == NULL) {
+		return false;
+	}
+
+	config_tmp->config_file = vfs_ceph_rgw_parm(handle,
+						    "config_file",
+						    "/etc/ceph/ceph.conf");
+	if (config_tmp->config_file == NULL) {
+		return false;
+	}
+
+	config_tmp->keyring_file = vfs_ceph_rgw_parm(
+		handle,
+		"keyring_file",
+		"/etc/ceph/ceph.client.admin.keyring");
+	if (config_tmp->keyring_file == NULL) {
+		return false;
+	}
+
+	config_tmp->user_id = vfs_ceph_rgw_parm(handle,
+						"user_id",
+						"");
+	if (config_tmp->user_id == NULL) {
+		return false;
+	}
+
+	config_tmp->access_key = vfs_ceph_rgw_parm(handle,
+						   "access_key",
+						   "");
+	if (config_tmp->access_key == NULL) {
+		return false;
+	}
+
+	config_tmp->secret_access_key = vfs_ceph_rgw_parm(
+		handle,
+		"secret_access_key",
+		"");
+	if (config_tmp->secret_access_key == NULL) {
+		return false;
+	}
+
+	config_tmp->bkt_name = vfs_ceph_rgw_parm(handle,
+						 "bucket",
+						 "");
+	if (config_tmp->bkt_name == NULL) {
+		return false;
+	}
+
+	config_tmp->debug_enable = lp_parm_bool(SNUM(handle->conn),
+						"ceph_rgw",
+						"debug",
+						"off");
+
+	/*
+	 * librgw do not support directory renaming.
+	 * This option ensures that samba do not use temporary names for
+	 * directory creation and thereby preventing rename while creating
+	 * directory.
+	 */
+	lp_do_parameter(SNUM(handle->conn), "vfs mkdir use tmp name", "no");
+
+	SMB_VFS_HANDLE_SET_DATA(handle,
+				config_tmp,
+				NULL,
+				struct vfs_ceph_rgw_config,
+				return false);
+
+	*config = config_tmp;
+	return true;
+}
+
+static int vfs_ceph_rgw_connect(struct vfs_handle_struct *handle,
+				const char *service,
+				const char *user)
+{
+	struct vfs_ceph_rgw_config *config = NULL;
+	bool ok = false;
+
+	ok = vfs_ceph_rgw_load_config(handle, &config);
+	if (!ok) {
+		return -1;
+	}
+
+	ok = vfs_ceph_rgw_mount_bucket(handle->conn, config);
+	if (!ok) {
+		return -1;
+	}
+
+	return 0;
+}
+
+static void vfs_ceph_rgw_disconnect(struct vfs_handle_struct *handle)
+{
+	int ret = 0;
+	struct vfs_ceph_rgw_config *config = NULL;
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_rgw_config,
+				return);
+
+	ret = rgw_umount(config->rgw_root_fs, RGW_UMOUNT_FLAG_NONE);
+	if (ret < 0) {
+		DBG_ERR("[CEPH_RGW] failed to unmount: snum=%d Err=%d\n",
+			SNUM(handle->conn),
+			ret);
+	}
+
+	librgw_shutdown(config->rgw_lib_handle);
+
+	TALLOC_FREE(config);
+}
+
 static struct vfs_fn_pointers ceph_rgw_fns = {
 	/* Disk operations */
 
-	.connect_fn = vfs_not_implemented_connect,
-	.disconnect_fn = vfs_not_implemented_disconnect,
+	.connect_fn = vfs_ceph_rgw_connect,
+	.disconnect_fn = vfs_ceph_rgw_disconnect,
 	.disk_free_fn = vfs_not_implemented_disk_free,
 	.get_quota_fn = vfs_not_implemented_get_quota,
 	.set_quota_fn = vfs_not_implemented_set_quota,
@@ -119,5 +369,6 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 NTSTATUS vfs_ceph_rgw_init(TALLOC_CTX *ctx)
 {
 	return smb_register_vfs(SMB_VFS_INTERFACE_VERSION,
-				"ceph_rgw", &ceph_rgw_fns);
+				"ceph_rgw",
+				&ceph_rgw_fns);
 }
