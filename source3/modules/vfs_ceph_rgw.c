@@ -1213,6 +1213,156 @@ out:
 	return res;
 }
 
+static void vfs_ceph_rgw_fill_statx_mask_from_ft(struct smb_file_time *ft,
+						 struct stat *st,
+						 uint32_t *mask)
+{
+	struct timespec time_now = timespec_current();
+
+	if (!is_omit_timespec(&ft->atime)) {
+		if (ft->atime.tv_nsec == UTIME_NOW) {
+			ft->atime = time_now;
+		}
+		st->st_atim.tv_sec = ft->atime.tv_sec;
+		*mask |= RGW_SETATTR_ATIME;
+	}
+	if (!is_omit_timespec(&ft->mtime)) {
+		if (ft->mtime.tv_nsec == UTIME_NOW) {
+			ft->mtime = time_now;
+		}
+		st->st_mtim.tv_sec = ft->mtime.tv_sec;
+		*mask |= RGW_SETATTR_MTIME;
+	}
+	if (!is_omit_timespec(&ft->ctime)) {
+		if (ft->ctime.tv_nsec == UTIME_NOW) {
+			ft->ctime = time_now;
+		}
+		st->st_ctim.tv_sec = ft->ctime.tv_sec;
+		*mask |= RGW_SETATTR_CTIME;
+	}
+
+	return;
+}
+
+static int vfs_ceph_rgw_fntimes(struct vfs_handle_struct *handle,
+			    files_struct *fsp,
+			    struct smb_file_time *ft)
+{
+	int rc = -ENOMEM;
+	uint32_t mask = 0;
+	struct stat st = {0};
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct vfs_ceph_rgw_fh *fh = NULL;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_fntimes);
+
+	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_rgw_config,
+				goto out);
+
+	vfs_ceph_rgw_fill_statx_mask_from_ft(ft, &st, &mask);
+	if (mask == 0) {
+		rc = 0;
+		goto out;
+	}
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &fh);
+	if (rc != 0) {
+		DBG_ERR("[CEPH_RGW] Unable to fetch handle\n");
+		goto out;
+	}
+
+	rc = rgw_setattr(config->rgw_root_fs,
+			 fh->rgw_fh,
+			 &st,
+			 mask,
+			 RGW_SETATTR_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to set attributes\n");
+		goto out;
+	}
+
+	if (!is_omit_timespec(&ft->create_time)) {
+		set_create_timespec_ea(fsp, ft->create_time);
+	}
+
+out:
+	END_PROFILE_X(syscall_fntimes);
+	return status_code(rc);
+}
+
+static int vfs_ceph_rgw_fcntl(vfs_handle_struct *handle,
+			      files_struct *fsp,
+			      int cmd,
+			      va_list cmd_arg)
+{
+	int result = 0;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_fcntl);
+	/*
+	 * SMB_VFS_FCNTL() is currently only called by vfs_set_blocking() to
+	 * clear O_NONBLOCK, etc for LOCK_MAND and FIFOs. Ignore it.
+	 */
+	if (cmd == F_GETFL) {
+		goto out;
+	} else if (cmd == F_SETFL) {
+		va_list dup_cmd_arg;
+		int opt;
+
+		va_copy(dup_cmd_arg, cmd_arg);
+		opt = va_arg(dup_cmd_arg, int);
+		va_end(dup_cmd_arg);
+		if (opt == 0) {
+			goto out;
+		}
+		DBG_ERR("[CEPH_RGW] unexpected fcntl SETFL(%d)\n", opt);
+		goto err_out;
+	}
+	DBG_ERR("[CEPH_RGW] unexpected fcntl: %d\n", cmd);
+err_out:
+	result = -1;
+	errno = EINVAL;
+out:
+	END_PROFILE_X(syscall_fcntl);
+	return result;
+}
+
+static int vfs_ceph_rgw_ftruncate(struct vfs_handle_struct *handle,
+				  files_struct *fsp,
+				  off_t len)
+{
+	int rc = -ENOMEM;
+	struct vfs_ceph_rgw_fh *fh = NULL;
+	struct vfs_ceph_rgw_config *config = NULL;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_ftruncate);
+
+	DBG_DEBUG("[CEPH_RGW] ftruncate: name='%s' len=%zd\n",
+		  fsp_str_dbg(fsp),
+		  (intmax_t)len);
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_rgw_config,
+				goto out);
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &fh);
+	if (rc != 0) {
+		goto out;
+	}
+
+	rc = rgw_truncate(config->rgw_root_fs,
+			  fh->rgw_fh,
+			  (uint64_t)len,
+			  RGW_TRUNCATE_FLAG_NONE);
+out:
+	DBG_DEBUG("[CEPH_RGW] ftruncate done: name=%s len=%zd rc=%d\n",
+		  fsp_str_dbg(fsp),
+		  (intmax_t)len,
+		  rc);
+	END_PROFILE_X(syscall_ftruncate);
+	return status_code(rc);
+}
+
 static bool vfs_ceph_rgw_mount_bucket(struct connection_struct *conn,
 				      struct vfs_ceph_rgw_config *config)
 {
@@ -1487,12 +1637,12 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 	.lchown_fn = vfs_not_implemented_lchown,
 	.chdir_fn = vfs_ceph_rgw_chdir,
 	.getwd_fn = vfs_ceph_rgw_getwd,
-	.fntimes_fn = vfs_not_implemented_fntimes,
-	.ftruncate_fn = vfs_not_implemented_ftruncate,
+	.fntimes_fn = vfs_ceph_rgw_fntimes,
+	.ftruncate_fn = vfs_ceph_rgw_ftruncate,
 	.fallocate_fn = vfs_not_implemented_fallocate,
 	.lock_fn = vfs_not_implemented_lock,
 	.filesystem_sharemode_fn = vfs_not_implemented_filesystem_sharemode,
-	.fcntl_fn = vfs_not_implemented_fcntl,
+	.fcntl_fn = vfs_ceph_rgw_fcntl,
 	.linux_setlease_fn = vfs_not_implemented_linux_setlease,
 	.getlock_fn = vfs_not_implemented_getlock,
 	.symlinkat_fn = vfs_not_implemented_symlinkat,
