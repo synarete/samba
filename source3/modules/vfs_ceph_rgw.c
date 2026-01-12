@@ -36,6 +36,9 @@
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_VFS
 
+/* librgw returns maximum 1000 dir entries at time of dir listing */
+#define MAX_DIR_ENTRIES 1000
+
 struct vfs_ceph_rgw_config {
 
 	/* Module parameters */
@@ -56,6 +59,22 @@ struct vfs_ceph_rgw_config {
 	uint64_t ceph_rgw_fd;
 };
 
+struct vfs_ceph_rgw_rd_arg {
+	struct vfs_ceph_rgw_dir *dirp;
+	void *ctx;
+	bool eof;
+	int cb_err;
+	char whence[NAME_MAX + 1];
+};
+
+struct vfs_ceph_rgw_dir {
+	int pos;
+	int num;
+	struct vfs_ceph_rgw_fh *dirfh;
+	struct vfs_ceph_rgw_rd_arg cb_arg;
+	struct dirent *dirs;
+};
+
 /* Ceph-rgw file-handles via fsp-extension */
 struct vfs_ceph_rgw_fh {
 	struct vfs_ceph_rgw_dir *dirp;
@@ -71,7 +90,6 @@ struct vfs_ceph_rgw_getxattr_arg {
 	char *val;
 	size_t size;
 };
-
 
 /*
  * Note, librgw's return code model is to return -errno. Thus we have to
@@ -96,7 +114,6 @@ static ssize_t lstatus_code(intmax_t ret)
 	}
 	return (ssize_t)ret;
 }
-
 
 static int cephrgw_next_fd(struct vfs_ceph_rgw_config *config)
 {
@@ -1363,6 +1380,213 @@ out:
 	return status_code(rc);
 }
 
+static int vfs_ceph_rgw_rd_cb(const char *name,
+			      void *arg,
+			      uint64_t offset,
+			      struct stat *st,
+			      uint32_t mask,
+			      uint32_t flags)
+{
+	struct vfs_ceph_rgw_rd_arg *cb_arg = (struct vfs_ceph_rgw_rd_arg *)arg;
+	struct dirent *d = NULL;
+	struct vfs_ceph_rgw_dir *dirp = cb_arg->dirp;
+
+	DBG_DEBUG("[CEPH_RGW]: Object-name: %s mask=%u flags=%u\n",
+		   name, mask, flags);
+
+	/* Ensure we never over-run array */
+	if (dirp->num == MAX_DIR_ENTRIES) {
+		cb_arg->cb_err = -ENOSPC;
+		return false;
+	}
+
+	/* prepare dentry */
+	d = &dirp->dirs[dirp->num];
+	d->d_ino = st->st_ino;
+	d->d_off = dirp->pos;
+	d->d_reclen = strlen(name);
+	if (flags & DT_DIR) {
+		d->d_type = DT_DIR;
+	} else if (flags & DT_REG) {
+		d->d_type = DT_REG;
+	} else if (flags & DT_LNK) {
+		d->d_type = DT_LNK;
+	} else {
+		d->d_type = DT_UNKNOWN;
+	}
+	strlcpy(d->d_name, name, sizeof(d->d_name));
+	dirp->num += 1;
+
+	/* update 'whence' */
+	strlcpy(cb_arg->whence, name, sizeof(cb_arg->whence));
+
+	/* Since its not end of dir listing, return true to continue
+	 * listing.
+	 */
+	return true;
+}
+
+static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
+				   files_struct *fsp,
+				   const char *mask,
+				   uint32_t attr)
+{
+	int rc = 0;
+	struct vfs_ceph_rgw_dir *dirp = NULL;
+	struct vfs_ceph_rgw_fh *openfh = NULL;
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct vfs_ceph_rgw_rd_arg *cb_arg = NULL;
+	START_PROFILE_X(SNUM(handle->conn), syscall_fdopendir);
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_rgw_config,
+				goto out);
+
+	DBG_DEBUG("[CEPH_RGW] fdopendir: name [%s]\n", fsp_str_dbg(fsp));
+
+	rc = vfs_ceph_rgw_fetch_fh(handle, fsp, &openfh);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] Unable to find open handle for %s. rc=%d\n",
+			fsp_str_dbg(fsp),
+			rc);
+		goto out;
+	}
+
+	dirp = talloc_zero(handle->conn, struct vfs_ceph_rgw_dir);
+	if (dirp == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory for dir info.");
+		goto out;
+	}
+
+	dirp->dirs = talloc_array(dirp, struct dirent, MAX_DIR_ENTRIES);
+	if (dirp->dirs == NULL) {
+		DBG_ERR("[CEPH_RGW] Not enough memory for dir entries\n");
+		TALLOC_FREE(dirp);
+		dirp = NULL;
+		goto out;
+	}
+
+	/* init dirp */
+	dirp->dirfh = openfh;
+
+	/* init callback argument for readdir */
+	cb_arg = &dirp->cb_arg;
+	cb_arg->dirp = dirp;
+	cb_arg->eof = false;
+	cb_arg->ctx = handle->conn;
+	cb_arg->cb_err = 0;
+	cb_arg->whence[0] = '\0';
+
+	DBG_DEBUG("[CEPH_RGW] fdopendir: [%s] success.\n", fsp_str_dbg(fsp));
+
+out:
+	END_PROFILE_X(syscall_fdopendir);
+	return (DIR *)dirp;
+}
+
+static int vfs_ceph_rgw_closedir(struct vfs_handle_struct *handle, DIR *dirp)
+{
+	int rc = 0;
+	struct vfs_ceph_rgw_dir *rgw_dirp = (struct vfs_ceph_rgw_dir *)dirp;
+	START_PROFILE_X(SNUM(handle->conn), syscall_closedir);
+
+	DBG_DEBUG("[CEPH_RGW] closedir: dirp=%p\n", dirp);
+	TALLOC_FREE(rgw_dirp);
+
+	END_PROFILE_X(syscall_closedir);
+	return status_code(rc);
+}
+
+static struct dirent *vfs_ceph_rgw_readdir(struct vfs_handle_struct *handle,
+					   struct files_struct *dirfsp,
+					   DIR *dirp)
+{
+	int rc = 0;
+	int saved_errno = errno;
+	struct dirent *ret = NULL;
+	struct vfs_ceph_rgw_config *config = NULL;
+	struct vfs_ceph_rgw_dir *rgw_dirp = (struct vfs_ceph_rgw_dir *)dirp;
+	struct vfs_ceph_rgw_rd_arg *cb_arg = &rgw_dirp->cb_arg;
+	struct vfs_ceph_rgw_fh *dirfh = rgw_dirp->dirfh;
+	START_PROFILE_X(SNUM(handle->conn), syscall_readdir);
+
+	DBG_DEBUG("[CEPH_RGW] readdir: name [%s]\n", fsp_str_dbg(dirfsp));
+
+	SMB_VFS_HANDLE_GET_DATA(handle,
+				config,
+				struct vfs_ceph_rgw_config,
+				goto out);
+
+	/* rgw_readdir2() fetches max 1000 entries on every call till
+	 * eof is reached and thus we store max 1000 at any point in time.
+	 * If entries exceed beyond 1000 then we just reset 'num' to 0 so that
+	 * subsequent call to readdir2() would allocate max 1000 entries,
+	 * this ensure we always use a fix amount of memory regardless the
+	 * number of entries in directory.
+	 *
+	 * Additionally we issue rgw_readdir2() only after we have consumed
+	 * all entries with help of 'pos'. Therefore upper layer won't miss any
+	 * entry.
+	 *
+	 * Note:
+	 * Currently librgw do not have any mechanism to notify changes for a
+	 * directory. Thus in case of additions/deletions of files to/from
+	 * directory won't be visible until rgw_readdir2() is called with
+	 * 'whence' as NULL.
+	 */
+	if (!cb_arg->eof && rgw_dirp->pos == rgw_dirp->num) {
+		rgw_dirp->num = 0;
+		rgw_dirp->pos = 0;
+		rc = rgw_readdir2(config->rgw_root_fs,
+				  dirfh->rgw_fh,
+				  (cb_arg->whence[0] != '\0')?
+				  cb_arg->whence : NULL,
+				  vfs_ceph_rgw_rd_cb,
+				  cb_arg,
+				  &cb_arg->eof,
+				  RGW_READDIR_FLAG_NONE);
+		if (rc < 0 || cb_arg->cb_err < 0) {
+			if (rc < 0) {
+				saved_errno = rc;
+			} else {
+				saved_errno = cb_arg->cb_err;
+			}
+			ret = NULL;
+			DBG_ERR("[CEPH_RGW] readdir failed. rc=%d cb_err=%d\n",
+				rc, cb_arg->cb_err);
+			goto out;
+		}
+	}
+
+	if (rgw_dirp->pos < rgw_dirp->num) {
+		ret = &rgw_dirp->dirs[rgw_dirp->pos++];
+	}
+
+	DBG_DEBUG("[CEPH_RGW] readdir: [%s] success.\n", fsp_str_dbg(dirfsp));
+out:
+	errno = saved_errno;
+	END_PROFILE_X(syscall_readdir);
+	return ret;
+}
+
+static void vfs_ceph_rgw_rewinddir(struct vfs_handle_struct *handle, DIR *dirp)
+{
+	struct vfs_ceph_rgw_dir *rgw_dirp = (struct vfs_ceph_rgw_dir *)dirp;
+	struct vfs_ceph_rgw_rd_arg *cb_arg = &rgw_dirp->cb_arg;
+	START_PROFILE_X(SNUM(handle->conn), syscall_rewinddir);
+
+	rgw_dirp->pos = 0;
+	rgw_dirp->num = 0;
+	if (cb_arg != NULL) {
+		cb_arg->whence[0] = '\0';
+		cb_arg->eof = false;
+	}
+
+	END_PROFILE_X(syscall_rewinddir);
+	return;
+}
+
 static bool vfs_ceph_rgw_mount_bucket(struct connection_struct *conn,
 				      struct vfs_ceph_rgw_config *config)
 {
@@ -1603,11 +1827,12 @@ static struct vfs_fn_pointers ceph_rgw_fns = {
 
 	/* Directory operations */
 
-	.fdopendir_fn = vfs_not_implemented_fdopendir,
-	.readdir_fn = vfs_not_implemented_readdir,
-	.rewind_dir_fn = vfs_not_implemented_rewind_dir,
+	.fdopendir_fn = vfs_ceph_rgw_fdopendir,
+	.readdir_fn = vfs_ceph_rgw_readdir,
+	.rewind_dir_fn = vfs_ceph_rgw_rewinddir,
 	.mkdirat_fn = vfs_not_implemented_mkdirat,
-	.closedir_fn = vfs_not_implemented_closedir,
+	.closedir_fn = vfs_ceph_rgw_closedir,
+
 
 	/* File operations */
 
