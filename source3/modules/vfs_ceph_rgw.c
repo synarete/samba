@@ -67,12 +67,26 @@ struct vfs_ceph_rgw_rd_arg {
 	char whence[NAME_MAX + 1];
 };
 
+struct vfs_ceph_rgw_dirent {
+	ino_t d_ino;
+	off_t d_off;
+	union {
+		char *d_name;
+		union {
+			uint16_t d_namelen;
+			uint8_t d_type;
+			char d_name_short[13];
+		};
+	};
+};
+
 struct vfs_ceph_rgw_dir {
+	struct dirent dirent;
 	int pos;
 	int num;
 	struct vfs_ceph_rgw_fh *dirfh;
 	struct vfs_ceph_rgw_rd_arg cb_arg;
-	struct dirent *dirs;
+	struct vfs_ceph_rgw_dirent *dirs;
 };
 
 /* Ceph-rgw file-handles via fsp-extension */
@@ -1388,7 +1402,7 @@ static int vfs_ceph_rgw_rd_cb(const char *name,
 			      uint32_t flags)
 {
 	struct vfs_ceph_rgw_rd_arg *cb_arg = (struct vfs_ceph_rgw_rd_arg *)arg;
-	struct dirent *d = NULL;
+	struct vfs_ceph_rgw_dirent *d = NULL;
 	struct vfs_ceph_rgw_dir *dirp = cb_arg->dirp;
 
 	DBG_DEBUG("[CEPH_RGW]: Object-name: %s mask=%u flags=%u\n",
@@ -1402,9 +1416,11 @@ static int vfs_ceph_rgw_rd_cb(const char *name,
 
 	/* prepare dentry */
 	d = &dirp->dirs[dirp->num];
+	if (d->d_namelen >= sizeof(d->d_name_short)) {
+		TALLOC_FREE(d->d_name);
+	}
 	d->d_ino = st->st_ino;
 	d->d_off = dirp->pos;
-	d->d_reclen = strlen(name);
 	if (flags & DT_DIR) {
 		d->d_type = DT_DIR;
 	} else if (flags & DT_REG) {
@@ -1414,7 +1430,17 @@ static int vfs_ceph_rgw_rd_cb(const char *name,
 	} else {
 		d->d_type = DT_UNKNOWN;
 	}
-	strlcpy(d->d_name, name, sizeof(d->d_name));
+	d->d_namelen = strlen(name);
+	if (d->d_namelen < sizeof(d->d_name_short)) {
+		strlcpy(d->d_name_short, name, sizeof(d->d_name_short));
+	} else {
+		d->d_name = talloc_strdup(cb_arg->ctx, name);
+		if (d->d_name == NULL) {
+			cb_arg->cb_err = -ENOMEM;
+			return false;
+		}
+	}
+
 	dirp->num += 1;
 
 	/* update 'whence' */
@@ -1459,7 +1485,9 @@ static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
 		goto out;
 	}
 
-	dirp->dirs = talloc_array(dirp, struct dirent, MAX_DIR_ENTRIES);
+	dirp->dirs = talloc_zero_array(dirp,
+				       struct vfs_ceph_rgw_dirent,
+				       MAX_DIR_ENTRIES);
 	if (dirp->dirs == NULL) {
 		DBG_ERR("[CEPH_RGW] Not enough memory for dir entries\n");
 		TALLOC_FREE(dirp);
@@ -1474,7 +1502,7 @@ static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
 	cb_arg = &dirp->cb_arg;
 	cb_arg->dirp = dirp;
 	cb_arg->eof = false;
-	cb_arg->ctx = handle->conn;
+	cb_arg->ctx = dirp;
 	cb_arg->cb_err = 0;
 	cb_arg->whence[0] = '\0';
 
@@ -1560,7 +1588,25 @@ static struct dirent *vfs_ceph_rgw_readdir(struct vfs_handle_struct *handle,
 	}
 
 	if (rgw_dirp->pos < rgw_dirp->num) {
-		ret = &rgw_dirp->dirs[rgw_dirp->pos++];
+		struct vfs_ceph_rgw_dirent
+			*d = &rgw_dirp->dirs[rgw_dirp->pos++];
+
+		ret = &rgw_dirp->dirent;
+		ret->d_ino = d->d_ino;
+		ret->d_off = d->d_off;
+		ret->d_type = d->d_type;
+		ret->d_reclen = d->d_namelen;
+		if (d->d_namelen < sizeof(d->d_name_short)) {
+			strlcpy(ret->d_name,
+				d->d_name_short,
+				sizeof(ret->d_name));
+		} else {
+			strlcpy(ret->d_name, d->d_name, sizeof(ret->d_name));
+			TALLOC_FREE(d->d_name);
+		}
+
+		/* reset entry */
+		memset(d, 0, sizeof(*d));
 	}
 
 	DBG_DEBUG("[CEPH_RGW] readdir: [%s] success.\n", fsp_str_dbg(dirfsp));
