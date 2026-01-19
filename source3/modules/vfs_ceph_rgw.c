@@ -40,7 +40,7 @@
  * librgw returns maximum 1000 dir entries at time of dir listing, internally
  * we may cache up to 100 entries within linked-list.
  */
-#define MAX_DIR_ENTRIES 100
+#define MAX_DIR_ENTRIES 10
 
 struct vfs_ceph_rgw_config {
 
@@ -1582,7 +1582,7 @@ static struct dirent *vfs_ceph_rgw_readdir(struct vfs_handle_struct *handle,
 				struct vfs_ceph_rgw_config,
 				goto out);
 
-	if (cb_arg->eof || rgw_dirp->nde) {
+	if (cb_arg->eof || (rgw_dirp->nde > 0)) {
 		/* End of dir stream or using cached entries */
 		goto done;
 	}
@@ -1608,12 +1608,12 @@ static struct dirent *vfs_ceph_rgw_readdir(struct vfs_handle_struct *handle,
 		saved_errno = rc;
 		goto out;
 	}
-		if (cb_arg->cb_err < 0) {
-			DBG_ERR("[CEPH_RGW] readdir failed. cb_err=%d\n",
-				cb_arg->cb_err);
-			saved_errno = cb_arg->cb_err;
-			goto out;
-		}
+	if (cb_arg->cb_err < 0) {
+		DBG_ERR("[CEPH_RGW] readdir failed. cb_err=%d\n",
+			cb_arg->cb_err);
+		saved_errno = cb_arg->cb_err;
+		goto out;
+	}
 
 done:
 	ret = vfs_ceph_rgw_pop_dirent(rgw_dirp);
