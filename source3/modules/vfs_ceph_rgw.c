@@ -40,7 +40,7 @@
  * librgw returns maximum 1000 dir entries at time of dir listing, internally
  * we may cache up to 100 entries within linked-list.
  */
-#define MAX_DIR_ENTRIES 10
+#define MAX_DIR_ENTRIES 100
 
 struct vfs_ceph_rgw_config {
 
