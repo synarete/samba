@@ -36,8 +36,11 @@
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_VFS
 
-/* librgw returns maximum 1000 dir entries at time of dir listing */
-#define MAX_DIR_ENTRIES 1000
+/*
+ * librgw returns maximum 1000 dir entries at time of dir listing, internally
+ * we may cache up to 100 entries within linked-list.
+ */
+#define MAX_DIR_ENTRIES 100
 
 struct vfs_ceph_rgw_config {
 
@@ -67,12 +70,21 @@ struct vfs_ceph_rgw_rd_arg {
 	char whence[NAME_MAX + 1];
 };
 
+struct vfs_ceph_rgw_dirent {
+	struct vfs_ceph_rgw_dirent *next, *prev;
+	ino_t ino;
+	off_t off;
+	uint16_t type;
+	uint16_t nlen;
+	char name[4]; /* trailing chars follows */
+};
+
 struct vfs_ceph_rgw_dir {
-	int pos;
-	int num;
+	struct dirent dirent;
 	struct vfs_ceph_rgw_fh *dirfh;
 	struct vfs_ceph_rgw_rd_arg cb_arg;
-	struct dirent *dirs;
+	struct vfs_ceph_rgw_dirent *dirs;
+	size_t nde;
 };
 
 /* Ceph-rgw file-handles via fsp-extension */
@@ -1380,6 +1392,73 @@ out:
 	return status_code(rc);
 }
 
+static int vfs_ceph_rgw_push_dirent(struct vfs_ceph_rgw_dir *dirp,
+				    const char *name,
+				    uint64_t offset,
+				    struct stat *st,
+				    uint32_t flags)
+{
+	struct vfs_ceph_rgw_dirent *de = NULL;
+	const size_t nlen = strlen(name);
+	size_t sz;
+
+	sz = (sizeof(*de) + nlen + 1) - sizeof(de->name);
+	de = talloc_zero_size(dirp, sz);
+	if (de == NULL) {
+		return -ENOMEM;
+	}
+	de->ino = st->st_ino;
+	de->off = offset;
+	if (flags & DT_DIR) {
+		de->type = DT_DIR;
+	} else if (flags & DT_REG) {
+		de->type = DT_REG;
+	} else if (flags & DT_LNK) {
+		de->type = DT_LNK;
+	} else {
+		de->type = DT_UNKNOWN;
+	}
+	de->nlen = nlen;
+	strlcpy(de->name, name, nlen + 1);
+
+	DLIST_ADD(dirp->dirs, de);
+	dirp->nde += 1;
+	return 0;
+}
+
+static struct dirent *vfs_ceph_rgw_pop_dirent(struct vfs_ceph_rgw_dir *dirp)
+{
+	struct vfs_ceph_rgw_dirent *de = NULL;
+	struct dirent *d = &dirp->dirent;
+
+	if (!dirp->nde) {
+		return NULL;
+	}
+	de = DLIST_TAIL(dirp->dirs);
+	if (de == NULL) {
+		return NULL;
+	}
+	memset(d, 0, sizeof(*d));
+	d->d_ino = de->ino;
+	d->d_off = de->off;
+	d->d_type = (unsigned char)de->type;
+	d->d_reclen = de->nlen;
+	strlcpy(d->d_name, de->name, sizeof(d->d_name));
+
+	DLIST_REMOVE(dirp->dirs, de);
+	TALLOC_FREE(de);
+	dirp->nde -= 1;
+
+	return d;
+}
+
+static void vfs_ceph_rgw_clear_dirents(struct vfs_ceph_rgw_dir *dirp)
+{
+	while (dirp->nde > 0) {
+		vfs_ceph_rgw_pop_dirent(dirp);
+	}
+}
+
 static int vfs_ceph_rgw_rd_cb(const char *name,
 			      void *arg,
 			      uint64_t offset,
@@ -1387,35 +1466,25 @@ static int vfs_ceph_rgw_rd_cb(const char *name,
 			      uint32_t mask,
 			      uint32_t flags)
 {
+	int rc;
 	struct vfs_ceph_rgw_rd_arg *cb_arg = (struct vfs_ceph_rgw_rd_arg *)arg;
-	struct dirent *d = NULL;
 	struct vfs_ceph_rgw_dir *dirp = cb_arg->dirp;
 
 	DBG_DEBUG("[CEPH_RGW]: Object-name: %s mask=%u flags=%u\n",
 		   name, mask, flags);
 
-	/* Ensure we never over-run array */
-	if (dirp->num == MAX_DIR_ENTRIES) {
-		cb_arg->cb_err = -ENOSPC;
+	/* Limit internal dirents cache size */
+	if (dirp->nde == MAX_DIR_ENTRIES) {
+		cb_arg->cb_err = 0;
 		return false;
 	}
 
 	/* prepare dentry */
-	d = &dirp->dirs[dirp->num];
-	d->d_ino = st->st_ino;
-	d->d_off = dirp->pos;
-	d->d_reclen = strlen(name);
-	if (flags & DT_DIR) {
-		d->d_type = DT_DIR;
-	} else if (flags & DT_REG) {
-		d->d_type = DT_REG;
-	} else if (flags & DT_LNK) {
-		d->d_type = DT_LNK;
-	} else {
-		d->d_type = DT_UNKNOWN;
+	rc = vfs_ceph_rgw_push_dirent(dirp, name, offset, st, flags);
+	if (rc != 0) {
+		cb_arg->cb_err = rc;
+		return false;
 	}
-	strlcpy(d->d_name, name, sizeof(d->d_name));
-	dirp->num += 1;
 
 	/* update 'whence' */
 	strlcpy(cb_arg->whence, name, sizeof(cb_arg->whence));
@@ -1459,13 +1528,7 @@ static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
 		goto out;
 	}
 
-	dirp->dirs = talloc_array(dirp, struct dirent, MAX_DIR_ENTRIES);
-	if (dirp->dirs == NULL) {
-		DBG_ERR("[CEPH_RGW] Not enough memory for dir entries\n");
-		TALLOC_FREE(dirp);
-		dirp = NULL;
-		goto out;
-	}
+	dirp->dirs = NULL;
 
 	/* init dirp */
 	dirp->dirfh = openfh;
@@ -1474,7 +1537,7 @@ static DIR *vfs_ceph_rgw_fdopendir(vfs_handle_struct *handle,
 	cb_arg = &dirp->cb_arg;
 	cb_arg->dirp = dirp;
 	cb_arg->eof = false;
-	cb_arg->ctx = handle->conn;
+	cb_arg->ctx = dirp;
 	cb_arg->cb_err = 0;
 	cb_arg->whence[0] = '\0';
 
@@ -1492,6 +1555,7 @@ static int vfs_ceph_rgw_closedir(struct vfs_handle_struct *handle, DIR *dirp)
 	START_PROFILE_X(SNUM(handle->conn), syscall_closedir);
 
 	DBG_DEBUG("[CEPH_RGW] closedir: dirp=%p\n", dirp);
+	vfs_ceph_rgw_clear_dirents(rgw_dirp);
 	TALLOC_FREE(rgw_dirp);
 
 	END_PROFILE_X(syscall_closedir);
@@ -1518,16 +1582,13 @@ static struct dirent *vfs_ceph_rgw_readdir(struct vfs_handle_struct *handle,
 				struct vfs_ceph_rgw_config,
 				goto out);
 
-	/* rgw_readdir2() fetches max 1000 entries on every call till
-	 * eof is reached and thus we store max 1000 at any point in time.
-	 * If entries exceed beyond 1000 then we just reset 'num' to 0 so that
-	 * subsequent call to readdir2() would allocate max 1000 entries,
-	 * this ensure we always use a fix amount of memory regardless the
-	 * number of entries in directory.
-	 *
-	 * Additionally we issue rgw_readdir2() only after we have consumed
-	 * all entries with help of 'pos'. Therefore upper layer won't miss any
-	 * entry.
+	if (cb_arg->eof || rgw_dirp->nde) {
+		/* End of dir stream or using cached entries */
+		goto done;
+	}
+
+	/*
+	 * Populate internal dentries cache.
 	 *
 	 * Note:
 	 * Currently librgw do not have any mechanism to notify changes for a
@@ -1535,35 +1596,31 @@ static struct dirent *vfs_ceph_rgw_readdir(struct vfs_handle_struct *handle,
 	 * directory won't be visible until rgw_readdir2() is called with
 	 * 'whence' as NULL.
 	 */
-	if (!cb_arg->eof && rgw_dirp->pos == rgw_dirp->num) {
-		rgw_dirp->num = 0;
-		rgw_dirp->pos = 0;
-		rc = rgw_readdir2(config->rgw_root_fs,
-				  dirfh->rgw_fh,
-				  (cb_arg->whence[0] != '\0')?
-				  cb_arg->whence : NULL,
-				  vfs_ceph_rgw_rd_cb,
-				  cb_arg,
-				  &cb_arg->eof,
-				  RGW_READDIR_FLAG_NONE);
-		if (rc < 0 || cb_arg->cb_err < 0) {
-			if (rc < 0) {
-				saved_errno = rc;
-			} else {
-				saved_errno = cb_arg->cb_err;
-			}
-			ret = NULL;
-			DBG_ERR("[CEPH_RGW] readdir failed. rc=%d cb_err=%d\n",
-				rc, cb_arg->cb_err);
+	rc = rgw_readdir2(config->rgw_root_fs,
+			  dirfh->rgw_fh,
+			  (cb_arg->whence[0] != '\0') ? cb_arg->whence : NULL,
+			  vfs_ceph_rgw_rd_cb,
+			  cb_arg,
+			  &cb_arg->eof,
+			  RGW_READDIR_FLAG_NONE);
+	if (rc < 0) {
+		DBG_ERR("[CEPH_RGW] rgw_readdir2 failed. rc=%d\n", rc);
+		saved_errno = rc;
+		goto out;
+	}
+		if (cb_arg->cb_err < 0) {
+			DBG_ERR("[CEPH_RGW] readdir failed. cb_err=%d\n",
+				cb_arg->cb_err);
+			saved_errno = cb_arg->cb_err;
 			goto out;
 		}
-	}
 
-	if (rgw_dirp->pos < rgw_dirp->num) {
-		ret = &rgw_dirp->dirs[rgw_dirp->pos++];
-	}
+done:
+	ret = vfs_ceph_rgw_pop_dirent(rgw_dirp);
 
-	DBG_DEBUG("[CEPH_RGW] readdir: [%s] success.\n", fsp_str_dbg(dirfsp));
+	DBG_DEBUG("[CEPH_RGW] readdir: [%s] success. name: [%s]\n",
+		  fsp_str_dbg(dirfsp),
+		  ret ? ret->d_name : "");
 out:
 	errno = saved_errno;
 	END_PROFILE_X(syscall_readdir);
@@ -1576,8 +1633,7 @@ static void vfs_ceph_rgw_rewinddir(struct vfs_handle_struct *handle, DIR *dirp)
 	struct vfs_ceph_rgw_rd_arg *cb_arg = &rgw_dirp->cb_arg;
 	START_PROFILE_X(SNUM(handle->conn), syscall_rewinddir);
 
-	rgw_dirp->pos = 0;
-	rgw_dirp->num = 0;
+	vfs_ceph_rgw_clear_dirents(rgw_dirp);
 	if (cb_arg != NULL) {
 		cb_arg->whence[0] = '\0';
 		cb_arg->eof = false;
