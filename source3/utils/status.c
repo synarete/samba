@@ -449,6 +449,74 @@ static void print_brl(struct file_id id,
 	TALLOC_FREE(share_mode);
 }
 
+struct status_brl {
+	struct status_brl *prev, *next;
+	struct file_id id;
+	struct server_id pid;
+	enum brl_type lock_type;
+	enum brl_flavour lock_flav;
+	br_off start;
+	br_off size;
+};
+
+struct status_collect_brl_state {
+	TALLOC_CTX *mem_ctx;
+	struct status_brl *brl;
+	struct traverse_state *ts;
+};
+
+static void status_collect_brl_fn(struct file_id id,
+				  struct server_id pid,
+				  enum brl_type lock_type,
+				  enum brl_flavour lock_flav,
+				  br_off start,
+				  br_off size,
+				  void *private_data)
+{
+	struct status_collect_brl_state *state = private_data;
+	struct status_brl *brl;
+
+	brl = talloc_zero(state->mem_ctx, struct status_brl);
+	if (brl == NULL) {
+		return;
+	}
+	*brl = (struct status_brl){
+		.prev = NULL,
+		.next = NULL,
+		.id = id,
+		.pid = pid,
+		.lock_type = lock_type,
+		.lock_flav = lock_flav,
+		.start = start,
+		.size = size,
+	};
+	DLIST_ADD(state->brl, brl);
+}
+
+static void status_collect_brl(struct status_collect_brl_state *state)
+{
+	brl_forall(status_collect_brl_fn, state);
+}
+
+static void status_dump_brl(struct status_collect_brl_state *state)
+{
+	struct status_brl *brl = NULL;
+
+	brl = DLIST_TAIL(state->brl);
+	while (brl != NULL) {
+		print_brl(brl->id,
+			  brl->pid,
+			  brl->lock_type,
+			  brl->lock_flav,
+			  brl->start,
+			  brl->size,
+			  state->ts);
+		DLIST_REMOVE(state->brl, brl);
+		TALLOC_FREE(brl);
+		brl = DLIST_TAIL(state->brl);
+	}
+}
+
 static const char *session_dialect_str(uint16_t dialect)
 {
 	static fstring unknown_dialect;
@@ -1271,6 +1339,11 @@ int main(int argc, const char *argv[])
 	if ( show_locks ) {
 		int result;
 		struct db_context *db;
+		struct status_collect_brl_state brl_state = {
+			.brl = NULL,
+			.mem_ctx = frame,
+			.ts = &state,
+		};
 
 		db_path = lock_path(talloc_tos(), "locking.tdb");
 		if (db_path == NULL) {
@@ -1315,11 +1388,15 @@ int main(int argc, const char *argv[])
 		}
 
 		if (show_brl) {
-			prepare_brl(&state);
-			brl_forall(print_brl, &state);
+			status_collect_brl(&brl_state);
 		}
 
 		locking_end();
+
+		if (show_brl) {
+			prepare_brl(&state);
+			status_dump_brl(&brl_state);
+		}
 	}
 
 	if (show_notify) {
