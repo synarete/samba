@@ -156,7 +156,7 @@ bool profile_setup(struct messaging_context *msg_ctx, bool rdonly)
 
 	profile_p = &smbprofile_state.stats.global;
 
-	rc = smbprofile_magic(profile_p, &profile_p->magic);
+	rc = smbprofile_magic(profile_p, &profile_p->hdr.magic);
 	if (rc != 0) {
 		goto out;
 	}
@@ -209,7 +209,7 @@ static int profile_stats_parser(TDB_DATA key, TDB_DATA value,
 	}
 
 	memcpy(s, value.dptr, value.dsize);
-	if (s->magic != profile_p->magic) {
+	if (s->hdr.magic != profile_p->hdr.magic) {
 		*s = (struct profile_stats) {};
 		return 0;
 	}
@@ -337,8 +337,8 @@ void smbprofile_cleanup(pid_t pid, pid_t dst)
 	acc.values.num_tcons_stats.count = 0;
 	acc.values.num_files_stats.count = 0;
 
-	acc.magic = profile_p->magic;
-	acc.summary_record = true;
+	acc.hdr.magic = profile_p->hdr.magic;
+	acc.hdr.summary_record = true;
 
 	tdb_store(smbprofile_state.internal.db->tdb, key,
 		  (TDB_DATA) {
@@ -356,7 +356,7 @@ void smbprofile_collect(struct profile_stats *stats)
 		return;
 	}
 	smbprofile_collect_tdb(smbprofile_state.internal.db->tdb,
-			       profile_p->magic,
+			       profile_p->hdr.magic,
 			       stats);
 }
 
