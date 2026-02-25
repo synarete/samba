@@ -402,12 +402,14 @@ struct smbprofile_stats_iobytes_async {
 	struct smbprofile_stats_iobytes *stats;
 };
 
-struct profile_stats {
+struct profile_stats_hdr {
 	uint64_t magic;
 	bool summary_record;
 	uint8_t version;
 	uint8_t pad[6];
-	struct {
+};
+
+struct profile_stats_values {
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display)
 #define SMBPROFILE_STATS_COUNT(name) \
@@ -432,7 +434,11 @@ struct profile_stats {
 #undef SMBPROFILE_STATS_IOBYTES
 #undef SMBPROFILE_STATS_SECTION_END
 #undef SMBPROFILE_STATS_END
-	} values;
+};
+
+struct profile_stats {
+	struct profile_stats_hdr hdr;
+	struct profile_stats_values values;
 };
 
 #define _SMBPROFILE_COUNT_INCREMENT(_stats, _area, _v) do { \

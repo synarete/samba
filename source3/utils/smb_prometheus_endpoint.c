@@ -573,7 +573,7 @@ static void metrics_handler(struct evhttp_request *req, void *arg)
 	struct export_state state = {.buf = NULL};
 	const char *tdbfilename = arg;
 	struct tdb_context *tdb = NULL;
-	struct profile_stats stats = {.magic = 0};
+	struct profile_stats stats = {.hdr.magic = 0};
 	uint64_t magic;
 	size_t num_workers;
 	int ret;

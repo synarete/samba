@@ -212,11 +212,11 @@ static int smbprofile_collect_fn(struct tdb_context *tdb,
 
 	v = (const struct profile_stats *)value.dptr;
 
-	if (v->magic != acc->magic) {
+	if (v->hdr.magic != acc->hdr.magic) {
 		return 0;
 	}
 
-	if (!v->summary_record) {
+	if (!v->hdr.summary_record) {
 		state->num_workers += 1;
 	}
 
@@ -236,7 +236,7 @@ size_t smbprofile_collect_tdb(struct tdb_context *tdb,
 		.acc = stats,
 	};
 
-	*stats = (struct profile_stats){.magic = magic};
+	*stats = (struct profile_stats){.hdr.magic = magic};
 
 	tdb_traverse_read(tdb, smbprofile_collect_fn, &state);
 
