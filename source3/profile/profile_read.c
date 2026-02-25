@@ -31,68 +31,68 @@ void smbprofile_stats_accumulate(struct profile_stats *acc,
 {
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display)
-#define SMBPROFILE_STATS_COUNT(name)                    \
-	do {                                            \
-		acc->values.name##_stats.count +=       \
-			add->values.name##_stats.count; \
+#define SMBPROFILE_STATS_COUNT(name)                                 \
+	do {                                                         \
+		acc->values.v1.name##_stats                          \
+			.count += add->values.v1.name##_stats.count; \
 	} while (0);
-#define SMBPROFILE_STATS_TIME(name)                    \
-	do {                                           \
-		acc->values.name##_stats.time +=       \
-			add->values.name##_stats.time; \
+#define SMBPROFILE_STATS_TIME(name)                                \
+	do {                                                       \
+		acc->values.v1.name##_stats                        \
+			.time += add->values.v1.name##_stats.time; \
 	} while (0);
-#define SMBPROFILE_STATS_BASIC(name)                    \
-	do {                                            \
-		acc->values.name##_stats.count +=       \
-			add->values.name##_stats.count; \
-		acc->values.name##_stats.time +=        \
-			add->values.name##_stats.time;  \
+#define SMBPROFILE_STATS_BASIC(name)                                 \
+	do {                                                         \
+		acc->values.v1.name##_stats                          \
+			.count += add->values.v1.name##_stats.count; \
+		acc->values.v1.name##_stats                          \
+			.time += add->values.v1.name##_stats.time;   \
 	} while (0);
-#define SMBPROFILE_STATS_BYTES(name)                    \
-	do {                                            \
-		acc->values.name##_stats.count +=       \
-			add->values.name##_stats.count; \
-		acc->values.name##_stats.time +=        \
-			add->values.name##_stats.time;  \
-		acc->values.name##_stats.idle +=        \
-			add->values.name##_stats.idle;  \
-		acc->values.name##_stats.bytes +=       \
-			add->values.name##_stats.bytes; \
+#define SMBPROFILE_STATS_BYTES(name)                                 \
+	do {                                                         \
+		acc->values.v1.name##_stats                          \
+			.count += add->values.v1.name##_stats.count; \
+		acc->values.v1.name##_stats                          \
+			.time += add->values.v1.name##_stats.time;   \
+		acc->values.v1.name##_stats                          \
+			.idle += add->values.v1.name##_stats.idle;   \
+		acc->values.v1.name##_stats                          \
+			.bytes += add->values.v1.name##_stats.bytes; \
 	} while (0);
-#define SMBPROFILE_STATS_IOBYTES(name)                     \
-	do {                                               \
-		acc->values.name##_stats.count +=          \
-			add->values.name##_stats.count;    \
-		acc->values.name##_stats.failed_count +=   \
-			add->values.name##_stats.failed_count; \
-		acc->values.name##_stats.time +=           \
-			add->values.name##_stats.time;     \
-		acc->values.name##_stats.buckets[0] +=     \
-			add->values.name##_stats.buckets[0]; \
-		acc->values.name##_stats.buckets[1] +=     \
-			add->values.name##_stats.buckets[1]; \
-		acc->values.name##_stats.buckets[2] +=     \
-			add->values.name##_stats.buckets[2]; \
-		acc->values.name##_stats.buckets[3] +=     \
-			add->values.name##_stats.buckets[3]; \
-		acc->values.name##_stats.buckets[4] +=     \
-			add->values.name##_stats.buckets[4]; \
-		acc->values.name##_stats.buckets[5] +=     \
-			add->values.name##_stats.buckets[5]; \
-		acc->values.name##_stats.buckets[6] +=     \
-			add->values.name##_stats.buckets[6]; \
-		acc->values.name##_stats.buckets[7] +=     \
-			add->values.name##_stats.buckets[7]; \
-		acc->values.name##_stats.buckets[8] +=     \
-			add->values.name##_stats.buckets[8]; \
-		acc->values.name##_stats.buckets[9] +=     \
-			add->values.name##_stats.buckets[9]; \
-		acc->values.name##_stats.idle +=           \
-			add->values.name##_stats.idle;     \
-		acc->values.name##_stats.inbytes +=        \
-			add->values.name##_stats.inbytes;  \
-		acc->values.name##_stats.outbytes +=       \
-			add->values.name##_stats.outbytes; \
+#define SMBPROFILE_STATS_IOBYTES(name)                                     \
+	do {                                                               \
+		acc->values.v1.name##_stats                                \
+			.count += add->values.v1.name##_stats.count;       \
+		acc->values.v1.name##_stats.failed_count +=                \
+			add->values.v1.name##_stats.failed_count;          \
+		acc->values.v1.name##_stats                                \
+			.time += add->values.v1.name##_stats.time;         \
+		acc->values.v1.name##_stats.buckets[0] +=                  \
+			add->values.v1.name##_stats.buckets[0];            \
+		acc->values.v1.name##_stats.buckets[1] +=                  \
+			add->values.v1.name##_stats.buckets[1];            \
+		acc->values.v1.name##_stats.buckets[2] +=                  \
+			add->values.v1.name##_stats.buckets[2];            \
+		acc->values.v1.name##_stats.buckets[3] +=                  \
+			add->values.v1.name##_stats.buckets[3];            \
+		acc->values.v1.name##_stats.buckets[4] +=                  \
+			add->values.v1.name##_stats.buckets[4];            \
+		acc->values.v1.name##_stats.buckets[5] +=                  \
+			add->values.v1.name##_stats.buckets[5];            \
+		acc->values.v1.name##_stats.buckets[6] +=                  \
+			add->values.v1.name##_stats.buckets[6];            \
+		acc->values.v1.name##_stats.buckets[7] +=                  \
+			add->values.v1.name##_stats.buckets[7];            \
+		acc->values.v1.name##_stats.buckets[8] +=                  \
+			add->values.v1.name##_stats.buckets[8];            \
+		acc->values.v1.name##_stats.buckets[9] +=                  \
+			add->values.v1.name##_stats.buckets[9];            \
+		acc->values.v1.name##_stats                                \
+			.idle += add->values.v1.name##_stats.idle;         \
+		acc->values.v1.name##_stats                                \
+			.inbytes += add->values.v1.name##_stats.inbytes;   \
+		acc->values.v1.name##_stats                                \
+			.outbytes += add->values.v1.name##_stats.outbytes; \
 	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END

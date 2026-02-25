@@ -86,22 +86,22 @@ static void status_profile_dump_persvc_stats(struct traverse_state *state,
 {
 	const char *latest_section = NULL;
 
-#define __PRINT_FIELD_LINE(name, _stats, field)                           \
-	do {                                                              \
-		uintmax_t val = (uintmax_t)(*pstats).values._stats.field; \
-		if (!state->json_output) {                                \
-			d_printf("%s %-59s%20ju\n",                       \
-				 secname,                                 \
-				 name "_" #field ":",                     \
-				 val);                                    \
-		} else {                                                  \
-			add_profile_persvc_item_to_json(state,            \
-							secname,          \
-							latest_section,   \
-							name,             \
-							#field,           \
-							val);             \
-		}                                                         \
+#define __PRINT_FIELD_LINE(name, _stats, field)                              \
+	do {                                                                 \
+		uintmax_t val = (uintmax_t)(*pstats).values.v1._stats.field; \
+		if (!state->json_output) {                                   \
+			d_printf("%s %-59s%20ju\n",                          \
+				 secname,                                    \
+				 name "_" #field ":",                        \
+				 val);                                       \
+		} else {                                                     \
+			add_profile_persvc_item_to_json(state,               \
+							secname,             \
+							latest_section,      \
+							name,                \
+							#field,              \
+							val);                \
+		}                                                            \
 	} while (0);
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display) \
@@ -129,15 +129,17 @@ static void status_profile_dump_persvc_stats(struct traverse_state *state,
 		__PRINT_FIELD_LINE(#name, name##_stats, idle);  \
 		__PRINT_FIELD_LINE(#name, name##_stats, bytes); \
 	} while (0);
-#define SMBPROFILE_STATS_IOBYTES(name)                                       \
-	do {                                                                 \
-		__PRINT_FIELD_LINE(#name, name##_stats, count);              \
-		__PRINT_FIELD_LINE(#name, name##_stats, failed_count);       \
-		__PRINT_FIELD_LINE(#name, name##_stats, time);               \
-		print_buckets(state, #name, &(*pstats).values.name##_stats); \
-		__PRINT_FIELD_LINE(#name, name##_stats, idle);               \
-		__PRINT_FIELD_LINE(#name, name##_stats, inbytes);            \
-		__PRINT_FIELD_LINE(#name, name##_stats, outbytes);           \
+#define SMBPROFILE_STATS_IOBYTES(name)                                 \
+	do {                                                           \
+		__PRINT_FIELD_LINE(#name, name##_stats, count);        \
+		__PRINT_FIELD_LINE(#name, name##_stats, failed_count); \
+		__PRINT_FIELD_LINE(#name, name##_stats, time);         \
+		print_buckets(state,                                   \
+			      #name,                                   \
+			      &(*pstats).values.v1.name##_stats);      \
+		__PRINT_FIELD_LINE(#name, name##_stats, idle);         \
+		__PRINT_FIELD_LINE(#name, name##_stats, inbytes);      \
+		__PRINT_FIELD_LINE(#name, name##_stats, outbytes);     \
 	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
@@ -188,16 +190,16 @@ bool status_profile_dump(bool verbose,
 
 	smbprofile_collect(&stats);
 
-#define __PRINT_FIELD_LINE(name, _stats, field) do { \
-	uintmax_t val = (uintmax_t)stats.values._stats.field; \
-	if (!state->json_output) { \
-		d_printf("%-59s%20ju\n", \
-			 name "_" #field ":", \
-			 val); \
-	} else { \
-	       add_profile_item_to_json(state, latest_section, name, #field, val); \
-	} \
-} while(0);
+#define __PRINT_FIELD_LINE(name, _stats, field)                             \
+	do {                                                                \
+		uintmax_t val = (uintmax_t)stats.values.v1._stats.field;    \
+		if (!state->json_output) {                                  \
+			d_printf("%-59s%20ju\n", name "_" #field ":", val); \
+		} else {                                                    \
+			add_profile_item_to_json(                           \
+				state, latest_section, name, #field, val);  \
+		}                                                           \
+	} while (0);
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display) do { \
 	latest_section = display; \
@@ -219,15 +221,16 @@ bool status_profile_dump(bool verbose,
 	__PRINT_FIELD_LINE(#name, name##_stats,  idle); \
 	__PRINT_FIELD_LINE(#name, name##_stats,  bytes); \
 } while(0);
-#define SMBPROFILE_STATS_IOBYTES(name) do { \
-	__PRINT_FIELD_LINE(#name, name##_stats,  count); \
-	__PRINT_FIELD_LINE(#name, name##_stats,  failed_count); \
-	__PRINT_FIELD_LINE(#name, name##_stats,  time); \
-	print_buckets(state, #name, &stats.values.name##_stats); \
-	__PRINT_FIELD_LINE(#name, name##_stats,  idle); \
-	__PRINT_FIELD_LINE(#name, name##_stats,  inbytes); \
-	__PRINT_FIELD_LINE(#name, name##_stats,  outbytes); \
-} while(0);
+#define SMBPROFILE_STATS_IOBYTES(name)                                      \
+	do {                                                                \
+		__PRINT_FIELD_LINE(#name, name##_stats, count);             \
+		__PRINT_FIELD_LINE(#name, name##_stats, failed_count);      \
+		__PRINT_FIELD_LINE(#name, name##_stats, time);              \
+		print_buckets(state, #name, &stats.values.v1.name##_stats); \
+		__PRINT_FIELD_LINE(#name, name##_stats, idle);              \
+		__PRINT_FIELD_LINE(#name, name##_stats, inbytes);           \
+		__PRINT_FIELD_LINE(#name, name##_stats, outbytes);          \
+	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
 	SMBPROFILE_STATS_ALL_SECTIONS
@@ -396,36 +399,48 @@ static uint64_t print_count_samples(
 
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display)
-#define SMBPROFILE_STATS_COUNT(name) do { \
-	count += print_count_count_samples(buf, sizeof(buf), \
-					   #name, \
-					   &current->values.name##_stats, \
-					   &last->values.name##_stats, \
-					   delta_usec); \
-} while(0);
+#define SMBPROFILE_STATS_COUNT(name)                      \
+	do {                                              \
+		count += print_count_count_samples(       \
+			buf,                              \
+			sizeof(buf),                      \
+			#name,                            \
+			&current->values.v1.name##_stats, \
+			&last->values.v1.name##_stats,    \
+			delta_usec);                      \
+	} while (0);
 #define SMBPROFILE_STATS_TIME(name) do { \
 } while(0);
-#define SMBPROFILE_STATS_BASIC(name) do { \
-	count += print_basic_count_samples(buf, sizeof(buf), \
-					   #name, \
-					   &current->values.name##_stats, \
-					   &last->values.name##_stats, \
-					   delta_usec); \
-} while(0);
-#define SMBPROFILE_STATS_BYTES(name) do { \
-	count += print_bytes_count_samples(buf, sizeof(buf), \
-					   #name, \
-					   &current->values.name##_stats, \
-					   &last->values.name##_stats, \
-					   delta_usec); \
-} while(0);
-#define SMBPROFILE_STATS_IOBYTES(name) do { \
-	count += print_iobytes_count_samples(buf, sizeof(buf), \
-					     #name, \
-					     &current->values.name##_stats, \
-					     &last->values.name##_stats, \
-					     delta_usec); \
-} while(0);
+#define SMBPROFILE_STATS_BASIC(name)                      \
+	do {                                              \
+		count += print_basic_count_samples(       \
+			buf,                              \
+			sizeof(buf),                      \
+			#name,                            \
+			&current->values.v1.name##_stats, \
+			&last->values.v1.name##_stats,    \
+			delta_usec);                      \
+	} while (0);
+#define SMBPROFILE_STATS_BYTES(name)                      \
+	do {                                              \
+		count += print_bytes_count_samples(       \
+			buf,                              \
+			sizeof(buf),                      \
+			#name,                            \
+			&current->values.v1.name##_stats, \
+			&last->values.v1.name##_stats,    \
+			delta_usec);                      \
+	} while (0);
+#define SMBPROFILE_STATS_IOBYTES(name)                    \
+	do {                                              \
+		count += print_iobytes_count_samples(     \
+			buf,                              \
+			sizeof(buf),                      \
+			#name,                            \
+			&current->values.v1.name##_stats, \
+			&last->values.v1.name##_stats,    \
+			delta_usec);                      \
+	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
 	SMBPROFILE_STATS_ALL_SECTIONS

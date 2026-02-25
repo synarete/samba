@@ -256,10 +256,10 @@ void smbprofile_dump(struct smbd_server_connection *sconn)
 		ZERO_STRUCT(rself);
 	}
 
-	profile_p->values.cpu_user_stats.time =
+	profile_p->values.v1.cpu_user_stats.time =
 		(rself.ru_utime.tv_sec * 1000000) +
 		rself.ru_utime.tv_usec;
-	profile_p->values.cpu_system_stats.time =
+	profile_p->values.v1.cpu_system_stats.time =
 		(rself.ru_stime.tv_sec * 1000000) +
 		rself.ru_stime.tv_usec;
 #endif /* HAVE_GETRUSAGE */
@@ -269,10 +269,10 @@ void smbprofile_dump(struct smbd_server_connection *sconn)
 		 * Sessions, tcons and files don't add up, they are
 		 * transient counters
 		 */
-		profile_p->values.num_sessions_stats.count = sconn->num_users;
-		profile_p->values.num_tcons_stats.count =
+		profile_p->values.v1.num_sessions_stats.count = sconn->num_users;
+		profile_p->values.v1.num_tcons_stats.count =
 			sconn->num_connections;
-		profile_p->values.num_files_stats.count = sconn->num_files;
+		profile_p->values.v1.num_files_stats.count = sconn->num_files;
 	}
 
 	tdb_store(smbprofile_state.internal.db->tdb, key,
@@ -326,16 +326,16 @@ void smbprofile_cleanup(pid_t pid, pid_t dst)
 	 * We may have to fix the disconnect count
 	 * in case the process died
 	 */
-	s.values.disconnect_stats.count = s.values.connect_stats.count;
+	s.values.v1.disconnect_stats.count = s.values.v1.connect_stats.count;
 
 	smbprofile_stats_accumulate(&acc, &s);
 
 	/*
 	 * Sessions, tcons and files don't add up, they are transient.
 	 */
-	acc.values.num_sessions_stats.count = 0;
-	acc.values.num_tcons_stats.count = 0;
-	acc.values.num_files_stats.count = 0;
+	acc.values.v1.num_sessions_stats.count = 0;
+	acc.values.v1.num_tcons_stats.count = 0;
+	acc.values.v1.num_files_stats.count = 0;
 
 	acc.hdr.magic = profile_p->hdr.magic;
 	acc.hdr.summary_record = true;

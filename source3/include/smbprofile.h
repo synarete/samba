@@ -432,7 +432,7 @@ struct profile_stats_hdr {
 	uint8_t pad[6];
 };
 
-struct profile_stats_values {
+struct profile_stats_values_v1 {
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display)
 #define SMBPROFILE_STATS_COUNT(name) \
@@ -488,13 +488,14 @@ struct profile_stats_values_v2 {
 
 struct profile_stats {
 	struct profile_stats_hdr hdr;
-	struct profile_stats_values values;
-	struct profile_stats_values_v2 values_v2;
+	struct {
+		struct profile_stats_values_v1 v1;
+	} values;
 };
 
 #define _SMBPROFILE_COUNT_INCREMENT(_stats, _area, _v) do { \
 	if (smbprofile_state.config.do_count) { \
-		(_area)->values._stats.count += (_v); \
+		(_area)->values.v1._stats.count += (_v); \
 		smbprofile_dump_schedule(); \
 	} \
 } while(0)
@@ -506,7 +507,7 @@ struct profile_stats {
 #define _SMBPROFILE_TIME_ASYNC_START(_stats, _area, _async) do { \
 	(_async) = (struct smbprofile_stats_time_async) {}; \
 	if (smbprofile_state.config.do_times) { \
-		(_async).stats = &((_area)->values._stats), \
+		(_async).stats = &((_area)->values.v1._stats), \
 		(_async).start = profile_timestamp(); \
 	} \
 } while(0)
@@ -527,9 +528,9 @@ struct profile_stats {
 	if (smbprofile_state.config.do_count) { \
 		if (smbprofile_state.config.do_times) { \
 			(_async).start = profile_timestamp(); \
-			(_async).stats = &((_area)->values._stats); \
+			(_async).stats = &((_area)->values.v1._stats); \
 		} \
-		(_area)->values._stats.count += 1; \
+		(_area)->values.v1._stats.count += 1; \
 		smbprofile_dump_schedule(); \
 	} \
 } while(0)
@@ -544,7 +545,7 @@ struct profile_stats {
 } while(0)
 
 #define _SMBPROFILE_TIMER_ASYNC_START(_stats, _area, _async) do { \
-	(_async).stats = &((_area)->values._stats); \
+	(_async).stats = &((_area)->values.v1._stats); \
 	if (smbprofile_state.config.do_times) { \
 		(_async).start = profile_timestamp(); \
 	} \
@@ -577,8 +578,8 @@ struct profile_stats {
 	(_async) = (struct smbprofile_stats_bytes_async) {}; \
 	if (smbprofile_state.config.do_count) { \
 		_SMBPROFILE_TIMER_ASYNC_START(_stats, _area, _async); \
-		(_area)->values._stats.count += 1; \
-		(_area)->values._stats.bytes += (_bytes); \
+		(_area)->values.v1._stats.count += 1; \
+		(_area)->values.v1._stats.bytes += (_bytes); \
 		smbprofile_dump_schedule(); \
 	} \
 } while(0)
@@ -604,8 +605,8 @@ struct profile_stats {
 	(_async) = (struct smbprofile_stats_iobytes_async) {}; \
 	if (smbprofile_state.config.do_count) { \
 		_SMBPROFILE_TIMER_ASYNC_START(_stats, _area, _async); \
-		(_area)->values._stats.count += 1; \
-		(_area)->values._stats.inbytes += (_inbytes); \
+		(_area)->values.v1._stats.count += 1; \
+		(_area)->values.v1._stats.inbytes += (_inbytes); \
 		smbprofile_dump_schedule(); \
 	} \
 } while(0)

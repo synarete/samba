@@ -282,17 +282,20 @@ static void export_profile_stats(const struct profile_stats *stats,
 {
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display)
-#define SMBPROFILE_STATS_COUNT(name)                                     \
-	do {                                                             \
-		export_count(#name, &stats->values.name##_stats, state); \
+#define SMBPROFILE_STATS_COUNT(name)                                        \
+	do {                                                                \
+		export_count(#name, &stats->values.v1.name##_stats, state); \
 	} while (0);
-#define SMBPROFILE_STATS_TIME(name)                                     \
-	do {                                                            \
-		export_time(#name, &stats->values.name##_stats, state); \
+#define SMBPROFILE_STATS_TIME(name)                                        \
+	do {                                                               \
+		export_time(#name, &stats->values.v1.name##_stats, state); \
 	} while (0);
-#define SMBPROFILE_STATS_BASIC(name)                                         \
-	do {                                                                 \
-		export_basic("", #name, &stats->values.name##_stats, state); \
+#define SMBPROFILE_STATS_BASIC(name)                         \
+	do {                                                 \
+		export_basic("",                             \
+			     #name,                          \
+			     &stats->values.v1.name##_stats, \
+			     state);                         \
 	} while (0);
 #define SMBPROFILE_STATS_BYTES(name)
 #define SMBPROFILE_STATS_IOBYTES(name)
@@ -315,12 +318,12 @@ static void export_profile_stats(const struct profile_stats *stats,
 #define SMBPROFILE_STATS_TIME(name)
 #define SMBPROFILE_STATS_BASIC(name)
 #define SMBPROFILE_STATS_BYTES(name)
-#define SMBPROFILE_STATS_IOBYTES(name)                              \
-	do {                                                        \
-		export_iobytes_inbytes("",                          \
-				       #name,                       \
-				       &stats->values.name##_stats, \
-				       state);                      \
+#define SMBPROFILE_STATS_IOBYTES(name)                                 \
+	do {                                                           \
+		export_iobytes_inbytes("",                             \
+				       #name,                          \
+				       &stats->values.v1.name##_stats, \
+				       state);                         \
 	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
@@ -341,12 +344,12 @@ static void export_profile_stats(const struct profile_stats *stats,
 #define SMBPROFILE_STATS_TIME(name)
 #define SMBPROFILE_STATS_BASIC(name)
 #define SMBPROFILE_STATS_BYTES(name)
-#define SMBPROFILE_STATS_IOBYTES(name)                               \
-	do {                                                         \
-		export_iobytes_outbytes("",                          \
-					#name,                       \
-					&stats->values.name##_stats, \
-					state);                      \
+#define SMBPROFILE_STATS_IOBYTES(name)                                  \
+	do {                                                            \
+		export_iobytes_outbytes("",                             \
+					#name,                          \
+					&stats->values.v1.name##_stats, \
+					state);                         \
 	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
@@ -367,12 +370,12 @@ static void export_profile_stats(const struct profile_stats *stats,
 #define SMBPROFILE_STATS_TIME(name)
 #define SMBPROFILE_STATS_BASIC(name)
 #define SMBPROFILE_STATS_BYTES(name)
-#define SMBPROFILE_STATS_IOBYTES(name)                              \
-	do {                                                        \
-		export_iobytes_buckets("",                          \
-				       #name,                       \
-				       &stats->values.name##_stats, \
-				       state);                      \
+#define SMBPROFILE_STATS_IOBYTES(name)                                 \
+	do {                                                           \
+		export_iobytes_buckets("",                             \
+				       #name,                          \
+				       &stats->values.v1.name##_stats, \
+				       state);                         \
 	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
@@ -393,12 +396,12 @@ static void export_profile_stats(const struct profile_stats *stats,
 #define SMBPROFILE_STATS_TIME(name)
 #define SMBPROFILE_STATS_BASIC(name)
 #define SMBPROFILE_STATS_BYTES(name)
-#define SMBPROFILE_STATS_IOBYTES(name)                             \
-	do {                                                       \
-		export_iobytes_failed("",                          \
-				      #name,                       \
-				      &stats->values.name##_stats, \
-				      state);                      \
+#define SMBPROFILE_STATS_IOBYTES(name)                                \
+	do {                                                          \
+		export_iobytes_failed("",                             \
+				      #name,                          \
+				      &stats->values.v1.name##_stats, \
+				      state);                         \
 	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
@@ -420,9 +423,12 @@ static void export_profile_persvc_stats(const struct profile_stats *stats,
 {
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display)
-#define SMBPROFILE_STATS_BASIC(name)                                          \
-	do {                                                                  \
-		export_basic(svc, #name, &stats->values.name##_stats, state); \
+#define SMBPROFILE_STATS_BASIC(name)                         \
+	do {                                                 \
+		export_basic(svc,                            \
+			     #name,                          \
+			     &stats->values.v1.name##_stats, \
+			     state);                         \
 	} while (0);
 #define SMBPROFILE_STATS_BYTES(name)
 #define SMBPROFILE_STATS_IOBYTES(name)
@@ -445,12 +451,12 @@ static void export_profile_persvc_stats(const struct profile_stats *stats,
 #define SMBPROFILE_STATS_TIME(name)
 #define SMBPROFILE_STATS_BASIC(name)
 #define SMBPROFILE_STATS_BYTES(name)
-#define SMBPROFILE_STATS_IOBYTES(name)                              \
-	do {                                                        \
-		export_iobytes_inbytes(svc,                         \
-				       #name,                       \
-				       &stats->values.name##_stats, \
-				       state);                      \
+#define SMBPROFILE_STATS_IOBYTES(name)                                 \
+	do {                                                           \
+		export_iobytes_inbytes(svc,                            \
+				       #name,                          \
+				       &stats->values.v1.name##_stats, \
+				       state);                         \
 	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
@@ -471,12 +477,12 @@ static void export_profile_persvc_stats(const struct profile_stats *stats,
 #define SMBPROFILE_STATS_TIME(name)
 #define SMBPROFILE_STATS_BASIC(name)
 #define SMBPROFILE_STATS_BYTES(name)
-#define SMBPROFILE_STATS_IOBYTES(name)                               \
-	do {                                                         \
-		export_iobytes_outbytes(svc,                         \
-					#name,                       \
-					&stats->values.name##_stats, \
-					state);                      \
+#define SMBPROFILE_STATS_IOBYTES(name)                                  \
+	do {                                                            \
+		export_iobytes_outbytes(svc,                            \
+					#name,                          \
+					&stats->values.v1.name##_stats, \
+					state);                         \
 	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
@@ -497,12 +503,12 @@ static void export_profile_persvc_stats(const struct profile_stats *stats,
 #define SMBPROFILE_STATS_TIME(name)
 #define SMBPROFILE_STATS_BASIC(name)
 #define SMBPROFILE_STATS_BYTES(name)
-#define SMBPROFILE_STATS_IOBYTES(name)                              \
-	do {                                                        \
-		export_iobytes_buckets(svc,                         \
-				       #name,                       \
-				       &stats->values.name##_stats, \
-				       state);                      \
+#define SMBPROFILE_STATS_IOBYTES(name)                                 \
+	do {                                                           \
+		export_iobytes_buckets(svc,                            \
+				       #name,                          \
+				       &stats->values.v1.name##_stats, \
+				       state);                         \
 	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
@@ -523,12 +529,12 @@ static void export_profile_persvc_stats(const struct profile_stats *stats,
 #define SMBPROFILE_STATS_TIME(name)
 #define SMBPROFILE_STATS_BASIC(name)
 #define SMBPROFILE_STATS_BYTES(name)
-#define SMBPROFILE_STATS_IOBYTES(name)                             \
-	do {                                                       \
-		export_iobytes_failed(svc,                         \
-				      #name,                       \
-				      &stats->values.name##_stats, \
-				      state);                      \
+#define SMBPROFILE_STATS_IOBYTES(name)                                \
+	do {                                                          \
+		export_iobytes_failed(svc,                            \
+				      #name,                          \
+				      &stats->values.v1.name##_stats, \
+				      state);                         \
 	} while (0);
 #define SMBPROFILE_STATS_SECTION_END
 #define SMBPROFILE_STATS_END
@@ -636,20 +642,20 @@ static void metrics_handler(struct evhttp_request *req, void *arg)
 		"logged in\n"
 		"# TYPE smb_num_authenticated_sessions gauge\n"
 		"smb_num_authenticated_sessions %" PRIu64 "\n",
-		stats.values.num_sessions_stats.count);
+		stats.values.v1.num_sessions_stats.count);
 
 	evbuffer_add_printf(
 		state.buf,
 		"# HELP smb_num_tree_connects Number of share connections\n"
 		"# TYPE smb_num_tree_connects gauge\n"
 		"smb_num_tree_connects %" PRIu64 "\n",
-		stats.values.num_tcons_stats.count);
+		stats.values.v1.num_tcons_stats.count);
 
 	evbuffer_add_printf(state.buf,
 			    "# HELP smb_num_open_files Number of open files\n"
 			    "# TYPE smb_num_open_files gauge\n"
 			    "smb_num_open_files %" PRIu64 "\n",
-			    stats.values.num_files_stats.count);
+			    stats.values.v1.num_files_stats.count);
 
 	export_profile_stats(&stats, &state);
 

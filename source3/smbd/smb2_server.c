@@ -2083,8 +2083,9 @@ static NTSTATUS smb2_send_async_interim_response(const struct smbd_smb2_request 
 
 struct smbd_smb2_request_pending_state {
 	struct smbd_smb2_send_queue queue_entry;
-        uint8_t buf[NBT_HDR_SIZE + SMB2_TF_HDR_SIZE + SMB2_HDR_BODY + 0x08 + 1];
-        struct iovec vector[1 + SMBD_SMB2_NUM_IOV_PER_REQ];
+	uint8_t buf[NBT_HDR_SIZE + SMB2_TF_HDR_SIZE + SMB2_HDR_BODY + 0x08 +
+		    1];
+	struct iovec vector[1 + SMBD_SMB2_NUM_IOV_PER_REQ];
 };
 
 static void smbd_smb2_request_pending_timer(struct tevent_context *ev,
@@ -2548,7 +2549,7 @@ static NTSTATUS smbd_smb2_request_process_cancel(struct smbd_smb2_request *req)
 		DEBUG(10,("smbd_smb2_request_process_cancel: attempting to "
 			"cancel opcode[%s] mid %llu\n",
 			smb2_opcode_name(SVAL(inhdr, SMB2_HDR_OPCODE)),
-                        (unsigned long long)found_id ));
+			(unsigned long long)found_id ));
 		tevent_req_cancel(cur->subreq);
 	}
 
@@ -4762,8 +4763,8 @@ NTSTATUS smbd_smb2_process_negprot(struct smbXsrv_connection *xconn,
 	 * this was already counted at the SMB1 layer =>
 	 * smbd_smb2_request_dispatch() should not count it twice.
 	 */
-	if (profile_p->values.request_stats.count > 0) {
-		profile_p->values.request_stats.count--;
+	if (profile_p->values.v1.request_stats.count > 0) {
+		profile_p->values.v1.request_stats.count--;
 	}
 #endif
 	status = smbd_smb2_request_dispatch(req);
