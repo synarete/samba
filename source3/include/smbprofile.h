@@ -405,6 +405,8 @@ struct smbprofile_stats_iobytes_async {
 struct profile_stats {
 	uint64_t magic;
 	bool summary_record;
+	uint8_t version;
+	uint8_t pad[6];
 	struct {
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display)
