@@ -256,6 +256,16 @@ struct tevent_context;
 	\
 	SMBPROFILE_STATS_END
 
+#define SMBPROFILE_STATS_ALL_SECTIONS_V2 \
+	SMBPROFILE_STATS_START \
+	\
+	SMBPROFILE_STATS_SECTION_START(syscall, "System Calls") \
+	SMBPROFILE_STATS_BASIC(syscall_fstatvfs) \
+	SMBPROFILE_STATS_SECTION_END \
+	\
+	SMBPROFILE_STATS_END
+
+
 #define SMBPROFILE_STATS_PERSVC_SECTIONS \
 	SMBPROFILE_STATS_START \
 	\
@@ -340,6 +350,19 @@ struct tevent_context;
 	SMBPROFILE_STATS_IOBYTES(smb2_setinfo) \
 	SMBPROFILE_STATS_IOBYTES(smb2_break) \
 	SMBPROFILE_STATS_SECTION_END \
+	\
+	SMBPROFILE_STATS_END
+
+#define SMBPROFILE_STATS_PERSVC_SECTIONS_V2 \
+	SMBPROFILE_STATS_START \
+	\
+	SMBPROFILE_STATS_SECTION_START(syscall, "System Calls V2") \
+	SMBPROFILE_STATS_BASIC(syscall_fstatvfs) \
+	SMBPROFILE_STATS_BASIC(syscall_fs_capabilities) \
+	SMBPROFILE_STATS_BASIC(syscall_set_compression) \
+	SMBPROFILE_STATS_BASIC(syscall_snap_check_path) \
+	SMBPROFILE_STATS_BASIC(syscall_snap_create) \
+	SMBPROFILE_STATS_BASIC(syscall_snap_delete) \
 	\
 	SMBPROFILE_STATS_END
 
@@ -436,9 +459,37 @@ struct profile_stats_values {
 #undef SMBPROFILE_STATS_END
 };
 
+struct profile_stats_values_v2 {
+#define SMBPROFILE_STATS_START
+#define SMBPROFILE_STATS_SECTION_START(name, display)
+#define SMBPROFILE_STATS_COUNT(name) \
+	struct smbprofile_stats_count name##_stats;
+#define SMBPROFILE_STATS_TIME(name) \
+	struct smbprofile_stats_time name##_stats;
+#define SMBPROFILE_STATS_BASIC(name) \
+	struct smbprofile_stats_basic name##_stats;
+#define SMBPROFILE_STATS_BYTES(name) \
+	struct smbprofile_stats_bytes name##_stats;
+#define SMBPROFILE_STATS_IOBYTES(name) \
+	struct smbprofile_stats_iobytes name##_stats;
+#define SMBPROFILE_STATS_SECTION_END
+#define SMBPROFILE_STATS_END
+	SMBPROFILE_STATS_ALL_SECTIONS_V2
+#undef SMBPROFILE_STATS_START
+#undef SMBPROFILE_STATS_SECTION_START
+#undef SMBPROFILE_STATS_COUNT
+#undef SMBPROFILE_STATS_TIME
+#undef SMBPROFILE_STATS_BASIC
+#undef SMBPROFILE_STATS_BYTES
+#undef SMBPROFILE_STATS_IOBYTES
+#undef SMBPROFILE_STATS_SECTION_END
+#undef SMBPROFILE_STATS_END
+};
+
 struct profile_stats {
 	struct profile_stats_hdr hdr;
 	struct profile_stats_values values;
+	struct profile_stats_values_v2 values_v2;
 };
 
 #define _SMBPROFILE_COUNT_INCREMENT(_stats, _area, _v) do { \
