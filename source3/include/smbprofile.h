@@ -32,6 +32,8 @@ struct tevent_context;
 
 #ifdef WITH_PROFILE
 
+#define SMBPROFILE_VERSION (2)
+
 #define SMBPROFILE_STATS_ALL_SECTIONS \
 	SMBPROFILE_STATS_START \
 	\
