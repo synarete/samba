@@ -1,0 +1,57 @@
+#include "idl_types.h"
+
+import "misc.idl";
+
+[
+	uuid("8edfd3c7-9694-43cd-9923-f71dc9677d76"),
+	version(1.0),
+	pointer_default(unique),
+	helpstring("SMB profiling")
+]
+
+interface profile1
+{
+	typedef struct {
+		hyper count;
+	} smbprofile1_stats_count;
+
+	typedef struct {
+		hyper time; /* microseconds */
+	} smbprofile1_stats_time;
+
+	typedef struct {
+		hyper start;
+		smbprofile1_stats_time *stats;
+	} smbprofile1_stats_time_async;
+
+	typedef struct {
+		hyper count; /* number of events */
+		hyper time;  /* microseconds */
+		hyper idle;  /* idle time compared to 'time' microseconds */
+		hyper bytes; /* bytes */
+	} smbprofile1_stats_bytes;
+
+	typedef struct {
+		hyper start;
+		hyper idle_start;
+		hyper idle_time;
+		struct smbprofile1_stats_bytes *stats;
+	} smbprofile1_stats_bytes_async;
+
+	typedef struct {
+		hyper count;         /* number of events */
+		hyper failed_count;  /* number of unsuccessful events */
+		hyper time;          /* microseconds */
+		hyper buckets[10];   /* 1,2,4,...256,Inf msecs */
+		hyper idle;          /* idle time compared to 'time' useconds */
+		hyper inbytes;       /* bytes read */
+		hyper outbytes;      /* bytes written */
+	} smbprofile1_stats_iobytes;
+
+	typedef struct {
+		hyper start;
+		hyper idle_start;
+		hyper idle_time;
+		struct smbprofile1_stats_iobytes *stats;
+	} smbprofile1_stats_iobytes_async;
+}
