@@ -126,8 +126,6 @@ static void reqprofile_message(struct messaging_context *msg_ctx,
 bool profile_setup(struct messaging_context *msg_ctx, bool rdonly)
 {
 	char *db_name;
-	bool ok = false;
-	int rc;
 
 	if (smbprofile_state.internal.db != NULL) {
 		return true;
@@ -155,16 +153,10 @@ bool profile_setup(struct messaging_context *msg_ctx, bool rdonly)
 	}
 
 	profile_p = &smbprofile_state.stats.global;
+	profile_p->hdr.magic = SMBPROFILE_MAGIC;
+	profile_p->hdr.version = SMBPROFILE_VERSION;
 
-	rc = smbprofile_magic(profile_p, &profile_p->hdr.magic);
-	if (rc != 0) {
-		goto out;
-	}
-
-	ok = true;
-out:
-
-	return ok;
+	return true;
 }
 
 void smbprofile_dump_setup(struct tevent_context *ev,
@@ -209,7 +201,9 @@ static int profile_stats_parser(TDB_DATA key, TDB_DATA value,
 	}
 
 	memcpy(s, value.dptr, value.dsize);
-	if (s->hdr.magic != profile_p->hdr.magic) {
+	if ((s->hdr.magic != profile_p->hdr.magic) ||
+	    (s->hdr.version != profile_p->hdr.version))
+	{
 		*s = (struct profile_stats) {};
 		return 0;
 	}
@@ -338,6 +332,7 @@ void smbprofile_cleanup(pid_t pid, pid_t dst)
 	acc.values.num_files_stats.count = 0;
 
 	acc.hdr.magic = profile_p->hdr.magic;
+	acc.hdr.version = profile_p->hdr.version;
 	acc.hdr.summary_record = true;
 
 	tdb_store(smbprofile_state.internal.db->tdb, key,
@@ -357,6 +352,7 @@ void smbprofile_collect(struct profile_stats *stats)
 	}
 	smbprofile_collect_tdb(smbprofile_state.internal.db->tdb,
 			       profile_p->hdr.magic,
+			       profile_p->hdr.version,
 			       stats);
 }
 
@@ -429,6 +425,8 @@ static struct profile_stats_persvc *smbprofile_persvc_insert(int snum,
 		return NULL;
 	}
 
+	entry->stats.hdr.magic = SMBPROFILE_MAGIC;
+	entry->stats.hdr.version = SMBPROFILE_VERSION;
 	entry->snum = snum;
 	entry->refcnt = 0;
 	memcpy(entry->dbkey, dbkey, len);

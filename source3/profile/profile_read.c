@@ -108,90 +108,6 @@ void smbprofile_stats_accumulate(struct profile_stats *acc,
 #undef SMBPROFILE_STATS_END
 }
 
-int smbprofile_magic(const struct profile_stats *stats, uint64_t *_magic)
-{
-	uint8_t digest[gnutls_hash_get_len(GNUTLS_DIG_SHA1)];
-	gnutls_hash_hd_t hash_hnd = NULL;
-	int rc;
-
-	GNUTLS_FIPS140_SET_LAX_MODE();
-
-	rc = gnutls_hash_init(&hash_hnd, GNUTLS_DIG_SHA1);
-	if (rc < 0) {
-		goto out;
-	}
-	rc = gnutls_hash(hash_hnd, stats, sizeof(*stats));
-
-#define __UPDATE(str)                                          \
-	do {                                                   \
-		rc |= gnutls_hash(hash_hnd, str, strlen(str)); \
-	} while (0)
-#define SMBPROFILE_STATS_START
-#define SMBPROFILE_STATS_SECTION_START(name, display) \
-	do {                                          \
-		__UPDATE(#name "+" #display);         \
-	} while (0);
-#define SMBPROFILE_STATS_COUNT(name)      \
-	do {                              \
-		__UPDATE(#name "+count"); \
-	} while (0);
-#define SMBPROFILE_STATS_TIME(name)      \
-	do {                             \
-		__UPDATE(#name "+time"); \
-	} while (0);
-#define SMBPROFILE_STATS_BASIC(name)      \
-	do {                              \
-		__UPDATE(#name "+count"); \
-		__UPDATE(#name "+time");  \
-	} while (0);
-#define SMBPROFILE_STATS_BYTES(name)      \
-	do {                              \
-		__UPDATE(#name "+count"); \
-		__UPDATE(#name "+time");  \
-		__UPDATE(#name "+idle");  \
-		__UPDATE(#name "+bytes"); \
-	} while (0);
-#define SMBPROFILE_STATS_IOBYTES(name)       \
-	do {                                 \
-		__UPDATE(#name "+count");    \
-		__UPDATE(#name "+time");     \
-		__UPDATE(#name "+idle");     \
-		__UPDATE(#name "+inbytes");  \
-		__UPDATE(#name "+outbytes"); \
-	} while (0);
-#define SMBPROFILE_STATS_SECTION_END
-#define SMBPROFILE_STATS_END
-	SMBPROFILE_STATS_ALL_SECTIONS
-#undef __UPDATE
-#undef SMBPROFILE_STATS_START
-#undef SMBPROFILE_STATS_SECTION_START
-#undef SMBPROFILE_STATS_COUNT
-#undef SMBPROFILE_STATS_TIME
-#undef SMBPROFILE_STATS_BASIC
-#undef SMBPROFILE_STATS_BYTES
-#undef SMBPROFILE_STATS_IOBYTES
-#undef SMBPROFILE_STATS_SECTION_END
-#undef SMBPROFILE_STATS_END
-	if (rc != 0) {
-		gnutls_hash_deinit(hash_hnd, NULL);
-		goto out;
-	}
-
-	gnutls_hash_deinit(hash_hnd, digest);
-out:
-	GNUTLS_FIPS140_SET_STRICT_MODE();
-
-	if (rc == 0) {
-		uint64_t magic = PULL_LE_U64(digest, 0);
-		if (magic == 0) {
-			magic = PULL_LE_U64(digest, 0);
-		}
-		*_magic = magic;
-	}
-
-	return rc;
-}
-
 struct smbprofile_collect_state {
 	size_t num_workers;
 	struct profile_stats *acc;
@@ -212,7 +128,9 @@ static int smbprofile_collect_fn(struct tdb_context *tdb,
 
 	v = (const struct profile_stats *)value.dptr;
 
-	if (v->hdr.magic != acc->hdr.magic) {
+	if ((v->hdr.magic != acc->hdr.magic) ||
+	    (v->hdr.version != acc->hdr.version))
+	{
 		return 0;
 	}
 
@@ -229,14 +147,18 @@ static int smbprofile_collect_fn(struct tdb_context *tdb,
  * parent, so if you want the number of worker smbd, subtract one.
  */
 size_t smbprofile_collect_tdb(struct tdb_context *tdb,
-			      uint64_t magic,
+			      uint32_t magic,
+			      uint32_t version,
 			      struct profile_stats *stats)
 {
 	struct smbprofile_collect_state state = {
 		.acc = stats,
 	};
 
-	*stats = (struct profile_stats){.hdr.magic = magic};
+	*stats = (struct profile_stats){
+		.hdr.magic = magic,
+		.hdr.version = version,
+	};
 
 	tdb_traverse_read(tdb, smbprofile_collect_fn, &state);
 

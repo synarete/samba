@@ -32,6 +32,9 @@ struct tevent_context;
 
 #ifdef WITH_PROFILE
 
+#define SMBPROFILE_MAGIC (0x50424D53) /* LE "SMBP" */
+#define SMBPROFILE_VERSION (1)
+
 #define SMBPROFILE_STATS_ALL_SECTIONS \
 	SMBPROFILE_STATS_START \
 	\
@@ -322,7 +325,8 @@ struct smbprofile_stats_iobytes_async {
 };
 
 struct profile_stats_hdr {
-	uint64_t magic;
+	uint32_t magic;
+	uint32_t version;
 	bool summary_record;
 	uint8_t reserved[7];
 };
@@ -651,9 +655,9 @@ void smbprofile_dump(struct smbd_server_connection *sconn);
 void smbprofile_cleanup(pid_t pid, pid_t dst);
 void smbprofile_stats_accumulate(struct profile_stats *acc,
 				 const struct profile_stats *add);
-int smbprofile_magic(const struct profile_stats *stats, uint64_t *_magic);
 size_t smbprofile_collect_tdb(struct tdb_context *tdb,
-			      uint64_t magic,
+			      uint32_t magic,
+			      uint32_t version,
 			      struct profile_stats *stats);
 void smbprofile_collect(struct profile_stats *stats);
 

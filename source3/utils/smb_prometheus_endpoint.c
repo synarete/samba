@@ -578,9 +578,7 @@ static void metrics_handler(struct evhttp_request *req, void *arg)
 	const char *tdbfilename = arg;
 	struct tdb_context *tdb = NULL;
 	struct profile_stats stats = {.hdr.magic = 0};
-	uint64_t magic;
 	size_t num_workers;
-	int ret;
 
 	evhttp_add_header(req->output_headers,
 			  "Content-Type",
@@ -612,18 +610,10 @@ static void metrics_handler(struct evhttp_request *req, void *arg)
 		return;
 	}
 
-	ret = smbprofile_magic(&stats, &magic);
-	if (ret != 0) {
-		evbuffer_add_printf(state.buf, "Could calculate magic");
-		evhttp_send_reply(req,
-				  HTTP_INTERNAL,
-				  "magic failure",
-				  state.buf);
-		evbuffer_free(state.buf);
-		return;
-	}
-
-	num_workers = smbprofile_collect_tdb(tdb, magic, &stats);
+	num_workers = smbprofile_collect_tdb(tdb,
+					     SMBPROFILE_MAGIC,
+					     SMBPROFILE_VERSION,
+					     &stats);
 
 	tdb_close(tdb);
 
