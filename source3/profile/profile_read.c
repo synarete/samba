@@ -113,6 +113,35 @@ struct smbprofile_collect_state {
 	struct profile_stats *acc;
 };
 
+#define SMBPROFILE_STATS_SIZE_V1 5320
+
+bool smbprofile_test_tdbvalue(TDB_DATA value)
+{
+	const struct profile_stats *v;
+
+	/* Value less then minimum supported */
+	if (value.dsize < SMBPROFILE_STATS_SIZE_V1) {
+		return false;
+	}
+
+	/* Value more then known size */
+	if (value.dsize > sizeof(struct profile_stats)) {
+		return false;
+	}
+
+	v = (const struct profile_stats *)value.dptr;
+	/* Unknown magic number (old model?)  */
+	if (v->hdr.magic != SMBPROFILE_MAGIC) {
+		return false;
+	}
+
+	/* Unsupported version number */
+	if (!v->hdr.version || (v->hdr.version > SMBPROFILE_VERSION)) {
+		return false;
+	}
+	return true;
+}
+
 static int smbprofile_collect_fn(struct tdb_context *tdb,
 				 TDB_DATA key,
 				 TDB_DATA value,
@@ -122,17 +151,11 @@ static int smbprofile_collect_fn(struct tdb_context *tdb,
 	struct profile_stats *acc = state->acc;
 	const struct profile_stats *v;
 
-	if (value.dsize != sizeof(struct profile_stats)) {
+	if (!smbprofile_test_tdbvalue(value)) {
 		return 0;
 	}
 
 	v = (const struct profile_stats *)value.dptr;
-
-	if ((v->hdr.magic != acc->hdr.magic) ||
-	    (v->hdr.version != acc->hdr.version))
-	{
-		return 0;
-	}
 
 	if (!v->hdr.summary_record) {
 		state->num_workers += 1;
@@ -184,7 +207,7 @@ static int smbprofile_persvc_collect_fn(struct tdb_context *tdb,
 		return 0;
 	}
 
-	if (value.dsize != sizeof(*stats)) {
+	if (!smbprofile_test_tdbvalue(value)) {
 		return 0;
 	}
 

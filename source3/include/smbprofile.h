@@ -660,6 +660,7 @@ size_t smbprofile_collect_tdb(struct tdb_context *tdb,
 			      uint32_t version,
 			      struct profile_stats *stats);
 void smbprofile_collect(struct profile_stats *stats);
+bool smbprofile_test_tdbvalue(TDB_DATA value);
 
 static inline uint64_t profile_timestamp(void)
 {

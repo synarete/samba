@@ -195,17 +195,15 @@ static int profile_stats_parser(TDB_DATA key, TDB_DATA value,
 {
 	struct profile_stats *s = private_data;
 
-	if (value.dsize != sizeof(struct profile_stats)) {
+	if (!smbprofile_test_tdbvalue(value)) {
 		*s = (struct profile_stats) {};
 		return 0;
 	}
 
-	memcpy(s, value.dptr, value.dsize);
-	if ((s->hdr.magic != profile_p->hdr.magic) ||
-	    (s->hdr.version != profile_p->hdr.version))
-	{
-		*s = (struct profile_stats) {};
-		return 0;
+	if (value.dsize < sizeof(*s)) {
+		memcpy(s, value.dptr, value.dsize);
+	} else {
+		memcpy(s, value.dptr, sizeof(*s));
 	}
 
 	return 0;
