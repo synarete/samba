@@ -33,7 +33,7 @@ struct tevent_context;
 #ifdef WITH_PROFILE
 
 #define SMBPROFILE_MAGIC (0x50424D53) /* LE "SMBP" */
-#define SMBPROFILE_VERSION (1)
+#define SMBPROFILE_VERSION (2)
 
 #define SMBPROFILE_STATS_ALL_SECTIONS \
 	SMBPROFILE_STATS_START \
@@ -262,8 +262,19 @@ struct tevent_context;
 	SMBPROFILE_STATS_IOBYTES(smb2_break) \
 	SMBPROFILE_STATS_SECTION_END \
 	\
+	SMBPROFILE_STATS_SECTION_START(syscall, "System Calls V2") \
+	SMBPROFILE_STATS_BASIC(syscall_disk_free) \
+	SMBPROFILE_STATS_BASIC(syscall_fget_compression) \
+	SMBPROFILE_STATS_BASIC(syscall_set_compression) \
+	SMBPROFILE_STATS_BASIC(syscall_snap_check_path) \
+	SMBPROFILE_STATS_BASIC(syscall_snap_create) \
+	SMBPROFILE_STATS_BASIC(syscall_snap_delete) \
+	SMBPROFILE_STATS_BASIC(syscall_durable_cookie) \
+	SMBPROFILE_STATS_BASIC(syscall_durable_disconnect) \
+	SMBPROFILE_STATS_BASIC(syscall_durable_reconnect) \
+	SMBPROFILE_STATS_SECTION_END \
+	\
 	SMBPROFILE_STATS_END
-
 
 /* this file defines the profile structure in the profile shared
    memory area */
