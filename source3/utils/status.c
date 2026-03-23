@@ -386,6 +386,46 @@ static int prepare_brl(struct traverse_state *state)
 	return 0;
 }
 
+struct status_brl {
+	struct status_brl *prev, *next;
+	struct file_id id;
+	struct server_id pid;
+	enum brl_type lock_type;
+	enum brl_flavour lock_flav;
+	br_off start;
+	br_off size;
+};
+
+struct status_collect_brl_state {
+	struct status_brl *brl;
+	struct traverse_state *ts;
+};
+
+static void status_collect_brl_fn(struct file_id id, struct server_id pid,
+				  enum brl_type lock_type,
+				  enum brl_flavour lock_flav,
+				  br_off start, br_off size,
+				  void *private_data)
+{
+	struct status_collect_brl_state *state = private_data;
+	struct status_brl *brl;
+
+	brl = talloc(talloc_tos(), struct status_brl);
+	if (brl == NULL) {
+		return;
+	}
+	*brl = (struct status_brl) {
+		.id = id, .pid = pid, .lock_type = lock_type,
+		.lock_flav = lock_flav, .start = start, .size = size
+	};
+	DLIST_ADD_END(state->brl, brl);
+}
+
+static void status_collect_brl(struct status_collect_brl_state *state)
+{
+	brl_forall(status_collect_brl_fn, state);
+}
+
 static void print_brl(struct file_id id,
 			struct server_id pid,
 			enum brl_type lock_type,
@@ -452,6 +492,21 @@ static void print_brl(struct file_id id,
 
 	TALLOC_FREE(fname);
 	TALLOC_FREE(share_mode);
+}
+
+static void status_dump_brl(struct status_collect_brl_state *state)
+{
+	struct status_brl *brl;
+
+	for (brl = state->brl; brl != NULL; brl = brl->next) {
+		print_brl(brl->id,
+			  brl->pid,
+			  brl->lock_type,
+			  brl->lock_flav,
+			  brl->start,
+			  brl->size,
+			  state->ts);
+	}
 }
 
 static const char *session_dialect_str(uint16_t dialect)
@@ -1100,7 +1155,6 @@ int main(int argc, const char *argv[])
 	TALLOC_CTX *frame = talloc_stackframe();
 	int ret = 0;
 	struct messaging_context *msg_ctx = NULL;
-	char *db_path;
 	bool ok;
 	struct loadparm_context *lp_ctx = NULL;
 
@@ -1274,12 +1328,19 @@ int main(int argc, const char *argv[])
 	}
 
 	if ( show_locks ) {
+		TALLOC_CTX *mem_ctx = talloc_stackframe();
+		char *db_path = NULL;
 		int result;
 		struct db_context *db;
+		struct status_collect_brl_state brl_state = {
+			.brl = NULL,
+			.ts = &state,
+		};
 
-		db_path = lock_path(talloc_tos(), "locking.tdb");
+		db_path = lock_path(mem_ctx, "locking.tdb");
 		if (db_path == NULL) {
 			fprintf(stderr, "Out of memory - exiting\n");
+			TALLOC_FREE(mem_ctx);
 			ret = -1;
 			goto done;
 		}
@@ -1292,16 +1353,16 @@ int main(int argc, const char *argv[])
 			fprintf(stderr, "%s not initialised\n", db_path);
 			fprintf(stderr, "This is normal if an SMB client has never "
 				 "connected to your server.\n");
-			TALLOC_FREE(db_path);
+			TALLOC_FREE(mem_ctx);
 			ret = 0;
 			goto done;
 		} else {
 			TALLOC_FREE(db);
-			TALLOC_FREE(db_path);
 		}
 
 		if (!locking_init_readonly()) {
 			fprintf(stderr, "Can't initialise locking module - exiting\n");
+			TALLOC_FREE(mem_ctx);
 			ret = 1;
 			goto done;
 		}
@@ -1320,11 +1381,17 @@ int main(int argc, const char *argv[])
 		}
 
 		if (show_brl) {
-			prepare_brl(&state);
-			brl_forall(print_brl, &state);
+			status_collect_brl(&brl_state);
 		}
 
 		locking_end();
+
+		if (show_brl) {
+			prepare_brl(&state);
+			status_dump_brl(&brl_state);
+		}
+
+		TALLOC_FREE(mem_ctx);
 	}
 
 	if (show_notify) {
