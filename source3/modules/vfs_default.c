@@ -106,17 +106,24 @@ static uint64_t vfswrap_disk_free(vfs_handle_struct *handle,
 {
 	struct vfs_statvfs_struct statvfsbuf;
 	int fd, ret;
+	uint64_t df;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_disk_free);
 
 	fd = fsp_get_pathref_fd(fsp);
 
 	ret = sys_fstatvfs(fd, &statvfsbuf);
 	if (ret != 0) {
-		return (uint64_t)-1;
+		df = (uint64_t)-1;
+		goto out;
 	}
 	statvfs2fsusage(&statvfsbuf, dfree, dsize);
 
 	*bsize = 512;
-	return *dfree / 2;
+	df = *dfree / 2;
+out:
+	END_PROFILE_X(syscall_disk_free);
+	return df;
 }
 
 static int vfswrap_get_quota(struct vfs_handle_struct *handle,
