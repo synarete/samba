@@ -2404,6 +2404,9 @@ static uint64_t vfs_ceph_disk_free(struct vfs_handle_struct *handle,
 	int ret;
 	struct vfs_ceph_config *config = NULL;
 	struct vfs_ceph_iref iref = {0};
+	uint64_t df;
+
+	START_PROFILE_X(SNUM(handle->conn), syscall_disk_free);
 
 	SMB_VFS_HANDLE_GET_DATA(handle, config, struct vfs_ceph_config,
 				return -ENOMEM);
@@ -2411,13 +2414,15 @@ static uint64_t vfs_ceph_disk_free(struct vfs_handle_struct *handle,
 	ret = vfs_ceph_iget(handle, smb_fname->base_name, 0, &iref);
 	if (ret != 0) {
 		errno = -ret;
-		return (uint64_t)(-1);
+		df = (uint64_t)(-1);
+		goto out;
 	}
 	ret = vfs_ceph_ll_statfs(handle, &iref, &statvfs_buf);
 	vfs_ceph_iput(handle, &iref);
 	if (ret != 0) {
 		errno = -ret;
-		return (uint64_t)(-1);
+		df = (uint64_t)(-1);
+		goto out;
 	}
 	*bsize = (uint64_t)statvfs_buf.f_bsize;
 	*dfree = (uint64_t)statvfs_buf.f_bavail;
@@ -2428,7 +2433,10 @@ static uint64_t vfs_ceph_disk_free(struct vfs_handle_struct *handle,
 		  *bsize,
 		  *dfree,
 		  *dsize);
-	return *dfree;
+	df = *dfree;
+out:
+	END_PROFILE_X(syscall_disk_free);
+	return df;
 }
 
 static int vfs_ceph_check_case_sensitivity(struct vfs_handle_struct *handle,
