@@ -149,19 +149,25 @@ static int smbprofile_collect_fn(struct tdb_context *tdb,
 {
 	struct smbprofile_collect_state *state = private_data;
 	struct profile_stats *acc = state->acc;
-	const struct profile_stats *v;
+	struct profile_stats *v;
 
 	if (!smbprofile_test_tdbvalue(value)) {
 		return 0;
 	}
 
-	v = (const struct profile_stats *)value.dptr;
+	v = talloc_zero(NULL, struct profile_stats);
+	if (v == NULL) {
+		return ENOMEM;
+	}
+	memcpy(v, value.dptr, value.dsize);
 
 	if (!v->hdr.summary_record) {
 		state->num_workers += 1;
 	}
 
 	smbprofile_stats_accumulate(acc, v);
+
+	TALLOC_FREE(v);
 	return 0;
 }
 
@@ -200,7 +206,7 @@ static int smbprofile_persvc_collect_fn(struct tdb_context *tdb,
 					void *private_data)
 {
 
-	const struct profile_stats *stats = NULL;
+	struct profile_stats *stats = NULL;
 	struct smbprofile_persvc_collector *col = NULL;
 
 	if (key.dsize < 5) {
@@ -212,9 +218,16 @@ static int smbprofile_persvc_collect_fn(struct tdb_context *tdb,
 	}
 
 	col = (struct smbprofile_persvc_collector *)private_data;
-	stats = (const struct profile_stats *)(value.dptr);
+	stats = talloc_zero(NULL, struct profile_stats);
+	if (stats == NULL) {
+		return ENOMEM;
+	}
+	memcpy(stats, value.dptr, value.dsize);
 
 	col->ret = col->cb((const char *)key.dptr, stats, col->userp);
+
+	TALLOC_FREE(stats);
+
 	return (col->ret == 0) ? 0 : -1;
 }
 
