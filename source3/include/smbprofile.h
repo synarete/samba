@@ -32,6 +32,8 @@ struct tevent_context;
 
 #ifdef WITH_PROFILE
 
+#include "librpc/gen_ndr/profile.h"
+
 #define SMBPROFILE_STATS_ALL_SECTIONS \
 	SMBPROFILE_STATS_START \
 	\
@@ -261,96 +263,6 @@ struct tevent_context;
 	\
 	SMBPROFILE_STATS_END
 
-
-/* this file defines the profile structure in the profile shared
-   memory area */
-
-/* time values in the following structure are in microseconds */
-
-struct smbprofile_stats_count {
-	uint64_t count;		/* number of events */
-};
-
-struct smbprofile_stats_time {
-	uint64_t time;		/* microseconds */
-};
-
-struct smbprofile_stats_time_async {
-	uint64_t start;
-	struct smbprofile_stats_time *stats;
-};
-
-struct smbprofile_stats_basic {
-	uint64_t count;		/* number of events */
-	uint64_t time;		/* microseconds */
-};
-
-struct smbprofile_stats_basic_async {
-	uint64_t start;
-	struct smbprofile_stats_basic *stats;
-};
-
-struct smbprofile_stats_bytes {
-	uint64_t count;		/* number of events */
-	uint64_t time;		/* microseconds */
-	uint64_t idle;		/* idle time compared to 'time' microseconds */
-	uint64_t bytes;		/* bytes */
-};
-
-struct smbprofile_stats_bytes_async {
-	uint64_t start;
-	uint64_t idle_start;
-	uint64_t idle_time;
-	struct smbprofile_stats_bytes *stats;
-};
-
-struct smbprofile_stats_iobytes {
-	uint64_t count;		/* number of events */
-	uint64_t failed_count;	/* number of unsuccessful events */
-	uint64_t time;		/* microseconds */
-	uint64_t buckets[10];	/* 1,2,4,...256,Inf msecs */
-	uint64_t idle;		/* idle time compared to 'time' microseconds */
-	uint64_t inbytes;	/* bytes read */
-	uint64_t outbytes;	/* bytes written */
-};
-
-struct smbprofile_stats_iobytes_async {
-	uint64_t start;
-	uint64_t idle_start;
-	uint64_t idle_time;
-	struct smbprofile_stats_iobytes *stats;
-};
-
-struct profile_stats {
-	uint64_t magic;
-	bool summary_record;
-	struct {
-#define SMBPROFILE_STATS_START
-#define SMBPROFILE_STATS_SECTION_START(name, display)
-#define SMBPROFILE_STATS_COUNT(name) \
-	struct smbprofile_stats_count name##_stats;
-#define SMBPROFILE_STATS_TIME(name) \
-	struct smbprofile_stats_time name##_stats;
-#define SMBPROFILE_STATS_BASIC(name) \
-	struct smbprofile_stats_basic name##_stats;
-#define SMBPROFILE_STATS_BYTES(name) \
-	struct smbprofile_stats_bytes name##_stats;
-#define SMBPROFILE_STATS_IOBYTES(name) \
-	struct smbprofile_stats_iobytes name##_stats;
-#define SMBPROFILE_STATS_SECTION_END
-#define SMBPROFILE_STATS_END
-	SMBPROFILE_STATS_ALL_SECTIONS
-#undef SMBPROFILE_STATS_START
-#undef SMBPROFILE_STATS_SECTION_START
-#undef SMBPROFILE_STATS_COUNT
-#undef SMBPROFILE_STATS_TIME
-#undef SMBPROFILE_STATS_BASIC
-#undef SMBPROFILE_STATS_BYTES
-#undef SMBPROFILE_STATS_IOBYTES
-#undef SMBPROFILE_STATS_SECTION_END
-#undef SMBPROFILE_STATS_END
-	} values;
-};
 
 #define _SMBPROFILE_COUNT_INCREMENT(_stats, _area, _v) do { \
 	if (smbprofile_state.config.do_count) { \

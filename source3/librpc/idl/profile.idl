@@ -1,0 +1,564 @@
+#include "idl_types.h"
+
+/*
+ * SMB Profile Statistics IDL
+ *
+ * Profiling data structures for Samba's smbprofile infrastructure via IDL
+ *
+ * Copyright (C) Samba Team 2026
+ */
+
+[
+	pointer_default(unique),
+	version(0.0),
+	helpstring("smbprofile structures")
+]
+interface smbprofile
+{
+	typedef [v1_enum] enum {
+		 /*
+		 * NOTE: Version 0 is designed to be unstable and the format
+		 * may change during development.
+		 */
+		SMBPROFILE_VERSION_0 = 0x00000000
+	} smbprofile_version_values;
+
+	const uint32 SMBPROFILE_VERSION_CURRENT = SMBPROFILE_VERSION_0;
+
+	typedef [public] struct {
+		hyper count; /* number of events */
+	} smbprofile_stats_count;
+
+	typedef [public] struct {
+		hyper time;  /* cumulative time in microseconds */
+	} smbprofile_stats_time;
+
+	typedef [public] struct {
+		hyper count; /* number of events */
+		hyper time;  /* microseconds */
+	} smbprofile_stats_basic;
+
+	typedef [public] struct {
+		hyper count; /* number of events */
+		hyper time;  /* microseconds */
+		hyper idle;  /* idle time in microseconds */
+		hyper bytes;
+	} smbprofile_stats_bytes;
+
+	typedef [public] struct {
+		hyper count;        /* number of events */
+		hyper failed_count; /* number of unsuccessful events */
+		hyper time;         /* microseconds */
+		hyper buckets[10];  /* latency: 1,2,4,8,...256,Inf msecs */
+		hyper idle;         /* idle time in microseconds */
+		hyper inbytes;      /* bytes read */
+		hyper outbytes;     /* bytes written */
+	} smbprofile_stats_iobytes;
+
+	typedef [public] struct {
+		hyper start; /* start time, microseconds */
+		smbprofile_stats_time *stats;
+	} smbprofile_stats_time_async;
+
+	typedef [public] struct {
+		hyper start; /* start time, microseconds */
+		smbprofile_stats_basic *stats;
+	} smbprofile_stats_basic_async;
+
+	typedef [public] struct {
+		hyper start;
+		hyper idle_start;
+		hyper idle_time;
+		smbprofile_stats_bytes *stats;
+	} smbprofile_stats_bytes_async;
+
+	typedef [public] struct {
+		hyper start;
+		hyper idle_start;
+		hyper idle_time;
+		smbprofile_stats_iobytes *stats;
+	} smbprofile_stats_iobytes_async;
+
+	/*
+	 * Global statistics section
+	 */
+	typedef [public] struct {
+		smbprofile_stats_count connect_stats;
+		smbprofile_stats_count disconnect_stats;
+		smbprofile_stats_basic idle_stats;
+		smbprofile_stats_time cpu_user_stats;
+		smbprofile_stats_time cpu_system_stats;
+		smbprofile_stats_count request_stats;
+		smbprofile_stats_basic push_sec_ctx_stats;
+		smbprofile_stats_basic set_sec_ctx_stats;
+		smbprofile_stats_basic set_root_sec_ctx_stats;
+		smbprofile_stats_basic pop_sec_ctx_stats;
+		smbprofile_stats_count num_sessions_stats;
+		smbprofile_stats_count num_tcons_stats;
+		smbprofile_stats_count num_files_stats;
+	} smbprofile_global_stats;
+
+	/*
+	 * Authentication statistics section
+	 */
+	typedef [public] struct {
+		smbprofile_stats_count authentication_stats;
+		smbprofile_stats_count authentication_failed_stats;
+	} smbprofile_auth_stats;
+
+	/*
+	 * System call statistics section
+	 */
+	typedef [public] struct {
+		smbprofile_stats_basic syscall_opendir_stats;
+		smbprofile_stats_basic syscall_fdopendir_stats;
+		smbprofile_stats_basic syscall_readdir_stats;
+		smbprofile_stats_basic syscall_rewinddir_stats;
+		smbprofile_stats_basic syscall_mkdirat_stats;
+		smbprofile_stats_basic syscall_closedir_stats;
+		smbprofile_stats_basic syscall_open_stats;
+		smbprofile_stats_basic syscall_openat_stats;
+		smbprofile_stats_basic syscall_createfile_stats;
+		smbprofile_stats_basic syscall_close_stats;
+		smbprofile_stats_bytes syscall_pread_stats;
+		smbprofile_stats_bytes syscall_asys_pread_stats;
+		smbprofile_stats_bytes syscall_pwrite_stats;
+		smbprofile_stats_bytes syscall_asys_pwrite_stats;
+		smbprofile_stats_basic syscall_lseek_stats;
+		smbprofile_stats_bytes syscall_sendfile_stats;
+		smbprofile_stats_bytes syscall_recvfile_stats;
+		smbprofile_stats_basic syscall_renameat_stats;
+		smbprofile_stats_basic syscall_rename_stream_stats;
+		smbprofile_stats_bytes syscall_asys_fsync_stats;
+		smbprofile_stats_basic syscall_stat_stats;
+		smbprofile_stats_basic syscall_fstat_stats;
+		smbprofile_stats_basic syscall_lstat_stats;
+		smbprofile_stats_basic syscall_fstatat_stats;
+		smbprofile_stats_basic syscall_get_alloc_size_stats;
+		smbprofile_stats_basic syscall_unlinkat_stats;
+		smbprofile_stats_basic syscall_chmod_stats;
+		smbprofile_stats_basic syscall_fchmod_stats;
+		smbprofile_stats_basic syscall_fchown_stats;
+		smbprofile_stats_basic syscall_lchown_stats;
+		smbprofile_stats_basic syscall_chdir_stats;
+		smbprofile_stats_basic syscall_fntimes_stats;
+		smbprofile_stats_basic syscall_ftruncate_stats;
+		smbprofile_stats_basic syscall_fallocate_stats;
+		smbprofile_stats_basic syscall_fcntl_lock_stats;
+		smbprofile_stats_basic syscall_fcntl_stats;
+		smbprofile_stats_basic syscall_linux_setlease_stats;
+		smbprofile_stats_basic syscall_fcntl_getlock_stats;
+		smbprofile_stats_basic syscall_readlinkat_stats;
+		smbprofile_stats_basic syscall_symlinkat_stats;
+		smbprofile_stats_basic syscall_linkat_stats;
+		smbprofile_stats_basic syscall_mknodat_stats;
+		smbprofile_stats_basic syscall_realpath_stats;
+		smbprofile_stats_basic syscall_get_quota_stats;
+		smbprofile_stats_basic syscall_set_quota_stats;
+		smbprofile_stats_basic syscall_get_sd_stats;
+		smbprofile_stats_basic syscall_set_sd_stats;
+		smbprofile_stats_basic syscall_brl_lock_stats;
+		smbprofile_stats_basic syscall_brl_unlock_stats;
+		smbprofile_stats_basic syscall_brl_cancel_stats;
+		smbprofile_stats_bytes syscall_asys_getxattrat_stats;
+		smbprofile_stats_basic syscall_fgetxattr_stats;
+		smbprofile_stats_basic syscall_flistxattr_stats;
+		smbprofile_stats_basic syscall_fremovexattr_stats;
+		smbprofile_stats_basic syscall_fsetxattr_stats;
+		smbprofile_stats_basic syscall_fstatvfs_stats;
+	} smbprofile_syscall_stats;
+
+	/*
+	 * ACL call statistics section
+	 */
+	typedef [public] struct {
+		smbprofile_stats_basic get_nt_acl_stats;
+		smbprofile_stats_basic get_nt_acl_at_stats;
+		smbprofile_stats_basic fget_nt_acl_stats;
+		smbprofile_stats_basic fset_nt_acl_stats;
+	} smbprofile_acl_stats;
+
+	/*
+	 * Stat cache statistics section
+	 */
+	typedef [public] struct {
+		smbprofile_stats_count statcache_lookups_stats;
+		smbprofile_stats_count statcache_misses_stats;
+		smbprofile_stats_count statcache_hits_stats;
+	} smbprofile_statcache_stats;
+
+	/*
+	 * SMB1 protocol statistics section
+	 */
+	typedef [public] struct {
+		smbprofile_stats_basic SMBmkdir_stats;
+		smbprofile_stats_basic SMBrmdir_stats;
+		smbprofile_stats_basic SMBopen_stats;
+		smbprofile_stats_basic SMBcreate_stats;
+		smbprofile_stats_basic SMBclose_stats;
+		smbprofile_stats_basic SMBflush_stats;
+		smbprofile_stats_basic SMBunlink_stats;
+		smbprofile_stats_basic SMBmv_stats;
+		smbprofile_stats_basic SMBgetatr_stats;
+		smbprofile_stats_basic SMBsetatr_stats;
+		smbprofile_stats_basic SMBread_stats;
+		smbprofile_stats_basic SMBwrite_stats;
+		smbprofile_stats_basic SMBlock_stats;
+		smbprofile_stats_basic SMBunlock_stats;
+		smbprofile_stats_basic SMBctemp_stats;
+		smbprofile_stats_basic SMBmknew_stats;
+		smbprofile_stats_basic SMBcheckpath_stats;
+		smbprofile_stats_basic SMBexit_stats;
+		smbprofile_stats_basic SMBlseek_stats;
+		smbprofile_stats_basic SMBlockread_stats;
+		smbprofile_stats_basic SMBwriteunlock_stats;
+		smbprofile_stats_basic SMBreadbraw_stats;
+		smbprofile_stats_basic SMBreadBmpx_stats;
+		smbprofile_stats_basic SMBreadBs_stats;
+		smbprofile_stats_basic SMBwritebraw_stats;
+		smbprofile_stats_basic SMBwriteBmpx_stats;
+		smbprofile_stats_basic SMBwriteBs_stats;
+		smbprofile_stats_basic SMBwritec_stats;
+		smbprofile_stats_basic SMBsetattrE_stats;
+		smbprofile_stats_basic SMBgetattrE_stats;
+		smbprofile_stats_basic SMBlockingX_stats;
+		smbprofile_stats_basic SMBtrans_stats;
+		smbprofile_stats_basic SMBtranss_stats;
+		smbprofile_stats_basic SMBioctl_stats;
+		smbprofile_stats_basic SMBioctls_stats;
+		smbprofile_stats_basic SMBcopy_stats;
+		smbprofile_stats_basic SMBmove_stats;
+		smbprofile_stats_basic SMBecho_stats;
+		smbprofile_stats_basic SMBwriteclose_stats;
+		smbprofile_stats_basic SMBopenX_stats;
+		smbprofile_stats_basic SMBreadX_stats;
+		smbprofile_stats_basic SMBwriteX_stats;
+		smbprofile_stats_basic SMBtrans2_stats;
+		smbprofile_stats_basic SMBtranss2_stats;
+		smbprofile_stats_basic SMBfindclose_stats;
+		smbprofile_stats_basic SMBfindnclose_stats;
+		smbprofile_stats_basic SMBtcon_stats;
+		smbprofile_stats_basic SMBtdis_stats;
+		smbprofile_stats_basic SMBnegprot_stats;
+		smbprofile_stats_basic SMBsesssetupX_stats;
+		smbprofile_stats_basic SMBulogoffX_stats;
+		smbprofile_stats_basic SMBtconX_stats;
+		smbprofile_stats_basic SMBdskattr_stats;
+		smbprofile_stats_basic SMBsearch_stats;
+		smbprofile_stats_basic SMBffirst_stats;
+		smbprofile_stats_basic SMBfunique_stats;
+		smbprofile_stats_basic SMBfclose_stats;
+		smbprofile_stats_basic SMBnttrans_stats;
+		smbprofile_stats_basic SMBnttranss_stats;
+		smbprofile_stats_basic SMBntcreateX_stats;
+		smbprofile_stats_basic SMBntcancel_stats;
+		smbprofile_stats_basic SMBntrename_stats;
+		smbprofile_stats_basic SMBsplopen_stats;
+		smbprofile_stats_basic SMBsplwr_stats;
+		smbprofile_stats_basic SMBsplclose_stats;
+		smbprofile_stats_basic SMBsplretq_stats;
+		smbprofile_stats_basic SMBsends_stats;
+		smbprofile_stats_basic SMBsendb_stats;
+		smbprofile_stats_basic SMBfwdname_stats;
+		smbprofile_stats_basic SMBcancelf_stats;
+		smbprofile_stats_basic SMBgetmac_stats;
+		smbprofile_stats_basic SMBsendstrt_stats;
+		smbprofile_stats_basic SMBsendend_stats;
+		smbprofile_stats_basic SMBsendtxt_stats;
+		smbprofile_stats_basic SMBinvalid_stats;
+	} smbprofile_smb1_stats;
+
+	/*
+	 * Trans2 call statistics section
+	 */
+	typedef [public] struct {
+		smbprofile_stats_basic Trans2_open_stats;
+		smbprofile_stats_basic Trans2_findfirst_stats;
+		smbprofile_stats_basic Trans2_findnext_stats;
+		smbprofile_stats_basic Trans2_qfsinfo_stats;
+		smbprofile_stats_basic Trans2_setfsinfo_stats;
+		smbprofile_stats_basic Trans2_qpathinfo_stats;
+		smbprofile_stats_basic Trans2_setpathinfo_stats;
+		smbprofile_stats_basic Trans2_qfileinfo_stats;
+		smbprofile_stats_basic Trans2_setfileinfo_stats;
+		smbprofile_stats_basic Trans2_fsctl_stats;
+		smbprofile_stats_basic Trans2_ioctl_stats;
+		smbprofile_stats_basic Trans2_findnotifyfirst_stats;
+		smbprofile_stats_basic Trans2_findnotifynext_stats;
+		smbprofile_stats_basic Trans2_mkdir_stats;
+		smbprofile_stats_basic Trans2_session_setup_stats;
+		smbprofile_stats_basic Trans2_get_dfs_referral_stats;
+		smbprofile_stats_basic Trans2_report_dfs_inconsistancy_stats;
+	} smbprofile_trans2_stats;
+
+	/*
+	 * NT Transact call statistics section
+	 */
+	typedef [public] struct {
+		smbprofile_stats_basic NT_transact_create_stats;
+		smbprofile_stats_basic NT_transact_ioctl_stats;
+		smbprofile_stats_basic NT_transact_set_security_desc_stats;
+		smbprofile_stats_basic NT_transact_notify_change_stats;
+		smbprofile_stats_basic NT_transact_rename_stats;
+		smbprofile_stats_basic NT_transact_query_security_desc_stats;
+		smbprofile_stats_basic NT_transact_get_user_quota_stats;
+		smbprofile_stats_basic NT_transact_set_user_quota_stats;
+	} smbprofile_nt_transact_stats;
+
+	/*
+	 * SMB2 protocol statistics section
+	 */
+	typedef [public] struct {
+		smbprofile_stats_iobytes smb2_negprot_stats;
+		smbprofile_stats_iobytes smb2_sesssetup_stats;
+		smbprofile_stats_iobytes smb2_logoff_stats;
+		smbprofile_stats_iobytes smb2_tcon_stats;
+		smbprofile_stats_iobytes smb2_tdis_stats;
+		smbprofile_stats_iobytes smb2_create_stats;
+		smbprofile_stats_iobytes smb2_close_stats;
+		smbprofile_stats_iobytes smb2_flush_stats;
+		smbprofile_stats_iobytes smb2_read_stats;
+		smbprofile_stats_iobytes smb2_write_stats;
+		smbprofile_stats_iobytes smb2_lock_stats;
+		smbprofile_stats_iobytes smb2_ioctl_stats;
+		smbprofile_stats_iobytes smb2_cancel_stats;
+		smbprofile_stats_iobytes smb2_keepalive_stats;
+		smbprofile_stats_iobytes smb2_find_stats;
+		smbprofile_stats_iobytes smb2_notify_stats;
+		smbprofile_stats_iobytes smb2_getinfo_stats;
+		smbprofile_stats_iobytes smb2_setinfo_stats;
+		smbprofile_stats_iobytes smb2_break_stats;
+	} smbprofile_smb2_stats;
+
+	typedef [public] struct {
+		smbprofile_global_stats global;
+		smbprofile_auth_stats auth;
+		smbprofile_syscall_stats syscall;
+		smbprofile_acl_stats acl;
+		smbprofile_statcache_stats statcache;
+		smbprofile_smb1_stats smb1;
+		smbprofile_trans2_stats trans2;
+		smbprofile_nt_transact_stats nt_transact;
+		smbprofile_smb2_stats smb2;
+	} smbprofile_stats_sec_values;
+
+	typedef [public] struct {
+		/* Global */
+		smbprofile_stats_count connect_stats;
+		smbprofile_stats_count disconnect_stats;
+		smbprofile_stats_basic idle_stats;
+		smbprofile_stats_time cpu_user_stats;
+		smbprofile_stats_time cpu_system_stats;
+		smbprofile_stats_count request_stats;
+		smbprofile_stats_basic push_sec_ctx_stats;
+		smbprofile_stats_basic set_sec_ctx_stats;
+		smbprofile_stats_basic set_root_sec_ctx_stats;
+		smbprofile_stats_basic pop_sec_ctx_stats;
+		smbprofile_stats_count num_sessions_stats;
+		smbprofile_stats_count num_tcons_stats;
+		smbprofile_stats_count num_files_stats;
+		/* Auth */
+		smbprofile_stats_count authentication_stats;
+		smbprofile_stats_count authentication_failed_stats;
+		/* Syscall */
+		smbprofile_stats_basic syscall_opendir_stats;
+		smbprofile_stats_basic syscall_fdopendir_stats;
+		smbprofile_stats_basic syscall_readdir_stats;
+		smbprofile_stats_basic syscall_rewinddir_stats;
+		smbprofile_stats_basic syscall_mkdirat_stats;
+		smbprofile_stats_basic syscall_closedir_stats;
+		smbprofile_stats_basic syscall_open_stats;
+		smbprofile_stats_basic syscall_openat_stats;
+		smbprofile_stats_basic syscall_createfile_stats;
+		smbprofile_stats_basic syscall_close_stats;
+		smbprofile_stats_bytes syscall_pread_stats;
+		smbprofile_stats_bytes syscall_asys_pread_stats;
+		smbprofile_stats_bytes syscall_pwrite_stats;
+		smbprofile_stats_bytes syscall_asys_pwrite_stats;
+		smbprofile_stats_basic syscall_lseek_stats;
+		smbprofile_stats_bytes syscall_sendfile_stats;
+		smbprofile_stats_bytes syscall_recvfile_stats;
+		smbprofile_stats_basic syscall_renameat_stats;
+		smbprofile_stats_basic syscall_rename_stream_stats;
+		smbprofile_stats_bytes syscall_asys_fsync_stats;
+		smbprofile_stats_basic syscall_stat_stats;
+		smbprofile_stats_basic syscall_fstat_stats;
+		smbprofile_stats_basic syscall_lstat_stats;
+		smbprofile_stats_basic syscall_fstatat_stats;
+		smbprofile_stats_basic syscall_get_alloc_size_stats;
+		smbprofile_stats_basic syscall_unlinkat_stats;
+		smbprofile_stats_basic syscall_chmod_stats;
+		smbprofile_stats_basic syscall_fchmod_stats;
+		smbprofile_stats_basic syscall_fchown_stats;
+		smbprofile_stats_basic syscall_lchown_stats;
+		smbprofile_stats_basic syscall_chdir_stats;
+		smbprofile_stats_basic syscall_fntimes_stats;
+		smbprofile_stats_basic syscall_ftruncate_stats;
+		smbprofile_stats_basic syscall_fallocate_stats;
+		smbprofile_stats_basic syscall_fcntl_lock_stats;
+		smbprofile_stats_basic syscall_fcntl_stats;
+		smbprofile_stats_basic syscall_linux_setlease_stats;
+		smbprofile_stats_basic syscall_fcntl_getlock_stats;
+		smbprofile_stats_basic syscall_readlinkat_stats;
+		smbprofile_stats_basic syscall_symlinkat_stats;
+		smbprofile_stats_basic syscall_linkat_stats;
+		smbprofile_stats_basic syscall_mknodat_stats;
+		smbprofile_stats_basic syscall_realpath_stats;
+		smbprofile_stats_basic syscall_get_quota_stats;
+		smbprofile_stats_basic syscall_set_quota_stats;
+		smbprofile_stats_basic syscall_get_sd_stats;
+		smbprofile_stats_basic syscall_set_sd_stats;
+		smbprofile_stats_basic syscall_brl_lock_stats;
+		smbprofile_stats_basic syscall_brl_unlock_stats;
+		smbprofile_stats_basic syscall_brl_cancel_stats;
+		smbprofile_stats_bytes syscall_asys_getxattrat_stats;
+		smbprofile_stats_basic syscall_fgetxattr_stats;
+		smbprofile_stats_basic syscall_flistxattr_stats;
+		smbprofile_stats_basic syscall_fremovexattr_stats;
+		smbprofile_stats_basic syscall_fsetxattr_stats;
+		smbprofile_stats_basic syscall_fstatvfs_stats;
+		/* ACL */
+		smbprofile_stats_basic get_nt_acl_stats;
+		smbprofile_stats_basic get_nt_acl_at_stats;
+		smbprofile_stats_basic fget_nt_acl_stats;
+		smbprofile_stats_basic fset_nt_acl_stats;
+		/* Stat cache */
+		smbprofile_stats_count statcache_lookups_stats;
+		smbprofile_stats_count statcache_misses_stats;
+		smbprofile_stats_count statcache_hits_stats;
+		/* SMB1 */
+		smbprofile_stats_basic SMBmkdir_stats;
+		smbprofile_stats_basic SMBrmdir_stats;
+		smbprofile_stats_basic SMBopen_stats;
+		smbprofile_stats_basic SMBcreate_stats;
+		smbprofile_stats_basic SMBclose_stats;
+		smbprofile_stats_basic SMBflush_stats;
+		smbprofile_stats_basic SMBunlink_stats;
+		smbprofile_stats_basic SMBmv_stats;
+		smbprofile_stats_basic SMBgetatr_stats;
+		smbprofile_stats_basic SMBsetatr_stats;
+		smbprofile_stats_basic SMBread_stats;
+		smbprofile_stats_basic SMBwrite_stats;
+		smbprofile_stats_basic SMBlock_stats;
+		smbprofile_stats_basic SMBunlock_stats;
+		smbprofile_stats_basic SMBctemp_stats;
+		smbprofile_stats_basic SMBmknew_stats;
+		smbprofile_stats_basic SMBcheckpath_stats;
+		smbprofile_stats_basic SMBexit_stats;
+		smbprofile_stats_basic SMBlseek_stats;
+		smbprofile_stats_basic SMBlockread_stats;
+		smbprofile_stats_basic SMBwriteunlock_stats;
+		smbprofile_stats_basic SMBreadbraw_stats;
+		smbprofile_stats_basic SMBreadBmpx_stats;
+		smbprofile_stats_basic SMBreadBs_stats;
+		smbprofile_stats_basic SMBwritebraw_stats;
+		smbprofile_stats_basic SMBwriteBmpx_stats;
+		smbprofile_stats_basic SMBwriteBs_stats;
+		smbprofile_stats_basic SMBwritec_stats;
+		smbprofile_stats_basic SMBsetattrE_stats;
+		smbprofile_stats_basic SMBgetattrE_stats;
+		smbprofile_stats_basic SMBlockingX_stats;
+		smbprofile_stats_basic SMBtrans_stats;
+		smbprofile_stats_basic SMBtranss_stats;
+		smbprofile_stats_basic SMBioctl_stats;
+		smbprofile_stats_basic SMBioctls_stats;
+		smbprofile_stats_basic SMBcopy_stats;
+		smbprofile_stats_basic SMBmove_stats;
+		smbprofile_stats_basic SMBecho_stats;
+		smbprofile_stats_basic SMBwriteclose_stats;
+		smbprofile_stats_basic SMBopenX_stats;
+		smbprofile_stats_basic SMBreadX_stats;
+		smbprofile_stats_basic SMBwriteX_stats;
+		smbprofile_stats_basic SMBtrans2_stats;
+		smbprofile_stats_basic SMBtranss2_stats;
+		smbprofile_stats_basic SMBfindclose_stats;
+		smbprofile_stats_basic SMBfindnclose_stats;
+		smbprofile_stats_basic SMBtcon_stats;
+		smbprofile_stats_basic SMBtdis_stats;
+		smbprofile_stats_basic SMBnegprot_stats;
+		smbprofile_stats_basic SMBsesssetupX_stats;
+		smbprofile_stats_basic SMBulogoffX_stats;
+		smbprofile_stats_basic SMBtconX_stats;
+		smbprofile_stats_basic SMBdskattr_stats;
+		smbprofile_stats_basic SMBsearch_stats;
+		smbprofile_stats_basic SMBffirst_stats;
+		smbprofile_stats_basic SMBfunique_stats;
+		smbprofile_stats_basic SMBfclose_stats;
+		smbprofile_stats_basic SMBnttrans_stats;
+		smbprofile_stats_basic SMBnttranss_stats;
+		smbprofile_stats_basic SMBntcreateX_stats;
+		smbprofile_stats_basic SMBntcancel_stats;
+		smbprofile_stats_basic SMBntrename_stats;
+		smbprofile_stats_basic SMBsplopen_stats;
+		smbprofile_stats_basic SMBsplwr_stats;
+		smbprofile_stats_basic SMBsplclose_stats;
+		smbprofile_stats_basic SMBsplretq_stats;
+		smbprofile_stats_basic SMBsends_stats;
+		smbprofile_stats_basic SMBsendb_stats;
+		smbprofile_stats_basic SMBfwdname_stats;
+		smbprofile_stats_basic SMBcancelf_stats;
+		smbprofile_stats_basic SMBgetmac_stats;
+		smbprofile_stats_basic SMBsendstrt_stats;
+		smbprofile_stats_basic SMBsendend_stats;
+		smbprofile_stats_basic SMBsendtxt_stats;
+		smbprofile_stats_basic SMBinvalid_stats;
+		/* Trans2 */
+		smbprofile_stats_basic Trans2_open_stats;
+		smbprofile_stats_basic Trans2_findfirst_stats;
+		smbprofile_stats_basic Trans2_findnext_stats;
+		smbprofile_stats_basic Trans2_qfsinfo_stats;
+		smbprofile_stats_basic Trans2_setfsinfo_stats;
+		smbprofile_stats_basic Trans2_qpathinfo_stats;
+		smbprofile_stats_basic Trans2_setpathinfo_stats;
+		smbprofile_stats_basic Trans2_qfileinfo_stats;
+		smbprofile_stats_basic Trans2_setfileinfo_stats;
+		smbprofile_stats_basic Trans2_fsctl_stats;
+		smbprofile_stats_basic Trans2_ioctl_stats;
+		smbprofile_stats_basic Trans2_findnotifyfirst_stats;
+		smbprofile_stats_basic Trans2_findnotifynext_stats;
+		smbprofile_stats_basic Trans2_mkdir_stats;
+		smbprofile_stats_basic Trans2_session_setup_stats;
+		smbprofile_stats_basic Trans2_get_dfs_referral_stats;
+		smbprofile_stats_basic Trans2_report_dfs_inconsistancy_stats;
+		/* NT Transact */
+		smbprofile_stats_basic NT_transact_create_stats;
+		smbprofile_stats_basic NT_transact_ioctl_stats;
+		smbprofile_stats_basic NT_transact_set_security_desc_stats;
+		smbprofile_stats_basic NT_transact_notify_change_stats;
+		smbprofile_stats_basic NT_transact_rename_stats;
+		smbprofile_stats_basic NT_transact_query_security_desc_stats;
+		smbprofile_stats_basic NT_transact_get_user_quota_stats;
+		smbprofile_stats_basic NT_transact_set_user_quota_stats;
+		/* SMB2 */
+		smbprofile_stats_iobytes smb2_negprot_stats;
+		smbprofile_stats_iobytes smb2_sesssetup_stats;
+		smbprofile_stats_iobytes smb2_logoff_stats;
+		smbprofile_stats_iobytes smb2_tcon_stats;
+		smbprofile_stats_iobytes smb2_tdis_stats;
+		smbprofile_stats_iobytes smb2_create_stats;
+		smbprofile_stats_iobytes smb2_close_stats;
+		smbprofile_stats_iobytes smb2_flush_stats;
+		smbprofile_stats_iobytes smb2_read_stats;
+		smbprofile_stats_iobytes smb2_write_stats;
+		smbprofile_stats_iobytes smb2_lock_stats;
+		smbprofile_stats_iobytes smb2_ioctl_stats;
+		smbprofile_stats_iobytes smb2_cancel_stats;
+		smbprofile_stats_iobytes smb2_keepalive_stats;
+		smbprofile_stats_iobytes smb2_find_stats;
+		smbprofile_stats_iobytes smb2_notify_stats;
+		smbprofile_stats_iobytes smb2_getinfo_stats;
+		smbprofile_stats_iobytes smb2_setinfo_stats;
+		smbprofile_stats_iobytes smb2_break_stats;
+	} smbprofile_values;
+
+	/*
+	 * Main profile statistics structure
+	 * This is the top-level structure that contains all profiling data
+	 */
+	typedef [public] struct {
+		hyper                     magic;
+		boolean8                  summary_record;
+		smbprofile_version_values version;
+		smbprofile_values         values;
+	} profile_stats;
+}
