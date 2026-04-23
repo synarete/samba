@@ -389,8 +389,14 @@ static void export_profile_stats(const struct profile_stats *stats,
 
 #define SMBPROFILE_STATS_START
 #define SMBPROFILE_STATS_SECTION_START(name, display)
-#define SMBPROFILE_STATS_COUNT(name)
-#define SMBPROFILE_STATS_TIME(name)
+#define SMBPROFILE_STATS_COUNT(name)                                     \
+	do {                                                             \
+		export_count(#name, &stats->values.name##_stats, state); \
+	} while (0);
+#define SMBPROFILE_STATS_TIME(name)                                     \
+	do {                                                            \
+		export_time(#name, &stats->values.name##_stats, state); \
+	} while (0);
 #define SMBPROFILE_STATS_BASIC(name)
 #define SMBPROFILE_STATS_BYTES(name)
 #define SMBPROFILE_STATS_IOBYTES(name)                             \
