@@ -1,0 +1,95 @@
+#include "idl_types.h"
+
+import "misc.idl";
+
+[
+	pointer_default(unique),
+	helpstring("Windows Registry TDB on-disk format")
+]
+interface registry
+{
+	/*
+	 * Registry TDB database format version for IDL structures:
+	 *
+	 * (1) first db version with write support.
+	 * (2) version 2 with normalized keys.
+	 * (3) different definition of key existence, sorted subkeys cache
+	 *     removed.
+	 * (4) IDL based registry.
+	 */
+	const uint32 REGDB_VERSION_V1 = 1;
+	const uint32 REGDB_VERSION_V2 = 2;
+	const uint32 REGDB_VERSION_V3 = 3;
+	const uint32 REGDB_VERSION_V4 = 4;
+	const uint32 REGDB_CODE_VERSION = REGDB_VERSION_V3;
+
+	/*
+	 * Registry TDB key prefixes.
+	 */
+	const string REG_VALUE_PREFIX = "SAMBA_REGVAL";
+	const string REG_SECDESC_PREFIX = "SAMBA_SECDESC";
+	const string REG_SORTED_SUBKEYS_PREFIX = "SAMBA_SORTED_SUBKEYS";
+
+	/*
+	 * Single registry value
+	 */
+	typedef [public] struct {
+		uint32 valuename_len;
+		[size_is(valuename_len)] uint8 *valuename;
+		winreg_Type type;
+		uint32 size;
+		[size_is(size)] uint8 *data;
+	} registry_value_v4;
+
+	/*
+	 * List of registry values for a key
+	 */
+	typedef [public] struct {
+		uint32 num_values;
+		[size_is(num_values)] registry_value_v4 *values;
+		uint32 seqnum;
+	} registry_value_list_v4;
+
+	/*
+	 * Versioned union for registry values
+	 */
+	typedef [nodiscriminant] union {
+		[case(REGDB_VERSION_V4)] registry_value_list_v4 v4;
+	} registry_value_list_ctr;
+
+	/*
+	 * Top-level structure for registry values
+	 * Stored in TDB with key format: "SAMBA_REGVAL\<keypath>"
+	 */
+	typedef [public] struct {
+		uint32 version;
+		[value(0)] uint32 reserved;
+		[switch_is(version)] registry_value_list_ctr ctr;
+	} registry_value_list_blob;
+
+	/*
+	 * List of subkeys for a registry key
+	 */
+	typedef [public] struct {
+		uint32 num_subkeys;
+		[size_is(num_subkeys)] [string,charset(UTF8)] uint8 *subkeys[];
+		uint32 seqnum;
+	} registry_subkey_list_v4;
+
+	/*
+	 * Versioned union for subkeys
+	 */
+	typedef [nodiscriminant] union {
+		[case(REGDB_VERSION_V4)] registry_subkey_list_v4 v4;
+	} registry_subkey_list_ctr;
+
+	/*
+	 * Top-level structure for registry subkeys
+	 * Stored in TDB with key format: "<keypath>"
+	 */
+	typedef [public] struct {
+		uint32 version;
+		[value(0)] uint32 reserved;
+		[switch_is(version)] registry_subkey_list_ctr ctr;
+	} registry_subkey_list_blob;
+}
