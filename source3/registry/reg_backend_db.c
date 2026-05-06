@@ -1,4 +1,4 @@
-/* 
+/*
  *  Unix SMB/CIFS implementation.
  *  Virtual Windows Registry Layer
  *  Copyright (C) Gerald Carter                     2002-2005
@@ -9,12 +9,12 @@
  *  it under the terms of the GNU General Public License as published by
  *  the Free Software Foundation; either version 3 of the License, or
  *  (at your option) any later version.
- *  
+ *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *  GNU General Public License for more details.
- *  
+ *
  *  You should have received a copy of the GNU General Public License
  *  along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
@@ -112,11 +112,11 @@ static WERROR regdb_trans_do(struct db_context *db,
 /* List the deepest path into the registry.  All part components will be created.*/
 
 /* If you want to have a part of the path controlled by the tdb and part by
-   a virtual registry db (e.g. printing), then you have to list the deepest path.
-   For example,"HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Print" 
-   allows the reg_db backend to handle everything up to 
-   "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion" and then we'll hook 
-   the reg_printing backend onto the last component of the path (see 
+   a virtual registry db (e.g. printing), then you have to list the deepest
+   path. For example,"HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Print"
+   allows the reg_db backend to handle everything up to
+   "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion" and then we'll hook
+   the reg_printing backend onto the last component of the path (see
    KEY_PRINTING_2K in include/rpc_reg.h)   --jerry */
 
 static const char *builtin_registry_paths[] = {
@@ -483,6 +483,7 @@ static int regdb_normalize_keynames_fn(struct db_record *rec,
 static WERROR regdb_store_regdb_version(struct db_context *db, uint32_t version)
 {
 	NTSTATUS status;
+
 	if (db == NULL) {
 		return WERR_CAN_NOT_COMPLETE;
 	}
@@ -536,6 +537,7 @@ static bool tdb_data_read_uint32(TDB_DATA *buf, uint32_t *result)
 static bool tdb_data_read_cstr(TDB_DATA *buf, char **result)
 {
 	const size_t len = strnlen((char*)buf->dptr, buf->dsize) + 1;
+
 	if (buf->dsize >= len) {
 		*result = (char*)buf->dptr;
 		buf->dptr += len;
@@ -545,7 +547,8 @@ static bool tdb_data_read_cstr(TDB_DATA *buf, char **result)
 	return false;
 }
 
-static bool tdb_data_is_cstr(TDB_DATA d) {
+static bool tdb_data_is_cstr(TDB_DATA d)
+{
 	if (tdb_data_is_empty(d) || (d.dptr[d.dsize-1] != '\0')) {
 		return false;
 	}
@@ -563,6 +566,7 @@ static bool upgrade_v2_to_v3_check_subkeylist(struct db_context *db,
 	};
 	bool success = false;
 	char *path = talloc_asprintf(talloc_tos(), "%s\\%s", key, subkey);
+
 	if (!strupper_m(path)) {
 		goto done;
 	}
@@ -591,6 +595,7 @@ static bool upgrade_v2_to_v3_check_parent(struct db_context *db,
 					  const char *key)
 {
 	const char *sep = strrchr_m(key, '\\');
+
 	if (sep != NULL) {
 		char *pkey = talloc_strndup(talloc_tos(), key, sep-key);
 		if (!dbwrap_exists(db, string_term_tdb_data(pkey))) {
@@ -733,14 +738,14 @@ WERROR regdb_init(void)
 		return WERR_OK;
 	}
 
-        /*
-         * Clustered Samba can only work as root because we need messaging to
-         * talk to ctdb which only works as root.
-         */
-        if (!uid_wrapper_enabled() && lp_clustering() && geteuid() != 0) {
-                DBG_ERR("Cluster mode requires running as root.\n");
+	/*
+	 * Clustered Samba can only work as root because we need messaging to
+	 * talk to ctdb which only works as root.
+	 */
+	if (!uid_wrapper_enabled() && lp_clustering() && geteuid() != 0) {
+		DBG_ERR("Cluster mode requires running as root.\n");
 		return WERR_ACCESS_DENIED;
-        }
+	}
 
 	db_path = state_path(talloc_tos(), "registry.tdb");
 	if (db_path == NULL) {
@@ -1848,13 +1853,13 @@ static int regdb_unpack_values(struct regval_ctr *values,
 			       size_t buflen)
 {
 	int this_len;
-	size_t 		len = 0;
-	uint32_t	type;
+	size_t len = 0;
+	uint32_t type;
 	fstring valuename;
-	uint32_t	size;
-	uint8_t		*data_p;
-	uint32_t 	num_values = 0;
-	uint32_t	i;
+	uint32_t size;
+	uint8_t *data_p;
+	uint32_t num_values = 0;
+	uint32_t i;
 
 	/* loop and unpack the rest of the registry values */
 
@@ -1907,10 +1912,10 @@ static int regdb_unpack_values(struct regval_ctr *values,
 
 static int regdb_pack_values(struct regval_ctr *values, uint8_t *buf, int buflen)
 {
-	int 		len = 0;
-	int 		i;
-	struct regval_blob	*val;
-	int		num_values;
+	int len = 0;
+	int i;
+	struct regval_blob *val;
+	int num_values;
 
 	if ( !values )
 		return 0;
