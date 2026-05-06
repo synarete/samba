@@ -51,3 +51,7 @@ bld.SAMBA3_SUBSYSTEM('NDR_ADS',
 	public_deps='ndr NDR_NBT'
 	)
 
+bld.SAMBA3_SUBSYSTEM('NDR_REGISTRY',
+    source='gen_ndr/ndr_registry.c',
+    public_deps='ndr'
+    )

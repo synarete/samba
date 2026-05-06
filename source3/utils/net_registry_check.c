@@ -37,10 +37,10 @@
 #include "srprs.h"
 #include <termios.h>
 #include "util_tdb.h"
-#include "registry/reg_db.h"
 #include "libcli/registry/util_reg.h"
 #include "registry/reg_parse_internal.h"
 #include "interact.h"
+#include "librpc/gen_ndr/ndr_registry.h"
 
 /*
   check tree:
