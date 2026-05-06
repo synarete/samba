@@ -235,6 +235,7 @@ bld.SAMBA3_SUBSYSTEM('SMBREGISTRY',
                         smbd_shim
                         tdb-wrap3
                         NDR_SECURITY
+                        NDR_REGISTRY
                         util_tdb
                         talloc
                         replace
