@@ -24,7 +24,6 @@
 #include "includes.h"
 #include "system/filesys.h"
 #include "registry.h"
-#include "reg_db.h"
 #include "reg_util_internal.h"
 #include "reg_parse_internal.h"
 #include "reg_backend_db.h"
@@ -34,10 +33,14 @@
 #include "dbwrap/dbwrap.h"
 #include "dbwrap/dbwrap_open.h"
 #include "../libcli/security/secdesc.h"
+#include "librpc/gen_ndr/ndr_registry.h"
+
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_REGISTRY
 
+#define REG_TDB_FLAGS   TDB_SEQNUM
+#define REG_DBWRAP_FLAGS DBWRAP_FLAG_NONE
 #define REGDB_VERSION_KEYNAME "INFO/version"
 
 static struct db_context *regdb = NULL;
