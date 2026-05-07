@@ -33,4 +33,24 @@ WERROR regdb_transaction_commit(void);
 WERROR regdb_transaction_cancel(void);
 int regdb_get_seqnum(void);
 
+/* Legacy format pack functions (V3) - for testing */
+int regdb_pack_values_v3(struct regval_ctr *values, uint8_t *buf, int buflen);
+int regdb_pack_keys_v3(struct regsubkey_ctr *ctr, uint8_t *buf, int buflen);
+
+/* IDL format pack/unpack functions (V4) */
+WERROR regdb_pack_values_v4(struct regval_ctr *values,
+			    uint8_t **buf,
+			    size_t *buflen,
+			    TALLOC_CTX *mem_ctx);
+WERROR regdb_unpack_values_v4(struct regval_ctr *values,
+			      uint8_t *buf,
+			      size_t buflen);
+WERROR regdb_pack_keys_v4(struct regsubkey_ctr *ctr,
+			  uint8_t **buf,
+			  size_t *buflen,
+			  TALLOC_CTX *mem_ctx);
+WERROR regdb_unpack_keys_v4(struct regsubkey_ctr *ctr,
+			    uint8_t *buf,
+			    size_t buflen);
+
 #endif /* _REG_BACKEND_DB_H */

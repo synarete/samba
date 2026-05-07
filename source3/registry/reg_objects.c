@@ -52,8 +52,7 @@ struct regval_ctr {
 
 struct regsubkey_ctr {
 	uint32_t        num_subkeys;
-	char            **subkeys;
-	struct db_context *subkeys_hash;
+	char **subkeys;
 	int seqnum;
 };
 
@@ -69,6 +68,56 @@ struct regsubkey_ctr {
 
  **********************************************************************/
 
+static int regsubkey_ctr_key_cmp(const char *a, const char *b)
+{
+	return strcmp(a, b);
+}
+
+static WERROR regsubkey_ctr_find_keyname(struct regsubkey_ctr *ctr,
+					 const char *keyname,
+					 uint32_t *idx,
+					 bool *found)
+{
+	uint32_t low = 0, high;
+	int cmp = 0;
+
+	if ((ctr == NULL) || (keyname == NULL)) {
+		return WERR_INVALID_PARAMETER;
+	}
+
+	high = ctr->num_subkeys;
+
+	while (low < high) {
+		uint32_t mid = low + (high - low) / 2;
+
+		cmp = regsubkey_ctr_key_cmp(ctr->subkeys[mid], keyname);
+		if (cmp < 0) {
+			low = mid + 1;
+			continue;
+		}
+		if (cmp > 0) {
+			high = mid;
+			continue;
+		}
+
+		if (idx != NULL) {
+			*idx = mid;
+		}
+		if (found != NULL) {
+			*found = true;
+		}
+		return WERR_OK;
+	}
+
+	if (idx != NULL) {
+		*idx = low;
+	}
+	if (found != NULL) {
+		*found = false;
+	}
+	return WERR_OK;
+}
+
 WERROR regsubkey_ctr_init(TALLOC_CTX *mem_ctx, struct regsubkey_ctr **ctr)
 {
 	if (ctr == NULL) {
@@ -77,12 +126,6 @@ WERROR regsubkey_ctr_init(TALLOC_CTX *mem_ctx, struct regsubkey_ctr **ctr)
 
 	*ctr = talloc_zero(mem_ctx, struct regsubkey_ctr);
 	if (*ctr == NULL) {
-		return WERR_NOT_ENOUGH_MEMORY;
-	}
-
-	(*ctr)->subkeys_hash = db_open_rbt(*ctr);
-	if ((*ctr)->subkeys_hash == NULL) {
-		talloc_free(*ctr);
 		return WERR_NOT_ENOUGH_MEMORY;
 	}
 
@@ -99,10 +142,6 @@ WERROR regsubkey_ctr_reinit(struct regsubkey_ctr *ctr)
 	if (ctr == NULL) {
 		return WERR_INVALID_PARAMETER;
 	}
-
-	talloc_free(ctr->subkeys_hash);
-	ctr->subkeys_hash = db_open_rbt(ctr);
-	W_ERROR_HAVE_NO_MEMORY(ctr->subkeys_hash);
 
 	TALLOC_FREE(ctr->subkeys);
 
@@ -132,67 +171,20 @@ int regsubkey_ctr_get_seqnum(struct regsubkey_ctr *ctr)
 	return ctr->seqnum;
 }
 
-static WERROR regsubkey_ctr_hash_keyname(struct regsubkey_ctr *ctr,
-					 const char *keyname,
-					 uint32_t idx)
-{
-	WERROR werr;
-
-	werr = ntstatus_to_werror(dbwrap_store_bystring_upper(ctr->subkeys_hash,
-						keyname,
-						make_tdb_data((uint8_t *)&idx,
-							      sizeof(idx)),
-						TDB_REPLACE));
-	if (!W_ERROR_IS_OK(werr)) {
-		DEBUG(1, ("error hashing new key '%s' in container: %s\n",
-			  keyname, win_errstr(werr)));
-	}
-
-	return werr;
-}
-
-static WERROR regsubkey_ctr_unhash_keyname(struct regsubkey_ctr *ctr,
-					   const char *keyname)
-{
-	WERROR werr;
-
-	werr = ntstatus_to_werror(dbwrap_delete_bystring_upper(ctr->subkeys_hash,
-				  keyname));
-	if (!W_ERROR_IS_OK(werr)) {
-		DEBUG(1, ("error unhashing key '%s' in container: %s\n",
-			  keyname, win_errstr(werr)));
-	}
-
-	return werr;
-}
-
 static WERROR regsubkey_ctr_index_for_keyname(struct regsubkey_ctr *ctr,
 					      const char *keyname,
 					      uint32_t *idx)
 {
-	TDB_DATA data;
-	NTSTATUS status;
+	bool found = false;
+	WERROR werr;
 
-	if ((ctr == NULL) || (keyname == NULL)) {
-		return WERR_INVALID_PARAMETER;
-	}
+	werr = regsubkey_ctr_find_keyname(ctr, keyname, idx, &found);
+	W_ERROR_NOT_OK_RETURN(werr);
 
-	status = dbwrap_fetch_bystring_upper(ctr->subkeys_hash, ctr, keyname,
-					     &data);
-	if (!NT_STATUS_IS_OK(status)) {
+	if (!found) {
 		return WERR_NOT_FOUND;
 	}
 
-	if (data.dsize != sizeof(*idx)) {
-		talloc_free(data.dptr);
-		return WERR_INVALID_DATATYPE;
-	}
-
-	if (idx != NULL) {
-		memcpy(idx, data.dptr, sizeof(*idx));
-	}
-
-	talloc_free(data.dptr);
 	return WERR_OK;
 }
 
@@ -203,15 +195,18 @@ static WERROR regsubkey_ctr_index_for_keyname(struct regsubkey_ctr *ctr,
 WERROR regsubkey_ctr_addkey( struct regsubkey_ctr *ctr, const char *keyname )
 {
 	char **newkeys;
+	uint32_t idx;
+	bool found = false;
 	WERROR werr;
 
 	if ( !keyname ) {
 		return WERR_OK;
 	}
 
-	/* make sure the keyname is not already there */
+	werr = regsubkey_ctr_find_keyname(ctr, keyname, &idx, &found);
+	W_ERROR_NOT_OK_RETURN(werr);
 
-	if ( regsubkey_ctr_key_exists( ctr, keyname ) ) {
+	if (found) {
 		return WERR_OK;
 	}
 
@@ -222,16 +217,16 @@ WERROR regsubkey_ctr_addkey( struct regsubkey_ctr *ctr, const char *keyname )
 
 	ctr->subkeys = newkeys;
 
-	if (!(ctr->subkeys[ctr->num_subkeys] = talloc_strdup(ctr->subkeys,
-							     keyname ))) {
-		/*
-		 * Don't shrink the new array again, this wastes a pointer
-		 */
-		return WERR_NOT_ENOUGH_MEMORY;
+	if (idx < ctr->num_subkeys) {
+		memmove(&ctr->subkeys[idx + 1],
+			&ctr->subkeys[idx],
+			sizeof(char *) * (ctr->num_subkeys - idx));
 	}
 
-	werr = regsubkey_ctr_hash_keyname(ctr, keyname, ctr->num_subkeys);
-	W_ERROR_NOT_OK_RETURN(werr);
+	ctr->subkeys[idx] = talloc_strdup(ctr->subkeys, keyname);
+	if (ctr->subkeys[idx] == NULL) {
+		return WERR_NOT_ENOUGH_MEMORY;
+	}
 
 	ctr->num_subkeys++;
 
@@ -245,31 +240,20 @@ WERROR regsubkey_ctr_addkey( struct regsubkey_ctr *ctr, const char *keyname )
 WERROR regsubkey_ctr_delkey( struct regsubkey_ctr *ctr, const char *keyname )
 {
 	WERROR werr;
-	uint32_t idx, j;
+	uint32_t idx;
 
 	if (keyname == NULL) {
 		return WERR_INVALID_PARAMETER;
 	}
 
-	/* make sure the keyname is actually already there */
-
 	werr = regsubkey_ctr_index_for_keyname(ctr, keyname, &idx);
 	W_ERROR_NOT_OK_RETURN(werr);
 
-	werr = regsubkey_ctr_unhash_keyname(ctr, keyname);
-	W_ERROR_NOT_OK_RETURN(werr);
-
-	/* update if we have any keys left */
 	ctr->num_subkeys--;
 	if (idx < ctr->num_subkeys) {
-		memmove(&ctr->subkeys[idx], &ctr->subkeys[idx+1],
+		memmove(&ctr->subkeys[idx],
+			&ctr->subkeys[idx + 1],
 			sizeof(char *) * (ctr->num_subkeys - idx));
-
-		/* we have to re-hash rest of the array...  :-( */
-		for (j = idx; j < ctr->num_subkeys; j++) {
-			werr = regsubkey_ctr_hash_keyname(ctr, ctr->subkeys[j], j);
-			W_ERROR_NOT_OK_RETURN(werr);
-		}
 	}
 
 	return WERR_OK;
