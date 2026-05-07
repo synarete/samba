@@ -35,7 +35,6 @@
 #include "../libcli/security/secdesc.h"
 #include "librpc/gen_ndr/ndr_registry.h"
 
-
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_REGISTRY
 
@@ -63,6 +62,23 @@ static WERROR regdb_create_subkey_internal(struct db_context *db,
 					   const char *key,
 					   const char *subkey);
 
+static int regdb_unpack_values(struct regval_ctr *values,
+			       uint8_t *buf,
+			       size_t buflen);
+WERROR regdb_pack_values_v4(struct regval_ctr *values,
+			    uint8_t **buf,
+			    size_t *buflen,
+			    TALLOC_CTX *mem_ctx);
+WERROR regdb_unpack_values_v4(struct regval_ctr *values,
+			      uint8_t *buf,
+			      size_t buflen);
+WERROR regdb_pack_keys_v4(struct regsubkey_ctr *ctr,
+			  uint8_t **buf,
+			  size_t *buflen,
+			  TALLOC_CTX *mem_ctx);
+WERROR regdb_unpack_keys_v4(struct regsubkey_ctr *ctr,
+			    uint8_t *buf,
+			    size_t buflen);
 
 struct regdb_trans_ctx {
 	NTSTATUS (*action)(struct db_context *, void *);
@@ -311,7 +327,7 @@ static NTSTATUS init_registry_data_action(struct db_context *db,
 	NTSTATUS status;
 	TALLOC_CTX *frame = talloc_stackframe();
 	struct regval_ctr *values;
-	int i;
+	int i, fetch_ret;
 
 	/* loop over all of the predefined paths and add each component */
 
@@ -337,9 +353,16 @@ static NTSTATUS init_registry_data_action(struct db_context *db,
 			goto done;
 		}
 
-		regdb_fetch_values_internal(db,
+		fetch_ret = regdb_fetch_values_internal(db,
 					    builtin_registry_values[i].path,
 					    values);
+		if (fetch_ret == -1) {
+			DEBUG(1, ("init_registry_data_action: "
+				  "regdb_fetch_values_internal failed for [%s]\n",
+				  builtin_registry_values[i].path));
+			status = NT_STATUS_INTERNAL_ERROR;
+			goto done;
+		}
 
 		/* preserve existing values across restarts. Only add new ones */
 
@@ -371,7 +394,7 @@ WERROR init_registry_data(void)
 	WERROR werr;
 	TALLOC_CTX *frame = talloc_stackframe();
 	struct regval_ctr *values;
-	int i;
+	int i, fetch_ret;
 
 	/*
 	 * First, check for the existence of the needed keys and values.
@@ -387,9 +410,16 @@ WERROR init_registry_data(void)
 		werr = regval_ctr_init(frame, &values);
 		W_ERROR_NOT_OK_GOTO_DONE(werr);
 
-		regdb_fetch_values_internal(regdb,
+		fetch_ret = regdb_fetch_values_internal(regdb,
 					    builtin_registry_values[i].path,
 					    values);
+		if (fetch_ret == -1) {
+			DEBUG(1, ("init_registry_data: "
+				  "regdb_fetch_values_internal failed for [%s]\n",
+				  builtin_registry_values[i].path));
+			TALLOC_FREE(values);
+			goto do_init;
+		}
 		if (!regval_ctr_value_exists(values,
 					builtin_registry_values[i].valuename))
 		{
@@ -723,6 +753,428 @@ done:
 	return werr;
 }
 
+/* Conversion limits to prevent resource exhaustion */
+#define REGDB_MAX_VALUES_PER_KEY 1000
+#define REGDB_MAX_SUBKEYS_PER_KEY 10000
+#define REGDB_MAX_VALUE_DATA_SIZE (10 * 1024 * 1024) /* 10MB */
+#define REGDB_MAX_SUBKEY_DATA_SIZE (1024 * 1024)     /* 1MB */
+
+struct regdb_upgrade_v3_to_v4_ctx {
+	struct db_context *db;
+	uint32_t *converted_values;
+	uint32_t *converted_subkeys;
+	uint32_t *skipped_records;
+};
+
+/**
+ * Verify converted values by unpacking and comparing counts
+ */
+static WERROR regdb_verify_converted_values(TALLOC_CTX *mem_ctx,
+					    struct regval_ctr *original,
+					    const uint8_t *packed_data,
+					    size_t packed_len,
+					    TDB_DATA key)
+{
+	struct regval_ctr *verify_values = NULL;
+	WERROR werr;
+	int original_count, verify_count;
+
+	werr = regval_ctr_init(mem_ctx, &verify_values);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(1, ("regdb_verify_converted_values: "
+			  "regval_ctr_init failed, skipping verification\n"));
+		return WERR_OK; /* Non-fatal: skip verification */
+	}
+
+	werr = regdb_unpack_values_v4(verify_values,
+				      discard_const_p(uint8_t, packed_data),
+				      packed_len);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_verify_converted_values: "
+			  "verification failed for [%.*s]: %s\n",
+			  SSTR(key), win_errstr(werr)));
+		return werr;
+	}
+
+	original_count = regval_ctr_numvals(original);
+	verify_count = regval_ctr_numvals(verify_values);
+
+	if (verify_count != original_count) {
+		DEBUG(0, ("regdb_verify_converted_values: "
+			  "count mismatch for [%.*s]: original %d, converted %d\n",
+			  SSTR(key), original_count, verify_count));
+		return WERR_INTERNAL_DB_CORRUPTION;
+	}
+
+	return WERR_OK;
+}
+
+/**
+ * Verify converted subkeys by unpacking and comparing counts
+ */
+static WERROR regdb_verify_converted_subkeys(TALLOC_CTX *mem_ctx,
+					     struct regsubkey_ctr *original,
+					     const uint8_t *packed_data,
+					     size_t packed_len,
+					     TDB_DATA key)
+{
+	struct regsubkey_ctr *verify_subkeys = NULL;
+	WERROR werr;
+	int original_count, verify_count;
+
+	werr = regsubkey_ctr_init(mem_ctx, &verify_subkeys);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(1, ("regdb_verify_converted_subkeys: "
+			  "regsubkey_ctr_init failed, skipping verification\n"));
+		return WERR_OK; /* Non-fatal: skip verification */
+	}
+
+	werr = regdb_unpack_keys_v4(verify_subkeys,
+				    discard_const_p(uint8_t, packed_data),
+				    packed_len);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_verify_converted_subkeys: "
+			  "verification failed for [%.*s]: %s\n",
+			  SSTR(key), win_errstr(werr)));
+		return werr;
+	}
+
+	original_count = regsubkey_ctr_numkeys(original);
+	verify_count = regsubkey_ctr_numkeys(verify_subkeys);
+
+	if (verify_count != original_count) {
+		DEBUG(0, ("regdb_verify_converted_subkeys: "
+			  "count mismatch for [%.*s]: original %d, converted %d\n",
+			  SSTR(key), original_count, verify_count));
+		return WERR_INTERNAL_DB_CORRUPTION;
+	}
+
+	return WERR_OK;
+}
+
+/**
+ * Convert registry values from V3 to V4 format
+ */
+static WERROR regdb_convert_values_v3_to_v4(TALLOC_CTX *mem_ctx,
+					    struct db_record *rec,
+					    TDB_DATA key,
+					    TDB_DATA val)
+{
+	struct regval_ctr *values = NULL;
+	uint8_t *new_buf = NULL;
+	size_t new_buflen = 0;
+	WERROR werr;
+	NTSTATUS status;
+	int ret;
+	int num_values;
+
+	DEBUG(10, ("regdb_convert_values_v3_to_v4: converting [%.*s]\n",
+		   SSTR(key)));
+
+	werr = regval_ctr_init(mem_ctx, &values);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_convert_values_v3_to_v4: "
+			  "regval_ctr_init failed\n"));
+		return werr;
+	}
+
+	/* Unpack using V3 (legacy) format */
+	ret = regdb_unpack_values(values, val.dptr, val.dsize);
+	if (ret == -1) {
+		DEBUG(0, ("regdb_convert_values_v3_to_v4: "
+			  "regdb_unpack_values failed for [%.*s], skipping\n",
+			  SSTR(key)));
+		return WERR_INVALID_DATA;
+	}
+
+	num_values = regval_ctr_numvals(values);
+
+	/* Initialize seqnum to 0 for converted values */
+	werr = regval_ctr_set_seqnum(values, 0);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_convert_values_v3_to_v4: "
+			  "regval_ctr_set_seqnum failed for [%.*s]: %s\n",
+			  SSTR(key), win_errstr(werr)));
+		return werr;
+	}
+
+	/* Validate unpacked data */
+	if (num_values == 0 && val.dsize > 4) {
+		DEBUG(1, ("regdb_convert_values_v3_to_v4: "
+			  "warning: non-empty data unpacked to zero values for [%.*s]\n",
+			  SSTR(key)));
+	}
+
+	if (num_values > REGDB_MAX_VALUES_PER_KEY) {
+		DEBUG(0, ("regdb_convert_values_v3_to_v4: "
+			  "suspicious number of values (%d) for [%.*s], skipping\n",
+			  num_values, SSTR(key)));
+		return WERR_INVALID_DATA;
+	}
+
+	/* Pack using V4 format */
+	werr = regdb_pack_values_v4(values, &new_buf, &new_buflen, mem_ctx);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_convert_values_v3_to_v4: "
+			  "regdb_pack_values_v4 failed for [%.*s]: %s\n",
+			  SSTR(key), win_errstr(werr)));
+		return werr;
+	}
+
+	/* Sanity check the packed size */
+	if (new_buflen > REGDB_MAX_VALUE_DATA_SIZE) {
+		DEBUG(0, ("regdb_convert_values_v3_to_v4: "
+			  "packed size too large (%zu bytes) for [%.*s], skipping\n",
+			  new_buflen, SSTR(key)));
+		return WERR_INVALID_DATA;
+	}
+
+	/* Verify conversion before storing */
+	werr = regdb_verify_converted_values(
+		mem_ctx, values, new_buf, new_buflen, key);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_convert_values_v3_to_v4: "
+			  "verification failed for [%.*s]: %s\n",
+			  SSTR(key), win_errstr(werr)));
+		return werr;
+	}
+
+	/* Store the converted data */
+	status = dbwrap_record_store(rec,
+				     make_tdb_data(new_buf, new_buflen),
+				     TDB_REPLACE);
+	if (!NT_STATUS_IS_OK(status)) {
+		DEBUG(0, ("regdb_convert_values_v3_to_v4: "
+			  "storing converted values [%.*s] failed: %s\n",
+			  SSTR(key), nt_errstr(status)));
+		return WERR_REGISTRY_IO_FAILED;
+	}
+
+	DEBUG(10, ("regdb_convert_values_v3_to_v4: successfully converted [%.*s]\n",
+		   SSTR(key)));
+
+	return WERR_OK;
+}
+/**
+ * Convert registry subkeys from V3 to V4 format
+ */
+static WERROR regdb_convert_subkeys_v3_to_v4(TALLOC_CTX *mem_ctx,
+					     struct db_record *rec,
+					     TDB_DATA key,
+					     TDB_DATA val)
+{
+	struct regsubkey_ctr *subkeys = NULL;
+	uint8_t *new_buf = NULL;
+	size_t new_buflen = 0;
+	WERROR werr;
+	NTSTATUS status;
+	int num_subkeys;
+
+	DEBUG(10, ("regdb_convert_subkeys_v3_to_v4: converting [%.*s]\n",
+		   SSTR(key)));
+
+	werr = regsubkey_ctr_init(mem_ctx, &subkeys);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_convert_subkeys_v3_to_v4: "
+			  "regsubkey_ctr_init failed\n"));
+		return werr;
+	}
+
+	/* Unpack using legacy format */
+	werr = regdb_unpack_keys_v4(subkeys, val.dptr, val.dsize);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_convert_subkeys_v3_to_v4: "
+			  "regdb_unpack_keys_v4 failed for [%.*s]: %s, skipping\n",
+			  SSTR(key), win_errstr(werr)));
+		return werr;
+	}
+
+	num_subkeys = regsubkey_ctr_numkeys(subkeys);
+
+	/* Validate unpacked data */
+	if (num_subkeys == 0 && val.dsize > 4) {
+		DEBUG(1, ("regdb_convert_subkeys_v3_to_v4: "
+			  "warning: non-empty data unpacked to zero subkeys for [%.*s]\n",
+			  SSTR(key)));
+	}
+
+	if (num_subkeys > REGDB_MAX_SUBKEYS_PER_KEY) {
+		DEBUG(0, ("regdb_convert_subkeys_v3_to_v4: "
+			  "suspicious number of subkeys (%d) for [%.*s], skipping\n",
+			  num_subkeys, SSTR(key)));
+		return WERR_INVALID_DATA;
+	}
+
+	/* Pack using V4 format */
+	werr = regdb_pack_keys_v4(subkeys, &new_buf, &new_buflen, mem_ctx);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_convert_subkeys_v3_to_v4: "
+			  "regdb_pack_keys_v4 failed for [%.*s]: %s\n",
+			  SSTR(key), win_errstr(werr)));
+		return werr;
+	}
+
+	/* Sanity check the packed size */
+	if (new_buflen > REGDB_MAX_SUBKEY_DATA_SIZE) {
+		DEBUG(0, ("regdb_convert_subkeys_v3_to_v4: "
+			  "packed size too large (%zu bytes) for [%.*s], skipping\n",
+			  new_buflen, SSTR(key)));
+		return WERR_INVALID_DATA;
+	}
+
+	/* Verify conversion before storing */
+	werr = regdb_verify_converted_subkeys(
+		mem_ctx, subkeys, new_buf, new_buflen, key);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_convert_subkeys_v3_to_v4: "
+			  "verification failed for [%.*s]: %s\n",
+			  SSTR(key), win_errstr(werr)));
+		return werr;
+	}
+
+	/* Store the converted data */
+	status = dbwrap_record_store(rec,
+				     make_tdb_data(new_buf, new_buflen),
+				     TDB_REPLACE);
+	if (!NT_STATUS_IS_OK(status)) {
+		DEBUG(0, ("regdb_convert_subkeys_v3_to_v4: "
+			  "storing converted subkeys [%.*s] failed: %s\n",
+			  SSTR(key), nt_errstr(status)));
+		return WERR_REGISTRY_IO_FAILED;
+	}
+
+	DEBUG(10, ("regdb_convert_subkeys_v3_to_v4: successfully converted [%.*s]\n",
+		   SSTR(key)));
+
+	return WERR_OK;
+}
+
+/**
+ * Traverse callback for V3 to V4 upgrade
+ */
+static int regdb_upgrade_v3_to_v4_fn(struct db_record *rec, void *private_data)
+{
+	struct regdb_upgrade_v3_to_v4_ctx
+		*ctx = (struct regdb_upgrade_v3_to_v4_ctx *)private_data;
+	TDB_DATA key = dbwrap_record_get_key(rec);
+	TDB_DATA val = dbwrap_record_get_value(rec);
+	TALLOC_CTX *tmp_ctx = NULL;
+	WERROR werr;
+	int result = 0;
+
+	/* Skip empty keys */
+	if (tdb_data_is_empty(key)) {
+		return 0;
+	}
+
+	/* Sanity check: db context should never be NULL */
+	if (ctx->db == NULL) {
+		DEBUG(0, ("regdb_upgrade_v3_to_v4_fn: "
+			  "NULL db context in private_data\n"));
+		return 1;
+	}
+
+	/* Skip version key and security descriptors */
+	if (IS_EQUAL(key, REGDB_VERSION_KEYNAME) ||
+	    STARTS_WITH(key, REG_SECDESC_PREFIX))
+	{
+		DEBUG(10, ("regdb_upgrade_v3_to_v4_fn: skipping [%.*s]\n",
+			   SSTR(key)));
+		return 0;
+	}
+
+	tmp_ctx = talloc_stackframe();
+	if (tmp_ctx == NULL) {
+		DEBUG(0, ("regdb_upgrade_v3_to_v4_fn: talloc_stackframe failed\n"));
+		return 1;
+	}
+
+	/* Handle registry values (prefixed with REG_VALUE_PREFIX) */
+	if (STARTS_WITH(key, REG_VALUE_PREFIX)) {
+		werr = regdb_convert_values_v3_to_v4(tmp_ctx, rec, key, val);
+		if (W_ERROR_IS_OK(werr)) {
+			(*ctx->converted_values)++;
+		} else if (W_ERROR_EQUAL(werr, WERR_INVALID_DATA)) {
+			/* Skip invalid records */
+			(*ctx->skipped_records)++;
+		} else {
+			/* Fatal error */
+			result = 1;
+		}
+		goto done;
+	}
+
+	/* Handle subkey lists (regular keys without prefix) */
+	if (tdb_data_is_cstr(key) && hive_info((char *)key.dptr) != NULL) {
+		werr = regdb_convert_subkeys_v3_to_v4(tmp_ctx, rec, key, val);
+		if (W_ERROR_IS_OK(werr)) {
+			(*ctx->converted_subkeys)++;
+		} else if (W_ERROR_EQUAL(werr, WERR_INVALID_DATA)) {
+			/* Skip invalid records */
+			(*ctx->skipped_records)++;
+		} else {
+			/* Fatal error */
+			result = 1;
+		}
+		goto done;
+	}
+
+	/* Skip unrecognized records */
+	DEBUG(10, ("regdb_upgrade_v3_to_v4_fn: skipping unrecognized [%.*s]\n",
+		   SSTR(key)));
+	(*ctx->skipped_records)++;
+
+done:
+	TALLOC_FREE(tmp_ctx);
+	return result;
+}
+
+static WERROR regdb_upgrade_v3_to_v4(struct db_context *db)
+{
+	NTSTATUS status;
+	WERROR werr;
+	uint32_t converted_values = 0;
+	uint32_t converted_subkeys = 0;
+	uint32_t skipped_records = 0;
+	struct regdb_upgrade_v3_to_v4_ctx ctx;
+
+	DEBUG(10, ("regdb_upgrade_v3_to_v4: starting upgrade\n"));
+
+	ctx.db = db;
+	ctx.converted_values = &converted_values;
+	ctx.converted_subkeys = &converted_subkeys;
+	ctx.skipped_records = &skipped_records;
+
+	status = dbwrap_traverse(db, regdb_upgrade_v3_to_v4_fn, &ctx, NULL);
+	if (!NT_STATUS_IS_OK(status)) {
+		DEBUG(0, ("regdb_upgrade_v3_to_v4: traverse failed: %s\n",
+			  nt_errstr(status)));
+		werr = WERR_REGISTRY_IO_FAILED;
+		goto done;
+	}
+
+	/* Verify that we actually converted some records */
+	if (converted_values == 0 && converted_subkeys == 0) {
+		DEBUG(1, ("regdb_upgrade_v3_to_v4: warning - no records were converted\n"));
+	}
+
+	werr = regdb_store_regdb_version(db, REGDB_VERSION_V4);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_upgrade_v3_to_v4: "
+			  "regdb_store_regdb_version failed: %s\n",
+			  win_errstr(werr)));
+		goto done;
+	}
+
+	DEBUG(1, ("regdb_upgrade_v3_to_v4: upgrade complete - "
+		   "converted %u value records, %u subkey records, "
+		   "skipped %u records\n",
+		   converted_values, converted_subkeys, skipped_records));
+
+done:
+	return werr;
+}
+
 /***********************************************************************
  Open the registry database
  ***********************************************************************/
@@ -850,6 +1302,19 @@ WERROR regdb_init(void)
 		}
 
 		vers_id = REGDB_VERSION_V3;
+	}
+
+	if (vers_id == REGDB_VERSION_V3) {
+		DEBUG(10, ("regdb_init: upgrading registry from version %d "
+			   "to %d\n", REGDB_VERSION_V3, REGDB_VERSION_V4));
+
+		werr = regdb_upgrade_v3_to_v4(regdb);
+		if (!W_ERROR_IS_OK(werr)) {
+			dbwrap_transaction_cancel(regdb);
+			return werr;
+		}
+
+		vers_id = REGDB_VERSION_V4;
 	}
 
 	/* future upgrade code should go here */
@@ -1053,9 +1518,7 @@ static WERROR regdb_store_keys_internal2(struct db_context *db,
 {
 	TDB_DATA dbuf;
 	uint8_t *buffer = NULL;
-	uint32_t i = 0;
-	uint32_t len, buflen;
-	uint32_t num_subkeys = regsubkey_ctr_numkeys(ctr);
+	size_t buflen = 0;
 	char *keyname = NULL;
 	TALLOC_CTX *ctx = talloc_stackframe();
 	WERROR werr;
@@ -1077,65 +1540,21 @@ static WERROR regdb_store_keys_internal2(struct db_context *db,
 		goto done;
 	}
 
-	/* allocate some initial memory */
-
-	buffer = (uint8_t *)SMB_MALLOC(1024);
-	if (buffer == NULL) {
-		werr = WERR_NOT_ENOUGH_MEMORY;
+	werr = regdb_pack_keys_v4(ctr, &buffer, &buflen, ctx);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_store_keys_internal2: "
+			  "regdb_pack_keys_v4 failed: %s\n",
+			  win_errstr(werr)));
 		goto done;
 	}
-	buflen = 1024;
-	len = 0;
-
-	/* store the number of subkeys */
-
-	len += tdb_pack(buffer+len, buflen-len, "d", num_subkeys);
-
-	/* pack all the strings */
-
-	for (i=0; i<num_subkeys; i++) {
-		size_t thistime;
-
-		thistime = tdb_pack(buffer+len, buflen-len, "f",
-				    regsubkey_ctr_specific_key(ctr, i));
-		if (len+thistime > buflen) {
-			size_t thistime2;
-			/*
-			 * tdb_pack hasn't done anything because of the short
-			 * buffer, allocate extra space.
-			 */
-			buffer = SMB_REALLOC_ARRAY(buffer, uint8_t,
-						   (len+thistime)*2);
-			if(buffer == NULL) {
-				DEBUG(0, ("regdb_store_keys: Failed to realloc "
-					  "memory of size [%u]\n",
-					  (unsigned int)(len+thistime)*2));
-				werr = WERR_NOT_ENOUGH_MEMORY;
-				goto done;
-			}
-			buflen = (len+thistime)*2;
-			thistime2 = tdb_pack(
-				buffer+len, buflen-len, "f",
-				regsubkey_ctr_specific_key(ctr, i));
-			if (thistime2 != thistime) {
-				DEBUG(0, ("tdb_pack failed\n"));
-				werr = WERR_CAN_NOT_COMPLETE;
-				goto done;
-			}
-		}
-		len += thistime;
-	}
-
-	/* finally write out the data */
 
 	dbuf.dptr = buffer;
-	dbuf.dsize = len;
+	dbuf.dsize = buflen;
 	werr = ntstatus_to_werror(dbwrap_store_bystring(db, keyname, dbuf,
 							TDB_REPLACE));
 
 done:
 	TALLOC_FREE(ctx);
-	SAFE_FREE(buffer);
 	return werr;
 }
 
@@ -1647,10 +2066,6 @@ static bool regdb_key_exists(struct db_context *db, const char *key)
 	TDB_DATA value;
 	bool ret = false;
 	char *path;
-	uint32_t buflen;
-	const char *buf;
-	uint32_t num_items, i;
-	int32_t len;
 
 	if (key == NULL) {
 		goto done;
@@ -1679,54 +2094,6 @@ static bool regdb_key_exists(struct db_context *db, const char *key)
 		goto done;
 	}
 
-	len = tdb_unpack(value.dptr, value.dsize, "d", &num_items);
-	if (len == (int32_t)-1) {
-		DEBUG(1, ("regdb_key_exists: ERROR: subkeylist-record for key "
-			  "[%s] is invalid: Could not parse initial 4-byte "
-			  "counter. record data length is %u.\n",
-			  path, (unsigned int)value.dsize));
-		goto done;
-	}
-
-	/*
-	 * Note: the tdb_unpack check above implies that len <= value.dsize
-	 */
-	buflen = value.dsize - len;
-	buf = (const char *)value.dptr + len;
-
-	for (i = 0; i < num_items; i++) {
-		if (buflen == 0) {
-			break;
-		}
-		len = strnlen(buf, buflen) + 1;
-		if (buflen < len) {
-			DEBUG(1, ("regdb_key_exists: ERROR: subkeylist-record "
-				  "for key [%s] is corrupt: %u items expected, "
-				  "item number %u is not zero terminated.\n",
-				  path, num_items, i+1));
-			goto done;
-		}
-
-		buf += len;
-		buflen -= len;
-	}
-
-	if (buflen > 0) {
-		DEBUG(1, ("regdb_key_exists: ERROR: subkeylist-record for key "
-			  "[%s] is corrupt: %u items expected and found, but "
-			  "the record contains additional %u bytes\n",
-			  path, num_items, buflen));
-		goto done;
-	}
-
-	if (i < num_items) {
-		DEBUG(1, ("regdb_key_exists: ERROR: subkeylist-record for key "
-			  "[%s] is corrupt: %u items expected, but only %u "
-			  "items found.\n",
-			  path, num_items, i+1));
-		goto done;
-	}
-
 	ret = true;
 
 done:
@@ -1744,11 +2111,6 @@ static WERROR regdb_fetch_keys_internal(struct db_context *db, const char *key,
 					struct regsubkey_ctr *ctr)
 {
 	WERROR werr;
-	uint32_t num_items;
-	uint8_t *buf;
-	uint32_t buflen, len;
-	uint32_t i;
-	fstring subkeyname;
 	TALLOC_CTX *frame = talloc_stackframe();
 	TDB_DATA value;
 	int seqnum[2], count;
@@ -1793,42 +2155,15 @@ static WERROR regdb_fetch_keys_internal(struct db_context *db, const char *key,
 		goto done;
 	}
 
-	buf = value.dptr;
-	buflen = value.dsize;
-	len = tdb_unpack( buf, buflen, "d", &num_items);
-	if (len == (uint32_t)-1) {
-		werr = WERR_NOT_FOUND;
+	werr = regdb_unpack_keys_v4(ctr, value.dptr, value.dsize);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(5, ("regdb_fetch_keys: regdb_unpack_keys_v4 "
+			  "failed: %s\n", win_errstr(werr)));
 		goto done;
 	}
 
-	for (i=0; i<num_items; i++) {
-		int this_len;
-
-		this_len = tdb_unpack(buf+len, buflen-len, "f", subkeyname);
-		if (this_len == -1) {
-			DBG_WARNING("Invalid registry data, "
-				    "tdb_unpack failed\n");
-			werr = WERR_INTERNAL_DB_CORRUPTION;
-			goto done;
-		}
-		len += this_len;
-		if (len < this_len) {
-			DBG_WARNING("Invalid registry data, "
-				    "integer overflow\n");
-			werr = WERR_INTERNAL_DB_CORRUPTION;
-			goto done;
-		}
-
-		werr = regsubkey_ctr_addkey(ctr, subkeyname);
-		if (!W_ERROR_IS_OK(werr)) {
-			DEBUG(5, ("regdb_fetch_keys: regsubkey_ctr_addkey "
-				  "failed: %s\n", win_errstr(werr)));
-			num_items = 0;
-			goto done;
-		}
-	}
-
-	DEBUG(11,("regdb_fetch_keys: Exit [%d] items\n", num_items));
+	DEBUG(11,("regdb_fetch_keys: Exit [%d] items\n",
+		  regsubkey_ctr_numkeys(ctr)));
 
 done:
 	TALLOC_FREE(frame);
@@ -1913,7 +2248,7 @@ static int regdb_unpack_values(struct regval_ctr *values,
  Pack all values in all printer keys
  ***************************************************************************/
 
-static int regdb_pack_values(struct regval_ctr *values, uint8_t *buf, int buflen)
+int regdb_pack_values_v3(struct regval_ctr *values, uint8_t *buf, int buflen)
 {
 	int len = 0;
 	int i;
@@ -1941,6 +2276,419 @@ static int regdb_pack_values(struct regval_ctr *values, uint8_t *buf, int buflen
 	}
 
 	return len;
+}
+
+/****************************************************************************
+ Pack subkeys using V3 format (legacy tdb_pack)
+ ***************************************************************************/
+
+int regdb_pack_keys_v3(struct regsubkey_ctr *ctr, uint8_t *buf, int buflen)
+{
+	int len = 0;
+	uint32_t j;
+	uint32_t num_subkeys;
+
+	if (ctr == NULL) {
+		return 0;
+	}
+
+	num_subkeys = regsubkey_ctr_numkeys(ctr);
+
+	/* Pack the number of subkeys first */
+	len += tdb_pack(buf + len, buflen - len, "d", num_subkeys);
+
+	/* Loop over all subkeys */
+	for (j = 0; j < num_subkeys; j++) {
+		const char *subkey = regsubkey_ctr_specific_key(ctr, j);
+		len += tdb_pack(buf + len, buflen - len, "f", subkey);
+	}
+
+	return len;
+}
+
+/****************************************************************************
+ Pack values using V4 format (NDR)
+ ***************************************************************************/
+
+WERROR regdb_pack_values_v4(struct regval_ctr *values,
+			    uint8_t **buf,
+			    size_t *buflen,
+			    TALLOC_CTX *mem_ctx)
+{
+	struct registry_value_list_blob blob;
+	struct registry_value_list_v4 *v4;
+	enum ndr_err_code ndr_err;
+	DATA_BLOB ndr_blob;
+	int i, num_values;
+
+	if (values == NULL) {
+		return WERR_INVALID_PARAMETER;
+	}
+
+	num_values = regval_ctr_numvals(values);
+
+	/* Validate input data */
+	for (i = 0; i < num_values; i++) {
+		struct regval_blob *val = regval_ctr_specific_value(values, i);
+		if (val == NULL) {
+			DEBUG(0, ("regdb_pack_values_v4: NULL value at index %d\n", i));
+			return WERR_INVALID_PARAMETER;
+		}
+		if (regval_name(val) == NULL) {
+			DEBUG(0, ("regdb_pack_values_v4: NULL value name at index %d\n", i));
+			return WERR_INVALID_PARAMETER;
+		}
+		/* Check for reasonable value name length */
+		if (strlen(regval_name(val)) > 16383) { /* Max registry value name length */
+			DEBUG(0, ("regdb_pack_values_v4: value name too long at index %d: %zu\n",
+				  i, strlen(regval_name(val))));
+			return WERR_INVALID_PARAMETER;
+		}
+	}
+
+	ZERO_STRUCT(blob);
+	blob.version = REGDB_VERSION_V4;
+	blob.reserved = 0;
+
+	v4 = &blob.ctr.v4;
+	v4->num_values = num_values;
+	v4->seqnum = regval_ctr_get_seqnum(values);
+	v4->values = NULL;
+
+	if (!num_values) {
+		goto ndr_push;
+	}
+
+	v4->values = talloc_array(mem_ctx,
+				  struct registry_value_v4,
+				  num_values);
+	if (v4->values == NULL) {
+		return WERR_NOT_ENOUGH_MEMORY;
+	}
+
+	for (i = 0; i < num_values; i++) {
+		struct regval_blob *val = regval_ctr_specific_value(values, i);
+		struct registry_value_v4 *v4_val = &v4->values[i];
+		const char *name = regval_name(val);
+
+		v4_val->valuename_len = strlen(name) + 1;
+		v4_val->valuename = (uint8_t *)talloc_strdup(v4->values, name);
+		if (v4_val->valuename == NULL) {
+			return WERR_NOT_ENOUGH_MEMORY;
+		}
+		v4_val->type = regval_type(val);
+		v4_val->size = regval_size(val);
+		v4_val->data = NULL;
+		if (!v4_val->size) {
+			continue;
+		}
+		v4_val->data = talloc_memdup(v4->values,
+					     regval_data_p(val),
+					     v4_val->size);
+		if (v4_val->data == NULL) {
+			return WERR_NOT_ENOUGH_MEMORY;
+		}
+	}
+
+ndr_push:
+	ndr_err = ndr_push_struct_blob(
+		&ndr_blob,
+		mem_ctx,
+		&blob,
+		(ndr_push_flags_fn_t)ndr_push_registry_value_list_blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("regdb_pack_values_v4: "
+			  "ndr_push_registry_value_list_blob failed: %s\n",
+			  ndr_errstr(ndr_err)));
+		return WERR_INTERNAL_ERROR;
+	}
+
+	*buf = ndr_blob.data;
+	*buflen = ndr_blob.length;
+
+	return WERR_OK;
+}
+
+/****************************************************************************
+ Unpack values from V4 format (NDR) or legacy formats (V1-V3)
+ ***************************************************************************/
+
+WERROR regdb_unpack_values_v4(struct regval_ctr *values,
+			      uint8_t *buf,
+			      size_t buflen)
+{
+	struct registry_value_list_blob blob;
+	enum ndr_err_code ndr_err;
+	DATA_BLOB ndr_blob;
+	TALLOC_CTX *tmp_ctx = NULL;
+	uint32_t i;
+	WERROR werr = WERR_OK;
+
+	if (buflen == 0) {
+		DEBUG(10, ("regdb_unpack_values_v4: empty buffer is "
+			   "treated as zero values\n"));
+		werr = WERR_OK;
+		goto done;
+	}
+
+	tmp_ctx = talloc_stackframe();
+	if (tmp_ctx == NULL) {
+		return WERR_NOT_ENOUGH_MEMORY;
+	}
+
+	ndr_blob.data = buf;
+	ndr_blob.length = buflen;
+
+	ZERO_STRUCT(blob);
+
+	ndr_err = ndr_pull_struct_blob(
+		&ndr_blob,
+		tmp_ctx,
+		&blob,
+		(ndr_pull_flags_fn_t)ndr_pull_registry_value_list_blob);
+
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		int ret;
+
+		DEBUG(10, ("regdb_unpack_values_v4: NDR parsing failed (%s), "
+			   "trying legacy format\n", ndr_errstr(ndr_err)));
+		ret = regdb_unpack_values(values, buf, buflen);
+		if (ret == -1) {
+			DEBUG(0, ("regdb_unpack_values_v4: both NDR and legacy "
+				  "unpacking failed, data may be corrupted\n"));
+			werr = WERR_INTERNAL_DB_CORRUPTION;
+		} else {
+			werr = WERR_OK;
+		}
+		goto done;
+	}
+
+	if (blob.version != REGDB_VERSION_V4) {
+		DEBUG(0, ("regdb_unpack_values_v4: unsupported version %u\n",
+			  blob.version));
+		werr = WERR_INVALID_DATA;
+		goto done;
+	}
+
+	for (i = 0; i < blob.ctr.v4.num_values; i++) {
+		const struct registry_value_v4 *v4_val;
+
+		v4_val = &blob.ctr.v4.values[i];
+		regval_ctr_addvalue(values,
+				    (const char *)v4_val->valuename,
+				    v4_val->type,
+				    v4_val->data,
+				    v4_val->size);
+	}
+
+	werr = WERR_OK;
+
+done:
+	TALLOC_FREE(tmp_ctx);
+	return werr;
+}
+
+/****************************************************************************
+ Pack subkeys using V4 format (NDR)
+ ***************************************************************************/
+
+static int regdb_subkey_cmp(const void *pa, const void *pb)
+{
+	const char *const *a = pa;
+	const char *const *b = pb;
+
+	return strcmp(*a, *b);
+}
+
+WERROR
+regdb_pack_keys_v4(struct regsubkey_ctr *ctr,
+		   uint8_t **buf,
+		   size_t *buflen,
+		   TALLOC_CTX *mem_ctx)
+{
+	struct registry_subkey_list_blob blob;
+	struct registry_subkey_list_v4 *v4;
+	enum ndr_err_code ndr_err;
+	DATA_BLOB ndr_blob;
+	uint32_t num_subkeys;
+	uint32_t i;
+
+	if (ctr == NULL) {
+		return WERR_INVALID_PARAMETER;
+	}
+
+	num_subkeys = regsubkey_ctr_numkeys(ctr);
+
+	/* Validate input data */
+	for (i = 0; i < num_subkeys; i++) {
+		const char *subkey = regsubkey_ctr_specific_key(ctr, i);
+		if (subkey == NULL) {
+			DEBUG(0, ("regdb_pack_keys_v4: NULL subkey at index %u\n", i));
+			return WERR_INVALID_PARAMETER;
+		}
+		/* Check for reasonable subkey name length */
+		if (strlen(subkey) > 255) { /* Max registry key name length */
+			DEBUG(0, ("regdb_pack_keys_v4: subkey name too long at index %u: %zu\n",
+				  i, strlen(subkey)));
+			return WERR_INVALID_PARAMETER;
+		}
+	}
+
+	ZERO_STRUCT(blob);
+	blob.version = REGDB_VERSION_V4;
+	blob.reserved = 0;
+
+	v4 = &blob.ctr.v4;
+	v4->num_subkeys = num_subkeys;
+	v4->seqnum = regsubkey_ctr_get_seqnum(ctr);
+	v4->subkeys = NULL;
+
+	if (!num_subkeys) {
+		goto ndr_push;
+	}
+
+	v4->subkeys = talloc_array(mem_ctx, const char *, num_subkeys);
+	if (v4->subkeys == NULL) {
+		return WERR_NOT_ENOUGH_MEMORY;
+	}
+
+	for (i = 0; i < num_subkeys; i++) {
+		const char *subkey = regsubkey_ctr_specific_key(ctr, i);
+
+		v4->subkeys[i] = talloc_strdup(v4->subkeys, subkey);
+		if (v4->subkeys[i] == NULL) {
+			return WERR_NOT_ENOUGH_MEMORY;
+		}
+	}
+
+	TYPESAFE_QSORT(v4->subkeys, num_subkeys, regdb_subkey_cmp);
+
+ndr_push:
+	ndr_err = ndr_push_struct_blob(
+		&ndr_blob,
+		mem_ctx,
+		&blob,
+		(ndr_push_flags_fn_t)ndr_push_registry_subkey_list_blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("regdb_pack_keys_v4: "
+			  "ndr_push_registry_subkey_list_blob failed: %s\n",
+			  ndr_errstr(ndr_err)));
+		return WERR_INTERNAL_ERROR;
+	}
+
+	*buf = ndr_blob.data;
+	*buflen = ndr_blob.length;
+
+	return WERR_OK;
+}
+
+/****************************************************************************
+ Unpack subkeys from V4 format (NDR) or legacy format (V1-V3)
+ ***************************************************************************/
+
+WERROR
+regdb_unpack_keys_v4(struct regsubkey_ctr *ctr, uint8_t *buf, size_t buflen)
+{
+	struct registry_subkey_list_blob blob;
+	enum ndr_err_code ndr_err;
+	DATA_BLOB ndr_blob;
+	TALLOC_CTX *tmp_ctx;
+	uint32_t i;
+	WERROR werr = WERR_OK;
+	uint32_t num_items;
+	uint32_t len;
+	fstring subkeyname;
+
+	tmp_ctx = talloc_stackframe();
+	if (tmp_ctx == NULL) {
+		return WERR_NOT_ENOUGH_MEMORY;
+	}
+
+	ndr_blob.data = buf;
+	ndr_blob.length = buflen;
+
+	ZERO_STRUCT(blob);
+
+	ndr_err = ndr_pull_struct_blob(
+		&ndr_blob,
+		tmp_ctx,
+		&blob,
+		(ndr_pull_flags_fn_t)ndr_pull_registry_subkey_list_blob);
+
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto legacy_format;
+	}
+	/* Check version */
+	if (blob.version != REGDB_VERSION_V4) {
+		DEBUG(0, ("regdb_unpack_keys_idl: unsupported version %u\n",
+			  blob.version));
+		werr = WERR_INVALID_DATA;
+		goto done;
+	}
+
+	/* Set poper sequence number */
+	werr = regsubkey_ctr_set_seqnum(ctr, blob.ctr.v4.seqnum);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_unpack_keys_v4: "
+			  "regsubkey_ctr_set_seqnum failed: %s\n",
+			  win_errstr(werr)));
+		goto done;
+	}
+
+	for (i = 0; i < blob.ctr.v4.num_subkeys; i++) {
+		werr = regsubkey_ctr_addkey(ctr, blob.ctr.v4.subkeys[i]);
+		if (!W_ERROR_IS_OK(werr)) {
+			DEBUG(5, ("regdb_unpack_keys_v4: "
+				  "regsubkey_ctr_addkey failed: %s\n",
+				  win_errstr(werr)));
+			goto done;
+		}
+	}
+	goto done;
+
+legacy_format:
+	DEBUG(10, ("regdb_unpack_keys_v4: trying legacy formats\n"));
+
+	/* Legacy unpacking code */
+	len = tdb_unpack(buf, buflen, "d", &num_items);
+	if (len == (uint32_t)-1) {
+		werr = WERR_NOT_FOUND;
+		goto done;
+	}
+
+	for (i = 0; i < num_items; i++) {
+		int this_len;
+
+		this_len = tdb_unpack(buf + len,
+				      buflen - len,
+				      "f",
+				      subkeyname);
+		if (this_len == -1) {
+			DBG_WARNING("Invalid registry data: "
+				    "tdb_unpack failed\n");
+			werr = WERR_INTERNAL_DB_CORRUPTION;
+			goto done;
+		}
+		len += this_len;
+		if (len < this_len) {
+			DBG_WARNING("Invalid registry data: "
+				    "integer overflow\n");
+			werr = WERR_INTERNAL_DB_CORRUPTION;
+			goto done;
+		}
+
+		werr = regsubkey_ctr_addkey(ctr, subkeyname);
+		if (!W_ERROR_IS_OK(werr)) {
+			DEBUG(5, ("regdb_unpack_keys_v4: "
+				  "regsubkey_ctr_addkey failed: %s\n",
+				  win_errstr(werr)));
+			goto done;
+		}
+	}
+
+done:
+	TALLOC_FREE(tmp_ctx);
+	return werr;
 }
 
 /***********************************************************************
@@ -1996,12 +2744,16 @@ static int regdb_fetch_values_internal(struct db_context *db, const char* key,
 
 	if (!value.dptr) {
 		/* all keys have zero values by default */
+		ret = 0;
 		goto done;
 	}
 
-	ret = regdb_unpack_values(values, value.dptr, value.dsize);
-	if (ret == -1) {
-		DBG_WARNING("regdb_unpack_values failed\n");
+	werr = regdb_unpack_values_v4(values, value.dptr, value.dsize);
+	if (!W_ERROR_IS_OK(werr)) {
+		DBG_WARNING("regdb_unpack_values_v4 failed: %s\n",
+			    win_errstr(werr));
+		ret = -1;
+		goto done;
 	}
 
 	ret = regval_ctr_numvals(values);
@@ -2023,7 +2775,6 @@ static NTSTATUS regdb_store_values_internal(struct db_context *db,
 	TDB_DATA old_data, data;
 	char *keystr = NULL;
 	TALLOC_CTX *ctx = talloc_stackframe();
-	int len;
 	NTSTATUS status;
 	WERROR werr;
 
@@ -2052,19 +2803,13 @@ static NTSTATUS regdb_store_values_internal(struct db_context *db,
 
 	ZERO_STRUCT(data);
 
-	len = regdb_pack_values(values, data.dptr, data.dsize);
-	if (len <= 0) {
-		DEBUG(0,("regdb_store_values: unable to pack values. len <= 0\n"));
-		status = NT_STATUS_UNSUCCESSFUL;
+	werr = regdb_pack_values_v4(values, &data.dptr, &data.dsize, ctx);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0,("regdb_store_values: unable to pack values: %s\n",
+			 win_errstr(werr)));
+		status = werror_to_ntstatus(werr);
 		goto done;
 	}
-
-	data.dptr = talloc_array(ctx, uint8_t, len);
-	data.dsize = len;
-
-	len = regdb_pack_values(values, data.dptr, data.dsize);
-
-	SMB_ASSERT( len == data.dsize );
 
 	keystr = talloc_asprintf(ctx, "%s\\%s", REG_VALUE_PREFIX, key );
 	if (!keystr) {
