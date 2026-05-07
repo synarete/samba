@@ -21,7 +21,7 @@ interface registry
 	const uint32 REGDB_VERSION_V2 = 2;
 	const uint32 REGDB_VERSION_V3 = 3;
 	const uint32 REGDB_VERSION_V4 = 4;
-	const uint32 REGDB_CODE_VERSION = REGDB_VERSION_V3;
+	const uint32 REGDB_CODE_VERSION = REGDB_VERSION_V4;
 
 	/*
 	 * Registry TDB key prefixes.
