@@ -16470,6 +16470,34 @@ static struct {
 		.fn    = run_tdb_validate,
 	},
 	{
+		.name  = "LOCAL-REGISTRY-PACK-UNPACK-VALUES",
+		.fn    = run_registry_pack_unpack_values,
+	},
+	{
+		.name  = "LOCAL-REGISTRY-PACK-UNPACK-KEYS",
+		.fn    = run_registry_pack_unpack_keys,
+	},
+	{
+		.name  = "LOCAL-REGISTRY-EMPTY-VALUES",
+		.fn    = run_registry_empty_values,
+	},
+	{
+		.name  = "LOCAL-REGISTRY-EMPTY-KEYS",
+		.fn    = run_registry_empty_keys,
+	},
+	{
+		.name  = "LOCAL-REGISTRY-V3-TO-V4-VALUES",
+		.fn    = run_registry_v3_to_v4_values,
+	},
+	{
+		.name  = "LOCAL-REGISTRY-V3-TO-V4-KEYS",
+		.fn    = run_registry_v3_to_v4_keys,
+	},
+	{
+		.name  = "LOCAL-REGISTRY-SUBKEY-CTR-BINARY-SEARCH",
+		.fn    = run_registry_subkey_ctr_binary_search,
+	},
+	{
 		.name = NULL,
 	},
 };
