@@ -200,4 +200,15 @@ bool run_ctdbd_conn1(int dummy);
 bool run_rpc_scale(int dummy);
 bool run_tdb_validate(int dummy);
 
+bool run_registry_pack_unpack_values(int dummy);
+bool run_registry_pack_unpack_keys(int dummy);
+bool run_registry_empty_values(int dummy);
+bool run_registry_empty_keys(int dummy);
+bool run_registry_subkey_ctr_binary_search(int dummy);
+bool run_registry_v3_to_v4_values(int dummy);
+bool run_registry_v3_to_v4_keys(int dummy);
+bool run_registry_v3_empty_values_vector(int dummy);
+bool run_registry_v3_single_dword_vector(int dummy);
+bool run_registry_v3_double_subkeys_vector(int dummy);
+
 #endif /* __TORTURE_H__ */
