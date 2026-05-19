@@ -39,6 +39,8 @@
 #include "util_tdb.h"
 #include "libcli/registry/util_reg.h"
 #include "registry/reg_parse_internal.h"
+#include "registry/reg_objects.h"
+#include "registry/reg_backend_db.h"
 #include "interact.h"
 #include "librpc/gen_ndr/ndr_registry.h"
 
@@ -511,6 +513,10 @@ read_subkeys(struct check_ctx *ctx, const char *path, TDB_DATA val, bool update)
 	uint32_t num_items, found_items = 0;
 	char *subkey;
 	struct regkey *key = check_ctx_lookup_key(ctx, path);
+	TALLOC_CTX *tmp_ctx = NULL;
+	struct regsubkey_ctr *ctr = NULL;
+	WERROR werr;
+	uint32_t i;
 
 	key->needs_update |= update;
 
@@ -527,6 +533,12 @@ read_subkeys(struct check_ctx *ctx, const char *path, TDB_DATA val, bool update)
 	/* name is set if a key is referenced by the */
 	/* subkeylist of its parent. */
 
+	/* Try V4 format first (NDR) */
+	if (ctx->version >= 4) {
+		goto new_format;
+	}
+
+	/* Legacy V1-V3 format */
 	if (!tdb_data_read_uint32(&val, &num_items) ) {
 		printf("Invalid subkeylist: \"%s\"\n", path);
 		return;
@@ -552,7 +564,49 @@ read_subkeys(struct check_ctx *ctx, const char *path, TDB_DATA val, bool update)
 		       "expected: %d got: %d\n", path, num_items, found_items);
 		key->needs_update = true;
 	}
+        return;
 
+new_format:
+
+	tmp_ctx = talloc_new(talloc_tos());
+	if (tmp_ctx == NULL) {
+		printf("Out of memory reading subkeys for \"%s\"\n", path);
+		return;
+	}
+
+	werr = regsubkey_ctr_init(tmp_ctx, &ctr);
+	if (!W_ERROR_IS_OK(werr)) {
+		printf("regsubkey_ctr_init failed for \"%s\": %s\n",
+		       path,
+		       win_errstr(werr));
+		goto out;
+	}
+
+	werr = regdb_unpack_keys_v4(ctr, val.dptr, val.dsize);
+	if (!W_ERROR_IS_OK(werr)) {
+		printf("Invalid V4 subkeylist: \"%s\": %s\n",
+		       path,
+		       win_errstr(werr));
+		goto out;
+	}
+
+	num_items = regsubkey_ctr_numkeys(ctr);
+	for (i = 0; i < num_items; i++) {
+		const char *name = regsubkey_ctr_specific_key(ctr, i);
+		set_subkey_name(ctx, key, name, strlen(name));
+		found_items++;
+	}
+
+	if (num_items != found_items) {
+		printf("Subkeylist of \"%s\": invalid number of subkeys, "
+		       "expected: %d got: %d\n",
+		       path,
+		       num_items,
+		       found_items);
+		key->needs_update = true;
+	}
+out:
+	TALLOC_FREE(tmp_ctx);
 }
 
 static void read_values(struct check_ctx *ctx, const char *path, TDB_DATA val)
@@ -944,13 +998,29 @@ static int cmp_keynames(char **p1, char **p2)
 	return strcasecmp_m(*p1, *p2);
 }
 
-static bool
-write_subkeylist(struct db_context *db, struct regkey *key, char sep)
+static bool write_subkeylist(struct db_context *db,
+			     struct regkey *key,
+			     char sep,
+			     uint32_t version)
 {
-	cbuf *buf = cbuf_new(talloc_tos());
-	size_t i;
-	bool ret;
+	TALLOC_CTX *tmp_ctx = talloc_new(talloc_tos());
+	TDB_DATA tdb_data;
+	struct regsubkey_ctr *ctr = NULL;
+	WERROR werr;
+	uint8_t *buf_v4 = NULL;
+	cbuf *buf = NULL;
+	size_t i, buflen = 0;
+	bool ret = false;
 
+	if (tmp_ctx == NULL) {
+		return false;
+	}
+
+	if (version >= 4) {
+		goto new_format;
+	}
+
+	buf = cbuf_new(tmp_ctx);
 	cbuf_putdw(buf, key->nsubkeys);
 
 	for (i=0; i < key->nsubkeys; i++) {
@@ -967,9 +1037,48 @@ write_subkeylist(struct db_context *db, struct regkey *key, char sep)
 		cbuf_putc(buf, '\0');
 	}
 
-	ret = dbwrap_store_verbose(db, key->path, cbuf_make_tdb_data(buf));
+	tdb_data = cbuf_make_tdb_data(buf);
+	goto store;
 
-	talloc_free(buf);
+new_format:
+	werr = regsubkey_ctr_init(tmp_ctx, &ctr);
+	if (!W_ERROR_IS_OK(werr)) {
+		printf("write_subkeylist: regsubkey_ctr_init failed: %s\n",
+		       win_errstr(werr));
+		goto done;
+	}
+
+	for (i = 0; i < key->nsubkeys; i++) {
+		struct regkey *subkey = key->subkeys[i];
+		const char *name = subkey->name;
+		if (name == NULL) {
+			printf("Warning: no explicit name for key %s\n",
+			       subkey->path);
+			name = strrchr_m(subkey->path, sep);
+			assert(name);
+			name++;
+		}
+		werr = regsubkey_ctr_addkey(ctr, name);
+		if (!W_ERROR_IS_OK(werr)) {
+			printf("write_subkeylist: regsubkey_ctr_addkey "
+			       "failed: %s\n",
+			       win_errstr(werr));
+			goto done;
+		}
+	}
+
+	werr = regdb_pack_keys_v4(ctr, &buf_v4, &buflen, tmp_ctx);
+	if (!W_ERROR_IS_OK(werr)) {
+		printf("write_subkeylist: regdb_pack_keys_v4 failed: %s\n",
+		       win_errstr(werr));
+		goto done;
+	}
+
+	tdb_data = make_tdb_data(buf_v4, buflen);
+store:
+	ret = dbwrap_store_verbose(db, key->path, tdb_data);
+done:
+	TALLOC_FREE(tmp_ctx);
 	return ret;
 }
 
@@ -1076,7 +1185,7 @@ static int check_write_db_action(struct db_record *rec, void *check_ctx)
 
 	/* write subkeylist */
 	if ((ctx->version > 2) || (key->nsubkeys > 0) || (key->has_subkeylist)) {
-		write_subkeylist(ctx->odb, key, ctx->sep);
+		write_subkeylist(ctx->odb, key, ctx->sep, ctx->version);
 	}
 
 	/* write sorted subkeys */
@@ -1116,7 +1225,10 @@ static int fix_tree_action(struct db_record *rec, void *check_ctx)
 	if (key->needs_update) {
 		printf("Update key: \"%s\"\n", key->path);
 		if ((ctx->version > 2) || (key->nsubkeys > 0)) {
-			write_subkeylist(ctx->odb, key, ctx->sep);
+			write_subkeylist(ctx->odb,
+					 key,
+					 ctx->sep,
+					 ctx->version);
 		}
 		if ((ctx->version <= 2) && (key->nsubkeys > 0)) {
 			write_sorted(ctx->odb, key, ctx->sep);
@@ -1130,14 +1242,20 @@ static int fix_tree_action(struct db_record *rec, void *check_ctx)
 	} else if (!key->has_subkeylist) {
 		if ((ctx->version > 2) || (key->nsubkeys > 0)) {
 			printf("Missing subkeylist: %s\n", key->path);
-			write_subkeylist(ctx->odb, key, ctx->sep);
+			write_subkeylist(ctx->odb,
+					 key,
+					 ctx->sep,
+					 ctx->version);
 		}
 	}
 
 	if (key->name == NULL && key->parent->has_subkeylist) {
 		printf("Key not referenced by the its parents subkeylist: %s\n",
 		       key->path);
-		write_subkeylist(ctx->odb, key->parent, ctx->sep);
+		write_subkeylist(ctx->odb,
+				 key->parent,
+				 ctx->sep,
+				 ctx->version);
 	}
 
 /* XXX check that upcase(name) matches last part of path ??? */
