@@ -3519,28 +3519,49 @@ static int vfs_ceph_fstatat(struct vfs_handle_struct *handle,
 {
 	int result = -1;
 	struct vfs_ceph_iref iref = {0};
+	struct vfs_ceph_iref diref = {0};
 	struct vfs_ceph_fh *dircfh = NULL;
 
 	START_PROFILE_X(SNUM(handle->conn), syscall_fstatat);
 
 	result = vfs_ceph_fetch_fh(handle, dirfsp, &dircfh);
-	if (result != 0) {
-		goto out;
-	}
+	if (result == 0) {
+		/* Normal (fast) path: dirfsp has ceph extension */
+		result = vfs_ceph_ll_lookupat(handle,
+					      dircfh,
+					      smb_fname->base_name,
+					      &iref);
+		if (result != 0) {
+			goto out;
+		}
 
-	result = vfs_ceph_ll_lookupat(handle,
-				      dircfh,
-				      smb_fname->base_name,
-				      &iref);
-	if (result != 0) {
-		goto out;
-	}
+		result = vfs_ceph_ll_getattr2(handle,
+					      &iref,
+					      dircfh->uperm,
+					      sbuf);
+	} else if ((result == -EBADF) &&
+		   (fsp_get_pathref_fd(dirfsp) == AT_FDCWD))
+	{
+		/*
+		 * VFS stacking path: no ceph extension and AT_FDCWD:
+		 * resolve via current working directory.
+		 */
+		result = vfs_ceph_iget(handle, ".", 0, &diref);
+		if (result != 0) {
+			goto out;
+		}
+		result = vfs_ceph_ll_lookup(handle,
+					    &diref,
+					    smb_fname->base_name,
+					    &iref);
+		if (result != 0) {
+			goto out;
+		}
 
-	result = vfs_ceph_ll_getattr2(handle, &iref, dircfh->uperm, sbuf);
-	if (result != 0) {
-		goto out;
+		result = vfs_ceph_ll_getattr(handle, &iref, sbuf);
 	}
 out:
+	vfs_ceph_iput(handle, &diref);
 	vfs_ceph_iput(handle, &iref);
 	DBG_DEBUG("[CEPH] fstatat: dirfsp_name=%s name=%s result=%d\n",
 		  fsp_str_dbg(dirfsp),
