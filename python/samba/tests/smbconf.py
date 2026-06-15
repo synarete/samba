@@ -322,7 +322,7 @@ class SMBConfTests(samba.tests.TestCase):
         )
 
         names = sconf.share_names()
-        self.assertEqual(names, ["hello", "goodnight"])
+        self.assertEqual(names, ["goodnight", "hello"])
 
     def test_error_badfile(self):
         with self.assertRaises(self.smbconf.SMBConfError) as raised:
