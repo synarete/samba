@@ -584,8 +584,9 @@ new_format:
 
 	werr = regdb_unpack_keys_v4(ctr, val.dptr, val.dsize);
 	if (!W_ERROR_IS_OK(werr)) {
-		printf("Invalid V4 subkeylist: \"%s\": %s\n",
+		printf("Invalid V4 subkeylist: \"%s\" (buffer length %zu): %s\n",
 		       path,
+		       val.dsize,
 		       win_errstr(werr));
 		goto out;
 	}
@@ -1069,7 +1070,8 @@ new_format:
 
 	werr = regdb_pack_keys_v4(ctr, &buf_v4, &buflen, tmp_ctx);
 	if (!W_ERROR_IS_OK(werr)) {
-		printf("write_subkeylist: regdb_pack_keys_v4 failed: %s\n",
+		printf("write_subkeylist: regdb_pack_keys_v4 failed for \"%s\": %s\n",
+		       key->path,
 		       win_errstr(werr));
 		goto done;
 	}
@@ -1320,7 +1322,9 @@ static bool check_ctx_check_tree(struct check_ctx *ctx) {
 
 	status = dbwrap_traverse(ctx->reg, check_tree_action, ctx, NULL);
 	if (!NT_STATUS_IS_OK(status)) {
-		DEBUG(0, ("check traverse failed: %s\n",
+		DEBUG(0, ("check_ctx_check_tree: check traverse failed for [%s]: "
+			  "%s\n",
+			  ctx->fname ? ctx->fname : "<unknown>",
 			  nt_errstr(status)));
 		return false;
 	}
@@ -1330,18 +1334,28 @@ static bool check_ctx_fix_inplace(struct check_ctx *ctx) {
 	NTSTATUS status;
 	status = dbwrap_traverse(ctx->reg, fix_tree_action, ctx, NULL);
 	if (!NT_STATUS_IS_OK(status)) {
-		DEBUG(0, ("fix traverse failed: %s\n", nt_errstr(status)));
+		DEBUG(0, ("check_ctx_fix_inplace: fix traverse failed for [%s]: "
+			  "%s\n",
+			  ctx->fname ? ctx->fname : "<unknown>",
+			  nt_errstr(status)));
 		return false;
 	}
 
 	status = dbwrap_traverse(ctx->del, delete_invalid_action, ctx, NULL);
 	if (!NT_STATUS_IS_OK(status)) {
-		DEBUG(0, ("delete traverse failed: %s\n", nt_errstr(status)));
+		DEBUG(0, ("check_ctx_fix_inplace: delete traverse failed for [%s]: "
+			  "%s\n",
+			  ctx->fname ? ctx->fname : "<unknown>",
+			  nt_errstr(status)));
 		return false;
 	}
 
 	if (!dbwrap_store_uint32_verbose(ctx->odb, "INFO/version", ctx->version)) {
-		DEBUG(0, ("storing version failed: %s\n", nt_errstr(status)));
+		DEBUG(0, ("check_ctx_fix_inplace: storing version %u failed for "
+			  "[%s]\n",
+			  ctx->version,
+			  ctx->opt.output ? ctx->opt.output :
+			  (ctx->fname ? ctx->fname : "<unknown>")));
 		return false;
 	}
 
@@ -1356,21 +1370,30 @@ static bool check_ctx_write_new_db(struct check_ctx *ctx) {
 	if (ctx->opt.wipe) {
 		int ret = dbwrap_wipe(ctx->odb);
 		if (ret != 0) {
-			DEBUG(0, ("wiping %s failed\n", ctx->opt.output));
+			DEBUG(0, ("check_ctx_write_new_db: wiping [%s] failed\n",
+				  ctx->opt.output));
 			return false;
 		}
 	}
 
 	status = dbwrap_traverse(ctx->reg, check_write_db_action, ctx, NULL);
 	if (!NT_STATUS_IS_OK(status)) {
-		DEBUG(0, ("traverse2 failed: %s\n", nt_errstr(status)));
+		DEBUG(0, ("check_ctx_write_new_db: traverse failed from [%s] to "
+			  "[%s]: %s\n",
+			  ctx->fname ? ctx->fname : "<unknown>",
+			  ctx->opt.output ? ctx->opt.output : "<unknown>",
+			  nt_errstr(status)));
 		return false;
 	}
 
 	status = dbwrap_store_uint32_bystring(ctx->odb, "INFO/version",
 					      ctx->version);
 	if (!NT_STATUS_IS_OK(status)) {
-		DEBUG(0, ("write version failed: %s\n", nt_errstr(status)));
+		DEBUG(0, ("check_ctx_write_new_db: write version %u failed for "
+			  "[%s]: %s\n",
+			  ctx->version,
+			  ctx->opt.output ? ctx->opt.output : "<unknown>",
+			  nt_errstr(status)));
 		return false;
 	}
 	return true;

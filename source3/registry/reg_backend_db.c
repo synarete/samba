@@ -1095,10 +1095,14 @@ static int regdb_upgrade_v3_to_v4_fn(struct db_record *rec, void *private_data)
 		if (W_ERROR_IS_OK(werr)) {
 			(*ctx->converted_values)++;
 		} else if (W_ERROR_EQUAL(werr, WERR_INVALID_DATA)) {
-			/* Skip invalid records */
+			DEBUG(1, ("regdb_upgrade_v3_to_v4_fn: skipping invalid "
+				  "value record [%.*s]: %s\n",
+				  SSTR(key), win_errstr(werr)));
 			(*ctx->skipped_records)++;
 		} else {
-			/* Fatal error */
+			DEBUG(0, ("regdb_upgrade_v3_to_v4_fn: fatal error "
+				  "converting value record [%.*s]: %s\n",
+				  SSTR(key), win_errstr(werr)));
 			result = 1;
 		}
 		goto done;
@@ -1110,10 +1114,14 @@ static int regdb_upgrade_v3_to_v4_fn(struct db_record *rec, void *private_data)
 		if (W_ERROR_IS_OK(werr)) {
 			(*ctx->converted_subkeys)++;
 		} else if (W_ERROR_EQUAL(werr, WERR_INVALID_DATA)) {
-			/* Skip invalid records */
+			DEBUG(1, ("regdb_upgrade_v3_to_v4_fn: skipping invalid "
+				  "subkey record [%.*s]: %s\n",
+				  SSTR(key), win_errstr(werr)));
 			(*ctx->skipped_records)++;
 		} else {
-			/* Fatal error */
+			DEBUG(0, ("regdb_upgrade_v3_to_v4_fn: fatal error "
+				  "converting subkey record [%.*s]: %s\n",
+				  SSTR(key), win_errstr(werr)));
 			result = 1;
 		}
 		goto done;
@@ -1138,7 +1146,8 @@ static WERROR regdb_upgrade_v3_to_v4(struct db_context *db)
 	uint32_t skipped_records = 0;
 	struct regdb_upgrade_v3_to_v4_ctx ctx;
 
-	DEBUG(10, ("regdb_upgrade_v3_to_v4: starting upgrade\n"));
+	DEBUG(1, ("regdb_upgrade_v3_to_v4: starting upgrade to version %u\n",
+		  REGDB_VERSION_V4));
 
 	ctx.db = db;
 	ctx.converted_values = &converted_values;
@@ -2450,35 +2459,63 @@ WERROR regdb_unpack_values_v4(struct regval_ctr *values,
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		int ret;
 
-		DEBUG(10, ("regdb_unpack_values_v4: NDR parsing failed (%s), "
-			   "trying legacy format\n", ndr_errstr(ndr_err)));
+		DEBUG(10, ("regdb_unpack_values_v4: NDR parsing failed for "
+			   "buffer length %zu (%s), trying legacy format\n",
+			   buflen, ndr_errstr(ndr_err)));
 		ret = regdb_unpack_values(values, buf, buflen);
 		if (ret == -1) {
 			DEBUG(0, ("regdb_unpack_values_v4: both NDR and legacy "
-				  "unpacking failed, data may be corrupted\n"));
+				  "unpacking failed for buffer length %zu, "
+				  "data may be corrupted\n",
+				  buflen));
 			werr = WERR_INTERNAL_DB_CORRUPTION;
 		} else {
+			DEBUG(5, ("regdb_unpack_values_v4: legacy unpack succeeded "
+				  "after NDR parse failure for buffer length %zu\n",
+				  buflen));
 			werr = WERR_OK;
 		}
 		goto done;
 	}
 
 	if (blob.version != REGDB_VERSION_V4) {
-		DEBUG(0, ("regdb_unpack_values_v4: unsupported version %u\n",
-			  blob.version));
+		DEBUG(0, ("regdb_unpack_values_v4: unsupported version %u "
+			  "(expected %u)\n",
+			  blob.version, REGDB_VERSION_V4));
 		werr = WERR_INVALID_DATA;
 		goto done;
 	}
 
 	for (i = 0; i < blob.ctr.v4.num_values; i++) {
 		const struct registry_value_v4 *v4_val;
+		int ret;
 
 		v4_val = &blob.ctr.v4.values[i];
-		regval_ctr_addvalue(values,
-				    (const char *)v4_val->valuename,
-				    v4_val->type,
-				    v4_val->data,
-				    v4_val->size);
+		ret = regval_ctr_addvalue(values,
+					  (const char *)v4_val->valuename,
+					  v4_val->type,
+					  v4_val->data,
+					  v4_val->size);
+		if (ret == 0 && blob.ctr.v4.num_values != 0) {
+			DEBUG(0, ("regdb_unpack_values_v4: regval_ctr_addvalue "
+				  "failed at index %u for value [%s], type [%u], "
+				  "size [%u]\n",
+				  i,
+				  v4_val->valuename != NULL ?
+				  (const char *)v4_val->valuename : "<null>",
+				  v4_val->type,
+				  v4_val->size));
+			werr = WERR_NOT_ENOUGH_MEMORY;
+			goto done;
+		}
+	}
+
+	werr = regval_ctr_set_seqnum(values, blob.ctr.v4.seqnum);
+	if (!W_ERROR_IS_OK(werr)) {
+		DEBUG(0, ("regdb_unpack_values_v4: regval_ctr_set_seqnum "
+			  "failed: %s\n",
+			  win_errstr(werr)));
+		goto done;
 	}
 
 	werr = WERR_OK;
@@ -2616,12 +2653,16 @@ regdb_unpack_keys_v4(struct regsubkey_ctr *ctr, uint8_t *buf, size_t buflen)
 		(ndr_pull_flags_fn_t)ndr_pull_registry_subkey_list_blob);
 
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(10, ("regdb_unpack_keys_v4: NDR parsing failed for "
+			   "buffer length %zu (%s), trying legacy format\n",
+			   buflen, ndr_errstr(ndr_err)));
 		goto legacy_format;
 	}
 	/* Check version */
 	if (blob.version != REGDB_VERSION_V4) {
-		DEBUG(0, ("regdb_unpack_keys_idl: unsupported version %u\n",
-			  blob.version));
+		DEBUG(0, ("regdb_unpack_keys_v4: unsupported version %u "
+			  "(expected %u)\n",
+			  blob.version, REGDB_VERSION_V4));
 		werr = WERR_INVALID_DATA;
 		goto done;
 	}
@@ -2750,8 +2791,9 @@ static int regdb_fetch_values_internal(struct db_context *db, const char* key,
 
 	werr = regdb_unpack_values_v4(values, value.dptr, value.dsize);
 	if (!W_ERROR_IS_OK(werr)) {
-		DBG_WARNING("regdb_unpack_values_v4 failed: %s\n",
-			    win_errstr(werr));
+		DBG_WARNING("regdb_unpack_values_v4 failed for key [%s], "
+			    "buffer length %zu: %s\n",
+			    key, value.dsize, win_errstr(werr));
 		ret = -1;
 		goto done;
 	}
@@ -2805,8 +2847,9 @@ static NTSTATUS regdb_store_values_internal(struct db_context *db,
 
 	werr = regdb_pack_values_v4(values, &data.dptr, &data.dsize, ctx);
 	if (!W_ERROR_IS_OK(werr)) {
-		DEBUG(0,("regdb_store_values: unable to pack values: %s\n",
-			 win_errstr(werr)));
+		DEBUG(0,("regdb_store_values: unable to pack values for key [%s]: "
+			 "%s\n",
+			 key, win_errstr(werr)));
 		status = werror_to_ntstatus(werr);
 		goto done;
 	}
