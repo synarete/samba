@@ -2478,11 +2478,25 @@ WERROR regdb_unpack_values_v4(struct regval_ctr *values,
 		goto done;
 	}
 
+	/* Check version - if not V4, try legacy format */
 	if (blob.version != REGDB_VERSION_V4) {
-		DEBUG(0, ("regdb_unpack_values_v4: unsupported version %u "
-			  "(expected %u)\n",
-			  blob.version, REGDB_VERSION_V4));
-		werr = WERR_INVALID_DATA;
+		int ret;
+
+		DEBUG(10, ("regdb_unpack_values_v4: version %u found "
+			   "(expected %u), trying legacy format\n",
+			   blob.version, REGDB_VERSION_V4));
+		ret = regdb_unpack_values(values, buf, buflen);
+		if (ret == -1) {
+			DEBUG(0, ("regdb_unpack_values_v4: legacy unpacking "
+				  "failed for version %u, buffer length %zu\n",
+				  blob.version, buflen));
+			werr = WERR_INTERNAL_DB_CORRUPTION;
+		} else {
+			DEBUG(5, ("regdb_unpack_values_v4: legacy unpack succeeded "
+				  "for version %u, buffer length %zu\n",
+				  blob.version, buflen));
+			werr = WERR_OK;
+		}
 		goto done;
 	}
 
@@ -2658,13 +2672,12 @@ regdb_unpack_keys_v4(struct regsubkey_ctr *ctr, uint8_t *buf, size_t buflen)
 			   buflen, ndr_errstr(ndr_err)));
 		goto legacy_format;
 	}
-	/* Check version */
+	/* Check version - if not V4, try legacy format */
 	if (blob.version != REGDB_VERSION_V4) {
-		DEBUG(0, ("regdb_unpack_keys_v4: unsupported version %u "
-			  "(expected %u)\n",
-			  blob.version, REGDB_VERSION_V4));
-		werr = WERR_INVALID_DATA;
-		goto done;
+		DEBUG(10, ("regdb_unpack_keys_v4: version %u found "
+			   "(expected %u), trying legacy format\n",
+			   blob.version, REGDB_VERSION_V4));
+		goto legacy_format;
 	}
 
 	/* Set poper sequence number */
