@@ -3,6 +3,8 @@
 import "misc.idl";
 
 [
+	uuid("63aa7923-436f-4bb8-aeed-80d8d9ef6c11"),
+	version(0.0),
 	pointer_default(unique),
 	helpstring("Windows Registry TDB on-disk format")
 ]
@@ -11,16 +13,37 @@ interface registry
 	/*
 	 * Registry TDB database format version for IDL structures:
 	 *
+	 * This versioning mechanism allows for future format changes
+	 * while maintaining backward compatibility. The version field
+	 * in the on-disk structures enables detection and handling of
+	 * different format versions.
+	 *
+	 * Version history:
 	 * (1) first db version with write support.
 	 * (2) version 2 with normalized keys.
 	 * (3) different definition of key existence, sorted subkeys cache
 	 *     removed.
-	 * (4) IDL based registry.
+	 * (4) IDL based registry format.
+	 *
+	 * NOTE: Version 0 is reserved and should not be used.
 	 */
-	const uint32 REGDB_VERSION_V1 = 1;
-	const uint32 REGDB_VERSION_V2 = 2;
-	const uint32 REGDB_VERSION_V3 = 3;
-	const uint32 REGDB_VERSION_V4 = 4;
+	typedef [v1_enum] enum {
+		REGDB_VERSION_V1 = 0x00000001,
+		REGDB_VERSION_V2 = 0x00000002,
+		REGDB_VERSION_V3 = 0x00000003,
+		REGDB_VERSION_V4 = 0x00000004
+	} regdb_version_values;
+
+	/*
+	 * Current version used by the code.
+	 * Update this when introducing a new version.
+	 */
+	const uint32 REGDB_VERSION_CURRENT = REGDB_VERSION_V4;
+
+	/*
+	 * Legacy constant for backward compatibility.
+	 * New code should use REGDB_VERSION_CURRENT.
+	 */
 	const uint32 REGDB_CODE_VERSION = REGDB_VERSION_V4;
 
 	/*
@@ -52,17 +75,27 @@ interface registry
 
 	/*
 	 * Versioned union for registry values
+	 *
+	 * When adding a new version:
+	 * 1. Add new case with the version enum value
+	 * 2. Define the corresponding structure (e.g., registry_value_list_v5)
+	 * 3. Update REGDB_VERSION_CURRENT
 	 */
 	typedef [nodiscriminant] union {
 		[case(REGDB_VERSION_V4)] registry_value_list_v4 v4;
+		[default] ;
 	} registry_value_list_ctr;
 
 	/*
 	 * Top-level structure for registry values
 	 * Stored in TDB with key format: "SAMBA_REGVAL\<keypath>"
+	 *
+	 * The version field uses regdb_version_values enum but is stored
+	 * as uint32 for on-disk compatibility. The reserved field is for
+	 * future use and must be set to 0.
 	 */
 	typedef [public] struct {
-		uint32 version;
+		regdb_version_values version;
 		[value(0)] uint32 reserved;
 		[switch_is(version)] registry_value_list_ctr ctr;
 	} registry_value_list_blob;
@@ -78,17 +111,27 @@ interface registry
 
 	/*
 	 * Versioned union for subkeys
+	 *
+	 * When adding a new version:
+	 * 1. Add new case with the version enum value
+	 * 2. Define the corresponding structure (e.g., registry_subkey_list_v5)
+	 * 3. Update REGDB_VERSION_CURRENT
 	 */
 	typedef [nodiscriminant] union {
 		[case(REGDB_VERSION_V4)] registry_subkey_list_v4 v4;
+		[default] ;
 	} registry_subkey_list_ctr;
 
 	/*
 	 * Top-level structure for registry subkeys
 	 * Stored in TDB with key format: "<keypath>"
+	 *
+	 * The version field uses regdb_version_values enum but is stored
+	 * as uint32 for on-disk compatibility. The reserved field is for
+	 * future use and must be set to 0.
 	 */
 	typedef [public] struct {
-		uint32 version;
+		regdb_version_values version;
 		[value(0)] uint32 reserved;
 		[switch_is(version)] registry_subkey_list_ctr ctr;
 	} registry_subkey_list_blob;
