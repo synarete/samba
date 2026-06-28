@@ -387,7 +387,7 @@ static bool smbprofile_persvc_grow(int snum)
 	return true;
 }
 
-static struct profile_stats_persvc *smbprofile_persvc_lookup(int snum)
+struct profile_stats_persvc *smbprofile_persvc_lookup(int snum)
 {
 	if (!smbprofile_active() || (snum < 0) ||
 	    (snum >= (int)talloc_array_length(smbprofile_state.persvc.tbl))) {
@@ -395,6 +395,23 @@ static struct profile_stats_persvc *smbprofile_persvc_lookup(int snum)
 	}
 
 	return smbprofile_state.persvc.tbl[snum];
+}
+
+struct profile_stats *smbprofile_persvc_get(struct profile_stats_persvc *entry)
+{
+	if (entry != NULL) {
+		entry->pincnt++;
+		entry->active = true;
+		return &entry->stats;
+	}
+	return NULL;
+}
+
+void smbprofile_persvc_put(struct profile_stats_persvc *entry)
+{
+	if (entry != NULL) {
+		entry->pincnt--;
+	}
 }
 
 static struct profile_stats_persvc *smbprofile_persvc_insert(int snum,
@@ -482,23 +499,6 @@ void smbprofile_persvc_unref(int snum)
 	}
 }
 
-struct profile_stats *smbprofile_persvc_get(int snum)
-{
-	struct profile_stats_persvc *persvc = NULL;
-
-	if (!smbprofile_active() || (snum < 0)) {
-		return NULL;
-	}
-
-	persvc = smbprofile_persvc_lookup(snum);
-	if (persvc == NULL) {
-		return NULL;
-	}
-
-	persvc->active = true;
-	return &persvc->stats;
-}
-
 static TDB_DATA tdb_keyof(struct profile_stats_persvc *persvc)
 {
 	return string_tdb_data(persvc->dbkey);
@@ -535,7 +535,7 @@ static void smbprofile_persvc_dump(void)
 	for (i = 0; i < cap; ++i) {
 		entry = smbprofile_state.persvc.tbl[i];
 		if (entry != NULL) {
-			if (entry->refcnt == 0) {
+			if ((entry->refcnt == 0) && (entry->pincnt == 0)) {
 				smbprofile_persvc_clear(entry);
 			} else if (entry->active) {
 				smbprofile_persvc_store(entry);
