@@ -202,6 +202,7 @@ struct vfs_ceph_config {
 	CEPH_FN(ceph_add_fscrypt_key);
 	CEPH_FN(ceph_ll_set_fscrypt_policy_v2);
 #endif
+	CEPH_FN(ceph_readdirplus_r);
 };
 
 /*
@@ -505,6 +506,7 @@ static bool vfs_cephfs_load_lib(struct vfs_ceph_config *config)
 	CHECK_CEPH_FN(libhandle, ceph_add_fscrypt_key);
 	CHECK_CEPH_FN(libhandle, ceph_ll_set_fscrypt_policy_v2);
 #endif
+	CHECK_CEPH_FN(libhandle, ceph_readdirplus_r);
 
 	config->libhandle = libhandle;
 
@@ -1622,6 +1624,18 @@ static int vfs_ceph_ll_readdir(const struct vfs_handle_struct *hndl,
 
 	DBG_DEBUG("[CEPH] ceph_readdir: ino=%" PRIu64 " fd=%d\n",
 		  dircfh->iref.ino, dircfh->fd);
+
+	if (config->ceph_readdirplus_r_fn != NULL) {
+		struct ceph_statx stx = {};
+
+		return config->ceph_readdirplus_r_fn(config->mount,
+						     dircfh->dirp.cdr,
+						     dircfh->de,
+						     &stx,
+						     CEPH_STATX_ALL_STATS,
+						     0,
+						     NULL);
+	}
 
 	return config->ceph_readdir_r_fn(config->mount,
 					 dircfh->dirp.cdr,
