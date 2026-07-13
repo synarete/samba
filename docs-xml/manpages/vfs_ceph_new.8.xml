@@ -300,6 +300,37 @@
 		</para>
 		</listitem>
 		</varlistentry>
+
+		<varlistentry>
+		<term>ceph_new:statx_sync = [ sync_as_stat | force_sync |
+		                              dont_sync | default ]</term>
+		<listitem>
+		<para>
+			Control libcephfs attributes caching behaviour; that
+			is, the level of strictness for the client-to-server
+			meta-data synchronization.
+		</para>
+
+		<itemizedlist>
+			<listitem><para><constant>sync_as_stat</constant> -
+			Defer the metadata synchronization behaviour to
+			libcephfs default stat logic (default).
+			</para></listitem>
+
+			<listitem><para><constant>force_sync</constant> -
+			Bypass libcephfs local cache and always send requests
+			to Ceph MDS.
+			</para></listitem>
+
+			<listitem><para><constant>dont_sync</constant> -
+			Use libcephfs local cache and try to avoid calls to
+			Ceph MDS.
+			</para></listitem>
+		</itemizedlist>
+
+		</listitem>
+		</varlistentry>
+
 	</variablelist>
 
 </refsect1>
