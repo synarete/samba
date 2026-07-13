@@ -138,6 +138,7 @@ struct vfs_ceph_config {
 	struct cephmount_cached *mount_entry;
 	struct ceph_mount_info *mount;
 	enum vfs_cephfs_proxy_mode proxy;
+	int statx_sync_flags;
 	void *libhandle;
 
 	/*
@@ -663,6 +664,7 @@ static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 	struct vfs_ceph_config *config_tmp = NULL;
 	int snum = SNUM(handle->conn);
 	const char *module_name = "ceph_new";
+	const char *statx_sync_mode = NULL;
 	bool ok;
 
 	if (SMB_VFS_HANDLE_TEST_DATA(handle)) {
@@ -713,6 +715,20 @@ static bool vfs_ceph_load_config(struct vfs_handle_struct *handle,
 		DBG_ERR("[CEPH] fscrypt support configured but"
 			" not enabled during build, ignoring\n");
 #endif
+	}
+
+	statx_sync_mode = lp_parm_const_string(snum,
+					       module_name,
+					       "statx_sync",
+					       "default");
+	if (!strcmp(statx_sync_mode, "sync_as_stat")) {
+		config_tmp->statx_sync_flags = AT_STATX_SYNC_AS_STAT;
+	} else if (!strcmp(statx_sync_mode, "force_sync")) {
+		config_tmp->statx_sync_flags = AT_STATX_FORCE_SYNC;
+	} else if (!strcmp(statx_sync_mode, "dont_sync")) {
+		config_tmp->statx_sync_flags = AT_STATX_DONT_SYNC;
+	} else { /* default */
+		config_tmp->statx_sync_flags = AT_STATX_SYNC_AS_STAT;
 	}
 
 	ok = vfs_cephfs_load_lib(config_tmp);
@@ -1093,7 +1109,7 @@ static int vfs_ceph_ll_walk(const struct vfs_handle_struct *handle,
 				      pin,
 				      stx,
 				      want,
-				      flags,
+				      flags | config->statx_sync_flags,
 				      uperm);
 
 	vfs_ceph_userperm_del(config, uperm);
@@ -1135,7 +1151,7 @@ static int vfs_ceph_ll_getattr2(const struct vfs_handle_struct *handle,
 					 iref->inode,
 					 &stx,
 					 SAMBA_STATX_ATTR_MASK,
-					 0,
+					 config->statx_sync_flags,
 					 uperm);
 	if (ret == 0) {
 		smb_stat_from_ceph_statx(st, &stx);
@@ -1474,7 +1490,7 @@ static int vfs_ceph_ll_lookup(const struct vfs_handle_struct *handle,
 					&inode,
 					&stx,
 					CEPH_STATX_INO,
-					0,
+					config->statx_sync_flags,
 					uperm);
 
 	vfs_ceph_userperm_del(config, uperm);
@@ -1633,7 +1649,7 @@ static int vfs_ceph_ll_readdir(const struct vfs_handle_struct *hndl,
 						     dircfh->de,
 						     &stx,
 						     CEPH_STATX_ALL_STATS,
-						     0,
+						     config->statx_sync_flags,
 						     NULL);
 	}
 
