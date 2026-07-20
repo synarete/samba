@@ -362,7 +362,7 @@ static void print_brl_stdout(struct traverse_state *state,
 			     intmax_t start,
 			     intmax_t size,
 			     const char *sharepath,
-			     char *fname)
+			     const char *fname)
 {
 	if (state->first) {
 		d_printf("Byte range locks:\n");
@@ -394,6 +394,8 @@ struct status_brl {
 	enum brl_flavour lock_flav;
 	br_off start;
 	br_off size;
+	char *fname;
+	const char *sharepath;
 };
 
 struct status_collect_brl_state {
@@ -426,13 +428,41 @@ static void status_collect_brl(struct status_collect_brl_state *state)
 	brl_forall(status_collect_brl_fn, state);
 }
 
+static void fetch_brl_fname_sharepath(TALLOC_CTX *mem_ctx,
+				      struct status_brl *brl)
+{
+	struct share_mode_lock *share_mode;
+
+	share_mode = fetch_share_mode_unlocked(mem_ctx, brl->id);
+	if (share_mode != NULL) {
+		brl->fname = share_mode_filename(mem_ctx, share_mode);
+		brl->sharepath = share_mode_servicepath(share_mode);
+	} else {
+		brl->fname = talloc_strdup(mem_ctx, "");
+		brl->sharepath = "";
+	}
+}
+
+static void status_fetch_brl_fname_sharepath(
+	TALLOC_CTX *mem_ctx,
+	struct status_collect_brl_state *state)
+{
+	struct status_brl *brl;
+
+	for (brl = state->brl; brl != NULL; brl = brl->next) {
+		fetch_brl_fname_sharepath(mem_ctx, brl);
+	}
+}
+
 static void print_brl(struct file_id id,
-			struct server_id pid,
-			enum brl_type lock_type,
-			enum brl_flavour lock_flav,
-			br_off start,
-			br_off size,
-			void *private_data)
+		      struct server_id pid,
+		      enum brl_type lock_type,
+		      enum brl_flavour lock_flav,
+		      br_off start,
+		      br_off size,
+		      const char *sharepath,
+		      const char *fname,
+		      void *private_data)
 {
 	unsigned int i;
 	static const struct {
@@ -443,26 +473,12 @@ static void print_brl(struct file_id id,
 		{ WRITE_LOCK, "W" },
 		{ UNLOCK_LOCK, "U" }
 	};
-	const char *desc="X";
-	const char *sharepath = "";
-	char *fname = NULL;
-	struct share_mode_lock *share_mode;
+	const char *desc = "X";
 	struct server_id_buf tmp;
 	struct file_id_buf ftmp;
 	struct traverse_state *state = (struct traverse_state *)private_data;
 
-	share_mode = fetch_share_mode_unlocked(NULL, id);
-	if (share_mode) {
-		fname = share_mode_filename(NULL, share_mode);
-		sharepath = share_mode_servicepath(share_mode);
-	} else {
-		fname = talloc_strdup(NULL, "");
-		if (fname == NULL) {
-			return;
-		}
-	}
-
-	for (i=0;i<ARRAY_SIZE(lock_types);i++) {
+	for (i = 0; i < ARRAY_SIZE(lock_types); i++) {
 		if (lock_type == lock_types[i].lock_type) {
 			desc = lock_types[i].desc;
 		}
@@ -487,11 +503,7 @@ static void print_brl(struct file_id id,
 			       (intmax_t)size,
 			       sharepath,
 			       fname);
-
 	}
-
-	TALLOC_FREE(fname);
-	TALLOC_FREE(share_mode);
 }
 
 static void status_dump_brl(struct status_collect_brl_state *state)
@@ -505,6 +517,8 @@ static void status_dump_brl(struct status_collect_brl_state *state)
 			  brl->lock_flav,
 			  brl->start,
 			  brl->size,
+			  brl->sharepath,
+			  brl->fname,
 			  state->ts);
 	}
 }
@@ -1382,6 +1396,7 @@ int main(int argc, const char *argv[])
 
 		if (show_brl) {
 			status_collect_brl(&brl_state);
+			status_fetch_brl_fname_sharepath(mem_ctx, &brl_state);
 		}
 
 		locking_end();
