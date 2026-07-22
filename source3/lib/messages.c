@@ -411,6 +411,7 @@ static bool messaging_cfl_check(uint32_t msg_type, const char **required)
 	case MSG_VFS_AIO_RATELIMIT_READ_NODE_SUMMARY:
 	case MSG_VFS_AIO_RATELIMIT_WRITE_NODE_SUMMARY:
 	case MSG_REQ_DEBUGLEVEL:
+	case MSG_PROFILE:
 		*required = "< 2.0";
 		return !CLUSTER_LEVEL_ACTIVE(2, 0);
 	case MSG_SMB_NOTIFY_REC_CHANGE_LE:
@@ -420,6 +421,7 @@ static bool messaging_cfl_check(uint32_t msg_type, const char **required)
 	case MSG_VFS_AIO_RATELIMIT_READ_NODE_SUMMARY_LE:
 	case MSG_VFS_AIO_RATELIMIT_WRITE_NODE_SUMMARY_LE:
 	case MSG_REQ_DEBUGLEVEL_V1:
+	case MSG_PROFILE_V1:
 		*required = ">= 2.0";
 		return CLUSTER_LEVEL_ACTIVE(2, 0);
 	}
