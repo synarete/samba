@@ -29,6 +29,7 @@
 #include <tevent.h>
 #include "../lib/crypto/crypto.h"
 #include "source3/smbd/globals.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #ifdef HAVE_SYS_RESOURCE_H
 #include <sys/resource.h>
@@ -95,6 +96,28 @@ static void profile_message(struct messaging_context *msg_ctx,
 	set_profile_level(level, &src);
 }
 
+static void profile_message_v1(struct messaging_context *msg_ctx,
+			       void *private_data,
+			       uint32_t msg_type,
+			       struct server_id src,
+			       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_profile_v1 msg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_profile_v1_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("got invalid MSG_PROFILE_V1: %s\n",
+			  ndr_errstr(ndr_err)));
+		TALLOC_FREE(frame);
+		return;
+	}
+
+	set_profile_level(msg.level, &src);
+	TALLOC_FREE(frame);
+}
+
 /****************************************************************************
 receive a request profile level message
 ****************************************************************************/
@@ -150,6 +173,10 @@ bool profile_setup(struct messaging_context *msg_ctx, bool rdonly)
 	if (msg_ctx != NULL) {
 		messaging_register(msg_ctx, NULL, MSG_PROFILE,
 				   profile_message);
+		messaging_register(msg_ctx,
+				   NULL,
+				   MSG_PROFILE_V1,
+				   profile_message_v1);
 		messaging_register(msg_ctx, NULL, MSG_REQ_PROFILELEVEL,
 				   reqprofile_message);
 	}
