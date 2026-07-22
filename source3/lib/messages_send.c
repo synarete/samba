@@ -138,3 +138,53 @@ NTSTATUS messaging_send_req_debuglevel(struct messaging_context *msg_ctx,
 	}
 	return messaging_send_req_debuglevel_legacy(msg_ctx, dst);
 }
+
+/* MSG_PROFILE */
+
+static NTSTATUS messaging_send_profile_v1(struct messaging_context *msg_ctx,
+					  struct server_id dst,
+					  int level)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_profile msg = {
+		.info.info1.level = level,
+	};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_profile_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send_one_or_all(
+		msg_ctx, dst, MSG_PROFILE_V1, blob.data, blob.length);
+
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_profile_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	int level)
+{
+	return messaging_send_one_or_all(msg_ctx,
+					 dst,
+					 MSG_PROFILE,
+					 (const uint8_t *)&level,
+					 sizeof(int));
+}
+
+NTSTATUS messaging_send_profile(struct messaging_context *msg_ctx,
+				struct server_id dst,
+				int level)
+{
+	if (messaging_use_ndr_v1()) {
+		return messaging_send_profile_v1(msg_ctx, dst, level);
+	}
+	return messaging_send_profile_legacy(msg_ctx, dst, level);
+}
