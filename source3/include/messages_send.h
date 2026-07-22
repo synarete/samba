@@ -41,4 +41,8 @@ NTSTATUS messaging_send_debug(struct messaging_context *msg_ctx,
 NTSTATUS messaging_send_req_debuglevel(struct messaging_context *msg_ctx,
 				       struct server_id dst);
 
+NTSTATUS messaging_send_profile(struct messaging_context *msg_ctx,
+				struct server_id dst,
+				int level);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
