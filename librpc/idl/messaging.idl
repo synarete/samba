@@ -226,6 +226,23 @@ interface messaging
 	const uint32 MESSAGING_DEBUGLEVEL_VERSION_CURRENT =
 		MESSAGING_DEBUGLEVEL_VERSION_0;
 
+	/* MSG_REQ_PROFILELEVEL / MSG_PROFILELEVEL */
+	typedef [public, v1_enum] enum {
+		MESSAGING_PROFILELEVEL_VERSION_0 = 0x00000000
+	} messaging_profilelevel_version_values;
+
+	const uint32 MESSAGING_PROFILELEVEL_VERSION_CURRENT =
+		MESSAGING_PROFILELEVEL_VERSION_0;
+
+	typedef [public] struct {
+		[skip] messaging_profilelevel_version_values version;
+	} messaging_req_profilelevel;
+
+	typedef [public] struct {
+		[skip] messaging_profilelevel_version_values version;
+		uint32 level;
+	} messaging_profilelevel;
+
 	typedef [public] struct {
 		[skip] messaging_debuglevel_version_values version;
 	} messaging_req_debuglevel;

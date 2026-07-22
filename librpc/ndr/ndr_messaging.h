@@ -40,6 +40,26 @@ enum ndr_err_code messaging_profile_pull(TALLOC_CTX *mem_ctx,
 					 const DATA_BLOB *blob,
 					 struct messaging_profile *msg);
 
+enum ndr_err_code messaging_req_profilelevel_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_req_profilelevel *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_req_profilelevel_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_req_profilelevel *msg);
+
+enum ndr_err_code messaging_profilelevel_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_profilelevel *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_profilelevel_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_profilelevel *msg);
+
 enum ndr_err_code messaging_req_debuglevel_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_req_debuglevel *msg,

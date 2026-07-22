@@ -110,7 +110,20 @@ static void reqprofile_message(struct messaging_context *msg_ctx,
 			       struct server_id src,
 			       DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_profilelevel req = {};
+	struct messaging_profilelevel reply = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 	int level;
+
+	ndr_err = messaging_req_profilelevel_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("Invalid req_profilelevel message from PID %u: %s\n",
+			  (unsigned int)procid_to_pid(&src),
+			  ndr_errstr(ndr_err)));
+		goto out;
+	}
 
 	if (!smbprofile_state.config.do_count) {
 		level = 0;
@@ -122,8 +135,16 @@ static void reqprofile_message(struct messaging_context *msg_ctx,
 
 	DEBUG(1,("INFO: Received REQ_PROFILELEVEL message from PID %u\n",
 		 (unsigned int)procid_to_pid(&src)));
-	messaging_send_buf(msg_ctx, src, MSG_PROFILELEVEL,
-			   (uint8_t *)&level, sizeof(level));
+
+	reply.level = level;
+	ndr_err = messaging_profilelevel_push(frame, &reply, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	messaging_send(msg_ctx, src, MSG_PROFILELEVEL, &blob);
+out:
+	TALLOC_FREE(frame);
 }
 
 /*******************************************************************
