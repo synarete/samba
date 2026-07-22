@@ -24,7 +24,7 @@
 
 #include "librpc/gen_ndr/messaging.h"
 
-/* MSG_DEBUG_V1: NDR-encoded debug message (new format) */
+/* MSG_DEBUG_V1 */
 
 enum ndr_err_code messaging_debug_v1_push(TALLOC_CTX *mem_ctx,
 					  struct messaging_debug_v1 *msg,
@@ -33,5 +33,15 @@ enum ndr_err_code messaging_debug_v1_push(TALLOC_CTX *mem_ctx,
 enum ndr_err_code messaging_debug_v1_pull(TALLOC_CTX *mem_ctx,
 					  const DATA_BLOB *blob,
 					  struct messaging_debug_v1 *msg);
+
+/* MSG_PROFILE_V1 */
+
+enum ndr_err_code messaging_profile_v1_push(TALLOC_CTX *mem_ctx,
+					    struct messaging_profile_v1 *msg,
+					    DATA_BLOB *blob);
+
+enum ndr_err_code messaging_profile_v1_pull(TALLOC_CTX *mem_ctx,
+					    const DATA_BLOB *blob,
+					    struct messaging_profile_v1 *msg);
 
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */
