@@ -12,6 +12,8 @@ root messaging_debug
 root messaging_debuglevel_version_values
 root messaging_req_debuglevel
 root messaging_debuglevel
+root messaging_profile_version_values
+root messaging_profile
 root messaging_rec
 root messaging_reclog
 root messaging_hdr
@@ -60,6 +62,25 @@ enum messaging_debuglevel_version_values base(uint32) {
 	scalar:uint32	# msg_type
 }
 
+struct messaging_profile align(4) {
+	[value(MESSAGING_PROFILE_VERSION_1)] enum:messaging_profile_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_profileU	# info
+}
+
+union messaging_profileU align(4) switch_type(enum:messaging_profile_version_values) {
+	case(MESSAGING_PROFILE_VERSION_1): struct:messaging_profile_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_profile_v1 align(4) {
+	scalar:uint32	# level
+}
+
+enum messaging_profile_version_values base(uint32) {
+	0x00000001	# MESSAGING_PROFILE_VERSION_1
+}
+
 struct messaging_rec align(8) {
 	scalar:uint32	# msg_version
 	enum:messaging_type	# msg_type
@@ -87,6 +108,7 @@ enum messaging_type base(uint32) {
 	0x0002	# MSG_PING
 	0x0003	# MSG_PONG
 	0x0004	# MSG_PROFILE
+	0x1004	# MSG_PROFILE_V1
 	0x0005	# MSG_REQ_DEBUGLEVEL
 	0x1005	# MSG_REQ_DEBUGLEVEL_V1
 	0x0006	# MSG_DEBUGLEVEL
@@ -204,6 +226,16 @@ sample messaging_debuglevel length(27) {
 #	        info                     : union messaging_debuglevelU(case 1)
 #	        info1: struct messaging_debuglevel_v1
 #	            debuglevel_string        : 'string00000001'
+
+sample messaging_profile length(16) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 01 02 03 04
+}
+#	    messaging_profile: struct messaging_profile
+#	        version                  : MESSAGING_PROFILE_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_profileU(case 1)
+#	        info1: struct messaging_profile_v1
+#	            level                    : 0x04030201 (67305985)
 
 sample messaging_rec length(84) {
 	[0000] 01 02 03 04 02 03 04 05  03 04 05 06 07 08 09 0a
