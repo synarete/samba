@@ -29,6 +29,7 @@
 #include <tevent.h>
 #include "../lib/crypto/crypto.h"
 #include "source3/smbd/globals.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #ifdef HAVE_SYS_RESOURCE_H
 #include <sys/resource.h>
@@ -84,15 +85,20 @@ static void profile_message(struct messaging_context *msg_ctx,
 			    struct server_id src,
 			    DATA_BLOB *data)
 {
-	int level;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_profile msg = {};
+	enum ndr_err_code ndr_err;
 
-	if (data->length != sizeof(level)) {
-		DEBUG(0, ("got invalid profile message\n"));
-		return;
+	ndr_err = messaging_profile_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("got invalid profile message: %s\n",
+			  ndr_errstr(ndr_err)));
+		goto out;
 	}
 
-	memcpy(&level, data->data, sizeof(level));
-	set_profile_level(level, &src);
+	set_profile_level(msg.level, &src);
+out:
+	TALLOC_FREE(frame);
 }
 
 /****************************************************************************

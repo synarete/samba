@@ -522,6 +522,11 @@ static bool do_profile(struct tevent_context *ev_ctx,
 		       const struct server_id pid,
 		       const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_profile msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
 	int v;
 
 	if (argc != 2) {
@@ -543,7 +548,17 @@ static bool do_profile(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_PROFILE, &v, sizeof(int));
+	frame = talloc_stackframe();
+	msg.level = v;
+	ndr_err = messaging_profile_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(msg_ctx, pid, MSG_PROFILE, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 /* Return the profiling level */

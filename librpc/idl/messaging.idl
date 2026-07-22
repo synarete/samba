@@ -202,6 +202,19 @@ interface messaging
 		utf8string debug_string;
 	} messaging_debug;
 
+	/* MSG_PROFILE */
+	typedef [public, v1_enum] enum {
+		MESSAGING_PROFILE_VERSION_0 = 0x00000000
+	} messaging_profile_version_values;
+
+	const uint32 MESSAGING_PROFILE_VERSION_CURRENT =
+		MESSAGING_PROFILE_VERSION_0;
+
+	typedef [public] struct {
+		messaging_profile_version_values version;
+		uint32 level;
+	} messaging_profile;
+
 	/* messaging struct sent across the sockets and stored in the tdb */
 
 	typedef [public] struct {

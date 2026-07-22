@@ -32,4 +32,12 @@ enum ndr_err_code messaging_debug_pull(TALLOC_CTX *mem_ctx,
 				       const DATA_BLOB *blob,
 				       struct messaging_debug *msg);
 
+enum ndr_err_code messaging_profile_push(TALLOC_CTX *mem_ctx,
+					 struct messaging_profile *msg,
+					 DATA_BLOB *blob);
+
+enum ndr_err_code messaging_profile_pull(TALLOC_CTX *mem_ctx,
+					 const DATA_BLOB *blob,
+					 struct messaging_profile *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */
