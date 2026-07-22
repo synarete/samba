@@ -557,6 +557,29 @@ static bool do_ping(struct tevent_context *ev_ctx,
 
 /* Set profiling options */
 
+static bool do_profile_v1(struct messaging_context *msg_ctx,
+			  const struct server_id pid,
+			  int v)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_profile msg = {
+		.info.info1.level = v,
+	};
+	DATA_BLOB blob = {};
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+	ndr_err = messaging_profile_push_v1(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_PROFILE_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_profile(struct tevent_context *ev_ctx,
 		       struct messaging_context *msg_ctx,
 		       const struct server_id pid,
@@ -581,6 +604,10 @@ static bool do_profile(struct tevent_context *ev_ctx,
 	} else {
 		fprintf(stderr, "Unknown profile command '%s'\n", argv[1]);
 		return False;
+	}
+
+	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		return do_profile_v1(msg_ctx, pid, v);
 	}
 
 	return send_message(msg_ctx, pid, MSG_PROFILE, &v, sizeof(int));
