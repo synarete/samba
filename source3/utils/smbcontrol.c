@@ -630,7 +630,8 @@ static void profilelevel_cb(struct messaging_context *msg_ctx,
 	num_replies++;
 
 	if (data->length != sizeof(int)) {
-		fprintf(stderr, "invalid message length %ld returned\n",
+		fprintf(stderr,
+			"invalid message length %ld returned\n",
 			(unsigned long)data->length);
 		return;
 	}
@@ -655,7 +656,58 @@ static void profilelevel_cb(struct messaging_context *msg_ctx,
 		break;
 	}
 
-	printf("Profiling %s on pid %u\n",s,(unsigned int)procid_to_pid(&pid));
+	printf("Profiling %s on pid %u\n",
+	       s,
+	       (unsigned int)procid_to_pid(&pid));
+}
+
+static void profilelevel_cb_v1(struct messaging_context *msg_ctx,
+			       void *private_data,
+			       uint32_t msg_type,
+			       struct server_id pid,
+			       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_profilelevel reply = {};
+	enum ndr_err_code ndr_err;
+	uint32_t level;
+	const char *s;
+
+	ndr_err = messaging_profilelevel_pull(frame, data, &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr,
+			"Invalid MSG_PROFILELEVEL_V1 from PID %u:"
+			" %s\n",
+			(unsigned int)procid_to_pid(&pid),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+	level = reply.level;
+
+	switch (level) {
+	case 0:
+		s = "not enabled";
+		break;
+	case 1:
+		s = "off";
+		break;
+	case 3:
+		s = "count only";
+		break;
+	case 7:
+		s = "count and time";
+		break;
+	default:
+		s = "BOGUS";
+		break;
+	}
+
+	printf("Profiling %s on pid %u\n",
+	       s,
+	       (unsigned int)procid_to_pid(&pid));
+	num_replies++;
+out:
+	TALLOC_FREE(frame);
 }
 
 static void profilelevel_rqst(struct messaging_context *msg_ctx,
@@ -671,14 +723,94 @@ static void profilelevel_rqst(struct messaging_context *msg_ctx,
 	send_message(msg_ctx, pid, MSG_PROFILELEVEL, &v, sizeof(int));
 }
 
+static void profilelevel_rqst_v1(struct messaging_context *msg_ctx,
+				 void *private_data,
+				 uint32_t msg_type,
+				 struct server_id pid,
+				 DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_profilelevel req = {};
+	struct messaging_profilelevel reply = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_req_profilelevel_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	/* Send back a dummy reply */
+	ndr_err = messaging_profilelevel_push(frame, &reply, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	send_message(
+		msg_ctx, pid, MSG_PROFILELEVEL_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+}
+
+static bool do_profilelevel_v1(struct tevent_context *ev_ctx,
+			       struct messaging_context *msg_ctx,
+			       const struct server_id pid)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_req_profilelevel msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	/* Send a message and register our interest in a reply */
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_req_profilelevel_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_REQ_PROFILELEVEL_V1, blob.data, blob.length);
+	if (!ok) {
+		goto out;
+	}
+
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_PROFILELEVEL_V1,
+			   profilelevel_cb_v1);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_REQ_PROFILELEVEL_V1,
+			   profilelevel_rqst_v1);
+
+	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
+
+	/* No replies were received within the timeout period */
+
+	if (num_replies == 0)
+		printf("No replies received\n");
+
+	messaging_deregister(msg_ctx, MSG_PROFILELEVEL_V1, NULL);
+out:
+	TALLOC_FREE(frame);
+	return ok ? (num_replies > 0) : False;
+}
+
 static bool do_profilelevel(struct tevent_context *ev_ctx,
 			    struct messaging_context *msg_ctx,
 			    const struct server_id pid,
-			    const int argc, const char **argv)
+			    const int argc,
+			    const char **argv)
 {
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> profilelevel\n");
 		return False;
+	}
+
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_profilelevel_v1(ev_ctx, msg_ctx, pid);
 	}
 
 	/* Send a message and register our interest in a reply */
@@ -687,7 +819,9 @@ static bool do_profilelevel(struct tevent_context *ev_ctx,
 		return False;
 
 	messaging_register(msg_ctx, NULL, MSG_PROFILELEVEL, profilelevel_cb);
-	messaging_register(msg_ctx, NULL, MSG_REQ_PROFILELEVEL,
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_REQ_PROFILELEVEL,
 			   profilelevel_rqst);
 
 	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
@@ -697,7 +831,7 @@ static bool do_profilelevel(struct tevent_context *ev_ctx,
 	if (num_replies == 0)
 		printf("No replies received\n");
 
-	messaging_deregister(msg_ctx, MSG_PROFILE, NULL);
+	messaging_deregister(msg_ctx, MSG_PROFILELEVEL, NULL);
 
 	return num_replies;
 }
