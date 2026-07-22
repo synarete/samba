@@ -556,7 +556,7 @@ static bool do_profile(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_PROFILE, &v, sizeof(int));
+	return NT_STATUS_IS_OK(messaging_send_profile(msg_ctx, pid, v));
 }
 
 /* Return the profiling level */
