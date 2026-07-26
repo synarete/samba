@@ -76,6 +76,26 @@ enum ndr_err_code messaging_req_pool_usage_pull(
 	const DATA_BLOB *blob,
 	struct messaging_req_pool_usage *msg);
 
+enum ndr_err_code messaging_req_dmalloc_mark_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_req_dmalloc_mark *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_req_dmalloc_mark_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_req_dmalloc_mark *msg);
+
+enum ndr_err_code messaging_req_dmalloc_log_changed_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_req_dmalloc_log_changed *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_req_dmalloc_log_changed_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_req_dmalloc_log_changed *msg);
+
 enum ndr_err_code messaging_req_profilelevel_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_req_profilelevel *msg,
