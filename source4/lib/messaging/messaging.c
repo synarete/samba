@@ -112,21 +112,35 @@ static void pool_message(struct imessaging_context *msg,
 			 int *fds,
 			 DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_pool_usage req = {};
+	enum ndr_err_code ndr_err;
 	FILE *f = NULL;
 
 	if (num_fds != 1) {
 		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
+		TALLOC_FREE(frame);
+		return;
+	}
+
+	ndr_err = messaging_req_pool_usage_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid req_pool_usage message from server: %s\n",
+			    ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
 		return;
 	}
 
 	f = fdopen(fds[0], "w");
 	if (f == NULL) {
 		DBG_DEBUG("fopen failed: %s\n", strerror(errno));
+		TALLOC_FREE(frame);
 		return;
 	}
 
 	talloc_full_report_printf(NULL, f);
 	fclose(f);
+	TALLOC_FREE(frame);
 }
 
 static void ringbuf_log_msg(struct imessaging_context *msg,
