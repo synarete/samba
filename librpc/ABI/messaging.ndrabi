@@ -9,6 +9,9 @@
 root messaging_type
 root messaging_debug_version_values
 root messaging_debug
+root messaging_debuglevel_version_values
+root messaging_req_debuglevel
+root messaging_debuglevel
 root messaging_rec
 root messaging_reclog
 root messaging_hdr
@@ -30,6 +33,25 @@ struct messaging_debug_v1 align(4) {
 
 enum messaging_debug_version_values base(uint32) {
 	0x00000001	# MESSAGING_DEBUG_VERSION_1
+}
+
+struct messaging_debuglevel align(4) {
+	[value(MESSAGING_DEBUGLEVEL_VERSION_1)] enum:messaging_debuglevel_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_debuglevelU	# info
+}
+
+union messaging_debuglevelU align(4) switch_type(enum:messaging_debuglevel_version_values) {
+	case(MESSAGING_DEBUGLEVEL_VERSION_1): struct:messaging_debuglevel_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_debuglevel_v1 align(4) {
+	[flag(LIBNDR_FLAG_STR_UTF8|LIBNDR_FLAG_STR_NULLTERM)] scalar:string	# debuglevel_string
+}
+
+enum messaging_debuglevel_version_values base(uint32) {
+	0x00000001	# MESSAGING_DEBUGLEVEL_VERSION_1
 }
 
 [flag(LIBNDR_FLAG_NOALIGN)] struct messaging_hdr align(8) {
@@ -54,6 +76,11 @@ struct messaging_reclog align(8) {
 	array(inline=num_recs) ptr(unique) struct:messaging_rec	# recs
 }
 
+struct messaging_req_debuglevel align(4) {
+	[value(MESSAGING_DEBUGLEVEL_VERSION_1)] enum:messaging_debuglevel_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+}
+
 enum messaging_type base(uint32) {
 	0x0001	# MSG_DEBUG
 	0x1001	# MSG_DEBUG_V1
@@ -61,7 +88,9 @@ enum messaging_type base(uint32) {
 	0x0003	# MSG_PONG
 	0x0004	# MSG_PROFILE
 	0x0005	# MSG_REQ_DEBUGLEVEL
+	0x1005	# MSG_REQ_DEBUGLEVEL_V1
 	0x0006	# MSG_DEBUGLEVEL
+	0x1006	# MSG_DEBUGLEVEL_V1
 	0x0007	# MSG_REQ_PROFILELEVEL
 	0x0008	# MSG_PROFILELEVEL
 	0x0009	# MSG_REQ_POOL_USAGE
@@ -157,6 +186,24 @@ sample messaging_debug length(27) {
 #	        info                     : union messaging_debugU(case 1)
 #	        info1: struct messaging_debug_v1
 #	            debug_string             : 'string00000001'
+
+sample messaging_req_debuglevel length(8) {
+	[0000] 01 00 00 00 00 00 00 00
+}
+#	    messaging_req_debuglevel: struct messaging_req_debuglevel
+#	        version                  : MESSAGING_DEBUGLEVEL_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+
+sample messaging_debuglevel length(27) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 73 74 72 69
+	[0010] 6e 67 30 30 30 30 30 30  30 31 00
+}
+#	    messaging_debuglevel: struct messaging_debuglevel
+#	        version                  : MESSAGING_DEBUGLEVEL_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_debuglevelU(case 1)
+#	        info1: struct messaging_debuglevel_v1
+#	            debuglevel_string        : 'string00000001'
 
 sample messaging_rec length(84) {
 	[0000] 01 02 03 04 02 03 04 05  03 04 05 06 07 08 09 0a
