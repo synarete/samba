@@ -18,6 +18,7 @@
 
 #include "includes.h"
 #include "messages.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /**
  * @file dmallocmsg.c
@@ -41,12 +42,25 @@ static void msg_req_dmalloc_mark(struct messaging_context *msg,
 				 struct server_id server_id,
 				 DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_dmalloc_mark req = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_req_dmalloc_mark_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(2, ("Invalid req_dmalloc_mark message: %s\n",
+			  ndr_errstr(ndr_err)));
+		TALLOC_FREE(frame);
+		return;
+	}
+
 #ifdef ENABLE_DMALLOC
 	our_dm_mark = dmalloc_mark();
 	DEBUG(2,("Got MSG_REQ_DMALLOC_MARK: mark set\n"));
 #else
 	DEBUG(2,("Got MSG_REQ_DMALLOC_MARK but dmalloc not in this process\n"));
 #endif
+	TALLOC_FREE(frame);
 }
 
 
@@ -57,12 +71,25 @@ static void msg_req_dmalloc_log_changed(struct messaging_context *msg,
 					struct server_id server_id,
 					DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_dmalloc_log_changed req = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_req_dmalloc_log_changed_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(2, ("Invalid req_dmalloc_log_changed message: %s\n",
+			  ndr_errstr(ndr_err)));
+		TALLOC_FREE(frame);
+		return;
+	}
+
 #ifdef ENABLE_DMALLOC
 	dmalloc_log_changed(our_dm_mark, True, True, True);
 	DEBUG(2,("Got MSG_REQ_DMALLOC_LOG_CHANGED: done\n"));
 #else
 	DEBUG(2,("Got MSG_REQ_DMALLOC_LOG_CHANGED but dmalloc not in this process\n"));
 #endif
+	TALLOC_FREE(frame);
 }
 
 

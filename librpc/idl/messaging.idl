@@ -243,6 +243,22 @@ interface messaging
 		messaging_req_pool_usage_version_values version;
 	} messaging_req_pool_usage;
 
+	/* MSG_REQ_DMALLOC_MARK / MSG_REQ_DMALLOC_LOG_CHANGED */
+	typedef [public, v1_enum] enum {
+		MESSAGING_REQ_DMALLOC_VERSION_0 = 0x00000000
+	} messaging_req_dmalloc_version_values;
+
+	const uint32 MESSAGING_REQ_DMALLOC_VERSION_CURRENT =
+		MESSAGING_REQ_DMALLOC_VERSION_0;
+
+	typedef [public] struct {
+		messaging_req_dmalloc_version_values version;
+	} messaging_req_dmalloc_mark;
+
+	typedef [public] struct {
+		messaging_req_dmalloc_version_values version;
+	} messaging_req_dmalloc_log_changed;
+
 	typedef [public] struct {
 		messaging_profilelevel_version_values version;
 	} messaging_req_profilelevel;
