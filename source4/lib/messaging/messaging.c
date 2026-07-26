@@ -28,6 +28,8 @@
 #include "../lib/util/dlinklist.h"
 #include "lib/socket/socket.h"
 #include "librpc/gen_ndr/ndr_irpc.h"
+#include "librpc/gen_ndr/ndr_messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "lib/messaging/irpc.h"
 #include "../lib/util/unix_privs.h"
 #include "librpc/rpc/dcerpc.h"
@@ -205,8 +207,11 @@ static void debuglevel_imessage(struct imessaging_context *msg_ctx,
 				int *fds,
 				DATA_BLOB *data)
 {
-	char *message = debug_list_class_names_and_levels();
+	TALLOC_CTX *frame = NULL;
+	struct messaging_req_debuglevel req = {};
+	struct messaging_debuglevel reply = {};
 	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 	struct server_id_buf src_buf;
 	struct server_id dst = imessaging_get_server_id(msg_ctx);
 	struct server_id_buf dst_buf;
@@ -216,19 +221,35 @@ static void debuglevel_imessage(struct imessaging_context *msg_ctx,
 		return;
 	}
 
+	frame = talloc_stackframe();
+	ndr_err = messaging_req_debuglevel_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING(
+			"Invalid req_debuglevel message from server %s: %s\n",
+			server_id_str_buf(src, &src_buf),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
 	DBG_DEBUG("Received REQ_DEBUGLEVEL message (pid %s from pid %s)\n",
 		  server_id_str_buf(dst, &dst_buf),
 		  server_id_str_buf(src, &src_buf));
 
-	if (message == NULL) {
+	reply.debuglevel_string = debug_list_class_names_and_levels();
+	if (reply.debuglevel_string == NULL) {
 		DBG_ERR("debug_list_class_names_and_levels returned NULL\n");
-		return;
+		goto out;
+	}
+	talloc_steal(frame, reply.debuglevel_string);
+
+	ndr_err = messaging_debuglevel_push(frame, &reply, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
 	}
 
-	blob = data_blob_string_const_null(message);
 	imessaging_send(msg_ctx, src, MSG_DEBUGLEVEL, &blob);
-
-	TALLOC_FREE(message);
+out:
+	TALLOC_FREE(frame);
 }
 
 /*
