@@ -123,11 +123,26 @@ static void print_pid_string_cb(struct messaging_context *msg,
 				struct server_id pid,
 				DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_debuglevel reply = {};
+	enum ndr_err_code ndr_err;
 	struct server_id_buf pidstr;
 
-	printf("PID %s: %.*s", server_id_str_buf(pid, &pidstr),
-	       (int)data->length, (const char *)data->data);
+	ndr_err = messaging_debuglevel_pull(frame, data, &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr,
+			"Invalid debuglevel message from PID %s: %s\n",
+			server_id_str_buf(pid, &pidstr),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	printf("PID %s: %s",
+	       server_id_str_buf(pid, &pidstr),
+	       reply.debuglevel_string);
 	num_replies++;
+out:
+	TALLOC_FREE(frame);
 }
 
 /* Send no message.  Useful for testing. */
@@ -654,6 +669,12 @@ static bool do_debuglevel(struct tevent_context *ev_ctx,
 			  const struct server_id pid,
 			  const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_req_debuglevel msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> debuglevel\n");
 		return False;
@@ -661,8 +682,17 @@ static bool do_debuglevel(struct tevent_context *ev_ctx,
 
 	/* Send a message and register our interest in a reply */
 
-	if (!send_message(msg_ctx, pid, MSG_REQ_DEBUGLEVEL, NULL, 0))
-		return False;
+	frame = talloc_stackframe();
+	ndr_err = messaging_req_debuglevel_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_REQ_DEBUGLEVEL, blob.data, blob.length);
+	if (!ok) {
+		goto out;
+	}
 
 	messaging_register(msg_ctx, NULL, MSG_DEBUGLEVEL, print_pid_string_cb);
 
@@ -674,8 +704,9 @@ static bool do_debuglevel(struct tevent_context *ev_ctx,
 		printf("No replies received\n");
 
 	messaging_deregister(msg_ctx, MSG_DEBUGLEVEL, NULL);
-
-	return num_replies;
+out:
+	TALLOC_FREE(frame);
+	return ok ? (num_replies > 0) : False;
 }
 
 /* Send a print notify message */

@@ -115,25 +115,44 @@ out:
 ****************************************************************************/
 
 static void debuglevel_message(struct messaging_context *msg_ctx,
-			       void *private_data, 
-			       uint32_t msg_type, 
+			       void *private_data,
+			       uint32_t msg_type,
 			       struct server_id src,
 			       DATA_BLOB *data)
 {
-	char *message = debug_list_class_names_and_levels();
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_debuglevel req = {};
+	struct messaging_debuglevel reply = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 	struct server_id_buf tmp;
 
-	if (!message) {
-		DEBUG(0,("debuglevel_message - debug_list_class_names_and_levels returned NULL\n"));
-		return;
+	ndr_err = messaging_req_debuglevel_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("Invalid req_debuglevel message from PID %s: %s\n",
+			  server_id_str_buf(src, &tmp),
+			  ndr_errstr(ndr_err)));
+		goto out;
+	}
+
+	reply.debuglevel_string = debug_list_class_names_and_levels();
+	if (reply.debuglevel_string == NULL) {
+		DEBUG(0, ("debuglevel_message - "
+			  "debug_list_class_names_and_levels returned NULL\n"));
+		goto out;
 	}
 
 	DEBUG(1, ("INFO: Received REQ_DEBUGLEVEL message from PID %s\n",
 		  server_id_str_buf(src, &tmp)));
-	messaging_send_buf(msg_ctx, src, MSG_DEBUGLEVEL,
-			   (uint8_t *)message, strlen(message) + 1);
 
-	TALLOC_FREE(message);
+	ndr_err = messaging_debuglevel_push(frame, &reply, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	messaging_send(msg_ctx, src, MSG_DEBUGLEVEL, &blob);
+out:
+	TALLOC_FREE(frame);
 }
 
 static void debug_ringbuf_log(struct messaging_context *msg_ctx,

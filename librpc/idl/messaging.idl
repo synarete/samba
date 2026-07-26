@@ -215,6 +215,23 @@ interface messaging
 		uint32 level;
 	} messaging_profile;
 
+	/* MSG_REQ_DEBUGLEVEL / MSG_DEBUGLEVEL */
+	typedef [public, v1_enum] enum {
+		MESSAGING_DEBUGLEVEL_VERSION_0 = 0x00000000
+	} messaging_debuglevel_version_values;
+
+	const uint32 MESSAGING_DEBUGLEVEL_VERSION_CURRENT =
+		MESSAGING_DEBUGLEVEL_VERSION_0;
+
+	typedef [public] struct {
+		messaging_debuglevel_version_values version;
+	} messaging_req_debuglevel;
+
+	typedef [public] struct {
+		messaging_debuglevel_version_values version;
+		utf8string debuglevel_string;
+	} messaging_debuglevel;
+
 	/* messaging struct sent across the sockets and stored in the tdb */
 
 	typedef [public] struct {
