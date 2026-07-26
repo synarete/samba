@@ -130,6 +130,34 @@ static void print_pid_string_cb(struct messaging_context *msg,
 	num_replies++;
 }
 
+static void print_pid_string_v1_cb(struct messaging_context *msg,
+				   void *private_data,
+				   uint32_t msg_type,
+				   struct server_id pid,
+				   DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_debuglevel_v1 reply = {};
+	struct server_id_buf pidstr;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_debuglevel_v1_pull(frame, data, &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr,
+			"Invalid MSG_DEBUGLEVEL_V1 from PID %s: %s\n",
+			server_id_str_buf(pid, &pidstr),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	printf("PID %s: %s",
+	       server_id_str_buf(pid, &pidstr),
+	       reply.debuglevel_string);
+	num_replies++;
+out:
+	TALLOC_FREE(frame);
+}
+
 /* Send no message.  Useful for testing. */
 
 static bool do_noop(struct tevent_context *ev_ctx,
@@ -645,6 +673,48 @@ static bool do_profilelevel(struct tevent_context *ev_ctx,
 
 /* Display debug level settings */
 
+static bool do_debuglevel_v1(struct tevent_context *ev_ctx,
+			     struct messaging_context *msg_ctx,
+			     const struct server_id pid)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_req_debuglevel_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	/* Send a message and register our interest in a reply */
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_req_debuglevel_v1_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_REQ_DEBUGLEVEL_V1, blob.data, blob.length);
+	if (!ok) {
+		goto out;
+	}
+
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_DEBUGLEVEL_V1,
+			   print_pid_string_v1_cb);
+
+	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
+
+	/* No replies were received within the timeout period */
+
+	if (num_replies == 0)
+		printf("No replies received\n");
+
+	messaging_deregister(msg_ctx, MSG_DEBUGLEVEL_V1, NULL);
+out:
+	TALLOC_FREE(frame);
+	return ok ? (num_replies > 0) : False;
+}
+
 static bool do_debuglevel(struct tevent_context *ev_ctx,
 			  struct messaging_context *msg_ctx,
 			  const struct server_id pid,
@@ -653,6 +723,10 @@ static bool do_debuglevel(struct tevent_context *ev_ctx,
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> debuglevel\n");
 		return False;
+	}
+
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_debuglevel_v1(ev_ctx, msg_ctx, pid);
 	}
 
 	/* Send a message and register our interest in a reply */

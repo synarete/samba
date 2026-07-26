@@ -28,6 +28,8 @@
 #include "../lib/util/dlinklist.h"
 #include "lib/socket/socket.h"
 #include "librpc/gen_ndr/ndr_irpc.h"
+#include "librpc/gen_ndr/ndr_messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "lib/messaging/irpc.h"
 #include "../lib/util/unix_privs.h"
 #include "librpc/rpc/dcerpc.h"
@@ -229,6 +231,57 @@ static void debuglevel_imessage(struct imessaging_context *msg_ctx,
 	imessaging_send(msg_ctx, src, MSG_DEBUGLEVEL, &blob);
 
 	TALLOC_FREE(message);
+}
+
+static void debuglevel_imessage_v1(struct imessaging_context *msg_ctx,
+				   void *private_data,
+				   uint32_t msg_type,
+				   struct server_id src,
+				   size_t num_fds,
+				   int *fds,
+				   DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_debuglevel_v1 req = {};
+	struct messaging_debuglevel_v1 reply = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	struct server_id_buf src_buf;
+	struct server_id dst = imessaging_get_server_id(msg_ctx);
+	struct server_id_buf dst_buf;
+
+	if (num_fds != 0) {
+		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
+		goto out;
+	}
+
+	ndr_err = messaging_req_debuglevel_v1_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_REQ_DEBUGLEVEL_V1 from server"
+			    " %s: %s\n",
+			    server_id_str_buf(src, &src_buf),
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	DBG_DEBUG("Received REQ_DEBUGLEVEL message (pid %s from pid %s)\n",
+		  server_id_str_buf(dst, &dst_buf),
+		  server_id_str_buf(src, &src_buf));
+
+	reply.debuglevel_string = debug_list_class_names_and_levels();
+	if (reply.debuglevel_string == NULL) {
+		DBG_ERR("debug_list_class_names_and_levels returned NULL\n");
+		goto out;
+	}
+	talloc_steal(frame, reply.debuglevel_string);
+
+	ndr_err = messaging_debuglevel_v1_push(frame, &reply, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+	imessaging_send(msg_ctx, src, MSG_DEBUGLEVEL_V1, &blob);
+out:
+	TALLOC_FREE(frame);
 }
 
 /*
@@ -612,6 +665,13 @@ static struct imessaging_context *imessaging_init_internal(
 	}
 	status = imessaging_register(msg, NULL, MSG_REQ_DEBUGLEVEL,
 				     debuglevel_imessage);
+	if (!NT_STATUS_IS_OK(status)) {
+		goto fail;
+	}
+	status = imessaging_register(msg,
+				     NULL,
+				     MSG_REQ_DEBUGLEVEL_V1,
+				     debuglevel_imessage_v1);
 	if (!NT_STATUS_IS_OK(status)) {
 		goto fail;
 	}
