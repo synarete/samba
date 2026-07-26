@@ -17,17 +17,35 @@
 */
 
 #include "replace.h"
+#include "lib/util/talloc_stack.h"
 #include "source3/include/messages.h"
 #include "source3/lib/tallocmsg.h"
 #include "lib/util/talloc_report_printf.h"
 #include "lib/util/debug.h"
 #include "lib/util/util_file.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 static bool pool_usage_filter(struct messaging_rec *rec, void *private_data)
 {
+	TALLOC_CTX *frame = NULL;
 	FILE *f = NULL;
 
-	if (rec->msg_type != MSG_REQ_POOL_USAGE) {
+	if (rec->msg_type == MSG_REQ_POOL_USAGE_V1) {
+		struct messaging_req_pool_usage req = {};
+		enum ndr_err_code ndr_err;
+
+		frame = talloc_stackframe();
+		ndr_err = messaging_req_pool_usage_pull(frame,
+							&rec->buf,
+							&req);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			DBG_DEBUG("Invalid MSG_REQ_POOL_USAGE_V1: %s\n",
+				  ndr_errstr(ndr_err));
+			goto out;
+		}
+	} else if (rec->msg_type == MSG_REQ_POOL_USAGE) {
+		/* MSG_REQ_POOL_USAGE (v0): empty payload, no parsing needed */
+	} else {
 		return false;
 	}
 
@@ -35,18 +53,19 @@ static bool pool_usage_filter(struct messaging_rec *rec, void *private_data)
 
 	if (rec->num_fds != 1) {
 		DBG_DEBUG("Got %"PRIu8" fds, expected one\n", rec->num_fds);
-		return false;
+		goto out;
 	}
 
 	f = fdopen_keepfd(rec->fds[0], "w");
 	if (f == NULL) {
 		DBG_DEBUG("fdopen failed: %s\n", strerror(errno));
-		return false;
+		goto out;
 	}
 
 	talloc_full_report_printf(NULL, f);
-
 	fclose(f);
+out:
+	TALLOC_FREE(frame);
 	/*
 	 * Returning false, means messaging_dispatch_waiters()
 	 * won't call messaging_filtered_read_done() and
