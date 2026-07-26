@@ -1098,8 +1098,14 @@ static bool do_poolusage(struct tevent_context *ev_ctx,
 			 const struct server_id dst,
 			 const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct iovec iov;
+	struct messaging_req_pool_usage msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	pid_t pid = procid_to_pid(&dst);
 	int stdout_fd = 1;
+	bool ok = false;
 
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> pool-usage\n");
@@ -1111,16 +1117,20 @@ static bool do_poolusage(struct tevent_context *ev_ctx,
 		return false;
 	}
 
-	messaging_send_iov(
-		msg_ctx,
-		dst,
-		MSG_REQ_POOL_USAGE,
-		NULL,
-		0,
-		&stdout_fd,
-		1);
+	frame = talloc_stackframe();
+	ndr_err = messaging_req_pool_usage_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
 
-	return true;
+	iov.iov_base = blob.data;
+	iov.iov_len = blob.length;
+	messaging_send_iov(
+		msg_ctx, dst, MSG_REQ_POOL_USAGE_V1, &iov, 1, &stdout_fd, 1);
+	ok = true;
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 static bool do_worker_dump(struct tevent_context *ev_ctx,

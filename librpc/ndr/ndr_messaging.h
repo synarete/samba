@@ -66,6 +66,16 @@ enum ndr_err_code messaging_debuglevel_pull(TALLOC_CTX *mem_ctx,
 
 /* MSG_REQ_PROFILELEVEL_V1 / MSG_PROFILELEVEL_V1 */
 
+enum ndr_err_code messaging_req_pool_usage_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_req_pool_usage *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_req_pool_usage_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_req_pool_usage *msg);
+
 enum ndr_err_code messaging_req_profilelevel_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_req_profilelevel *msg,
@@ -85,5 +95,9 @@ enum ndr_err_code messaging_profilelevel_pull(
 	TALLOC_CTX *mem_ctx,
 	const DATA_BLOB *blob,
 	struct messaging_profilelevel *msg);
+
+enum ndr_err_code messaging_profile_v1_push(TALLOC_CTX *mem_ctx,
+					    struct messaging_profile_v1 *msg,
+					    DATA_BLOB *blob);
 
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */
