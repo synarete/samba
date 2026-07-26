@@ -135,8 +135,8 @@ static void debug_message_v1(struct messaging_context *msg_ctx,
 ****************************************************************************/
 
 static void debuglevel_message(struct messaging_context *msg_ctx,
-			       void *private_data, 
-			       uint32_t msg_type, 
+			       void *private_data,
+			       uint32_t msg_type,
 			       struct server_id src,
 			       DATA_BLOB *data)
 {
@@ -150,10 +150,54 @@ static void debuglevel_message(struct messaging_context *msg_ctx,
 
 	DEBUG(1, ("INFO: Received REQ_DEBUGLEVEL message from PID %s\n",
 		  server_id_str_buf(src, &tmp)));
-	messaging_send_buf(msg_ctx, src, MSG_DEBUGLEVEL,
-			   (uint8_t *)message, strlen(message) + 1);
+	messaging_send_buf(msg_ctx,
+			   src,
+			   MSG_DEBUGLEVEL,
+			   (uint8_t *)message,
+			   strlen(message) + 1);
 
 	TALLOC_FREE(message);
+}
+
+static void debuglevel_message_v1(struct messaging_context *msg_ctx,
+				  void *private_data,
+				  uint32_t msg_type,
+				  struct server_id src,
+				  DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_debuglevel req = {};
+	struct messaging_debuglevel reply = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	struct server_id_buf tmp;
+
+	ndr_err = messaging_req_debuglevel_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("Invalid MSG_REQ_DEBUGLEVEL_V1 from PID %s: %s\n",
+			  server_id_str_buf(src, &tmp),
+			  ndr_errstr(ndr_err)));
+		goto out;
+	}
+
+	reply.debuglevel_string = debug_list_class_names_and_levels();
+	if (reply.debuglevel_string == NULL) {
+		DEBUG(0, ("debuglevel_message - "
+			  "debug_list_class_names_and_levels returned NULL\n"));
+		goto out;
+	}
+	talloc_steal(frame, reply.debuglevel_string);
+
+	DEBUG(1, ("INFO: Received REQ_DEBUGLEVEL message from PID %s\n",
+		  server_id_str_buf(src, &tmp)));
+
+	ndr_err = messaging_debuglevel_push(frame, &reply, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+	messaging_send(msg_ctx, src, MSG_DEBUGLEVEL_V1, &blob);
+out:
+	TALLOC_FREE(frame);
 }
 
 static void debug_ringbuf_log(struct messaging_context *msg_ctx,
@@ -180,6 +224,10 @@ void debug_register_msgs(struct messaging_context *msg_ctx)
 	messaging_register(msg_ctx, NULL, MSG_DEBUG_V1, debug_message_v1);
 	messaging_register(msg_ctx, NULL, MSG_REQ_DEBUGLEVEL,
 			   debuglevel_message);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_REQ_DEBUGLEVEL_V1,
+			   debuglevel_message_v1);
 	messaging_register(msg_ctx, NULL, MSG_REQ_RINGBUF_LOG,
 			   debug_ringbuf_log);
 }
