@@ -32,4 +32,23 @@ enum ndr_err_code messaging_debug_pull(TALLOC_CTX *mem_ctx,
 				       const DATA_BLOB *blob,
 				       struct messaging_debug *msg);
 
+enum ndr_err_code messaging_req_debuglevel_push(
+	TALLOC_CTX *mem_ctx,
+	const struct messaging_req_debuglevel *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_req_debuglevel_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_req_debuglevel *msg);
+
+enum ndr_err_code messaging_debuglevel_push(
+	TALLOC_CTX *mem_ctx,
+	const struct messaging_debuglevel *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_debuglevel_pull(TALLOC_CTX *mem_ctx,
+					    const DATA_BLOB *blob,
+					    struct messaging_debuglevel *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */

@@ -57,3 +57,76 @@ enum ndr_err_code messaging_debug_pull(TALLOC_CTX *mem_ctx,
 
 	return NDR_ERR_SUCCESS;
 }
+
+enum ndr_err_code messaging_req_debuglevel_push(
+	TALLOC_CTX *mem_ctx,
+	const struct messaging_req_debuglevel *msg,
+	DATA_BLOB *blob)
+{
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_req_debuglevel);
+}
+
+enum ndr_err_code messaging_req_debuglevel_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_req_debuglevel *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_req_debuglevel){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_req_debuglevel);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_DEBUGLEVEL_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_debuglevel_push(
+	TALLOC_CTX *mem_ctx,
+	const struct messaging_debuglevel *msg,
+	DATA_BLOB *blob)
+{
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_debuglevel);
+}
+
+enum ndr_err_code messaging_debuglevel_pull(TALLOC_CTX *mem_ctx,
+					    const DATA_BLOB *blob,
+					    struct messaging_debuglevel *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_debuglevel){0};
+
+	ndr_err = ndr_pull_struct_blob(blob,
+				       mem_ctx,
+				       msg,
+				       (ndr_pull_flags_fn_t)
+					       ndr_pull_messaging_debuglevel);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_DEBUGLEVEL_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
