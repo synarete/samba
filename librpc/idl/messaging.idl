@@ -22,7 +22,9 @@ interface messaging
 		MSG_PONG			= 0x0003,
 		MSG_PROFILE			= 0x0004,
 		MSG_REQ_DEBUGLEVEL		= 0x0005,
+		MSG_REQ_DEBUGLEVEL_V1		= 0x1005,
 		MSG_DEBUGLEVEL			= 0x0006,
+		MSG_DEBUGLEVEL_V1		= 0x1006,
 		MSG_REQ_PROFILELEVEL		= 0x0007,
 		MSG_PROFILELEVEL		= 0x0008,
 		MSG_REQ_POOL_USAGE		= 0x0009,
@@ -205,6 +207,23 @@ interface messaging
 		messaging_debug_version_values version;
 		utf8string debug_string;
 	} messaging_debug_v1;
+
+	/* MSG_REQ_DEBUGLEVEL / MSG_DEBUGLEVEL */
+	typedef [public, v1_enum] enum {
+		MESSAGING_DEBUGLEVEL_VERSION_1 = 0x00000001
+	} messaging_debuglevel_version_values;
+
+	const uint32 MESSAGING_DEBUGLEVEL_VERSION_CURRENT =
+		MESSAGING_DEBUGLEVEL_VERSION_1;
+
+	typedef [public] struct {
+		messaging_debuglevel_version_values version;
+	} messaging_req_debuglevel_v1;
+
+	typedef [public] struct {
+		messaging_debuglevel_version_values version;
+		utf8string debuglevel_string;
+	} messaging_debuglevel_v1;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 
