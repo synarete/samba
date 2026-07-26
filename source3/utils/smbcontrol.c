@@ -125,9 +125,39 @@ static void print_pid_string_cb(struct messaging_context *msg,
 {
 	struct server_id_buf pidstr;
 
-	printf("PID %s: %.*s", server_id_str_buf(pid, &pidstr),
-	       (int)data->length, (const char *)data->data);
+	printf("PID %s: %.*s",
+	       server_id_str_buf(pid, &pidstr),
+	       (int)data->length,
+	       (const char *)data->data);
 	num_replies++;
+}
+
+static void print_pid_string_v1_cb(struct messaging_context *msg,
+				   void *private_data,
+				   uint32_t msg_type,
+				   struct server_id pid,
+				   DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_debuglevel reply = {};
+	struct server_id_buf pidstr;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_debuglevel_pull(frame, data, &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr,
+			"Invalid MSG_DEBUGLEVEL_V1 from PID %s: %s\n",
+			server_id_str_buf(pid, &pidstr),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	printf("PID %s: %s",
+	       server_id_str_buf(pid, &pidstr),
+	       reply.debuglevel_string);
+	num_replies++;
+out:
+	TALLOC_FREE(frame);
 }
 
 /* Send no message.  Useful for testing. */
@@ -674,14 +704,61 @@ static bool do_profilelevel(struct tevent_context *ev_ctx,
 
 /* Display debug level settings */
 
+static bool do_debuglevel_v1(struct tevent_context *ev_ctx,
+			     struct messaging_context *msg_ctx,
+			     const struct server_id pid)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_req_debuglevel msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	/* Send a message and register our interest in a reply */
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_req_debuglevel_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_REQ_DEBUGLEVEL_V1, blob.data, blob.length);
+	if (!ok) {
+		goto out;
+	}
+
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_DEBUGLEVEL_V1,
+			   print_pid_string_v1_cb);
+
+	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
+
+	/* No replies were received within the timeout period */
+
+	if (num_replies == 0)
+		printf("No replies received\n");
+
+	messaging_deregister(msg_ctx, MSG_DEBUGLEVEL_V1, NULL);
+out:
+	TALLOC_FREE(frame);
+	return ok ? (num_replies > 0) : False;
+}
+
 static bool do_debuglevel(struct tevent_context *ev_ctx,
 			  struct messaging_context *msg_ctx,
 			  const struct server_id pid,
-			  const int argc, const char **argv)
+			  const int argc,
+			  const char **argv)
 {
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> debuglevel\n");
 		return False;
+	}
+
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_debuglevel_v1(ev_ctx, msg_ctx, pid);
 	}
 
 	/* Send a message and register our interest in a reply */
@@ -1537,171 +1614,162 @@ static const struct {
 } msg_types[] = {
 	{
 		.name = "debug",
-		.fn   = do_debug,
+		.fn = do_debug,
 		.help = "Set debuglevel",
 	},
 	{
 		.name = "idmap",
-		.fn   = do_idmap,
+		.fn = do_idmap,
 		.help = "Manipulate idmap cache",
 	},
 	{
 		.name = "force-election",
-		.fn   = do_election,
+		.fn = do_election,
 		.help = "Force a browse election",
 	},
 	{
 		.name = "ping",
-		.fn   = do_ping,
+		.fn = do_ping,
 		.help = "Elicit a response",
 	},
 	{
 		.name = "profile",
-		.fn   = do_profile,
+		.fn = do_profile,
 		.help = "",
 	},
-	{
-		.name = "inject",
-		.fn   = do_inject_fault,
-		.help = "Inject a fatal signal into a running smbd"},
+	{.name = "inject",
+	 .fn = do_inject_fault,
+	 .help = "Inject a fatal signal into a running smbd"},
 	{
 		.name = "stacktrace",
-		.fn   = do_daemon_stack_trace,
+		.fn = do_daemon_stack_trace,
 		.help = "Display a stack trace of a daemon",
 	},
 	{
 		.name = "profilelevel",
-		.fn   = do_profilelevel,
+		.fn = do_profilelevel,
 		.help = "",
 	},
 	{
 		.name = "debuglevel",
-		.fn   = do_debuglevel,
+		.fn = do_debuglevel,
 		.help = "Display current debuglevels",
 	},
 	{
 		.name = "printnotify",
-		.fn   = do_printnotify,
+		.fn = do_printnotify,
 		.help = "Send a print notify message",
 	},
 	{
 		.name = "close-share",
-		.fn   = do_closeshare,
+		.fn = do_closeshare,
 		.help = "Forcibly disconnect a share",
 	},
 	{
 		.name = "close-denied-share",
-		.fn   = do_close_denied_share,
+		.fn = do_close_denied_share,
 		.help = "Forcibly disconnect users from shares disallowed now",
 	},
 	{
 		.name = "kill-client-ip",
-		.fn   = do_kill_client_by_ip,
-		.help = "Forcibly disconnect a client with a specific IP address",
+		.fn = do_kill_client_by_ip,
+		.help = "Forcibly disconnect a client with a specific IP "
+			"address",
 	},
 	{
 		.name = "ip-dropped",
-		.fn   = do_ip_dropped,
+		.fn = do_ip_dropped,
 		.help = "Tell winbind that an IP got dropped",
 	},
 	{
 		.name = "pool-usage",
-		.fn   = do_poolusage,
+		.fn = do_poolusage,
 		.help = "Display talloc memory usage",
 	},
 	{
 		.name = "rpc-dump-status",
-		.fn   = do_rpc_dump_status,
+		.fn = do_rpc_dump_status,
 		.help = "Display rpc status",
 	},
 	{
 		.name = "ringbuf-log",
-		.fn   = do_ringbuflog,
+		.fn = do_ringbuflog,
 		.help = "Display ringbuf log",
 	},
 	{
 		.name = "dmalloc-mark",
-		.fn   = do_dmalloc_mark,
+		.fn = do_dmalloc_mark,
 		.help = "",
 	},
 	{
 		.name = "dmalloc-log-changed",
-		.fn   = do_dmalloc_changed,
+		.fn = do_dmalloc_changed,
 		.help = "",
 	},
 	{
 		.name = "shutdown",
-		.fn   = do_shutdown,
+		.fn = do_shutdown,
 		.help = "Shut down daemon",
 	},
 	{
 		.name = "drvupgrade",
-		.fn   = do_drvupgrade,
+		.fn = do_drvupgrade,
 		.help = "Notify a printer driver has changed",
 	},
+	{.name = "reload-certs",
+	 .fn = do_reload_certs,
+	 .help = "Reload TLS certificates"},
+	{.name = "reload-config",
+	 .fn = do_reload_config,
+	 .help = "Force smbd or winbindd to reload config file"},
+	{.name = "reload-printers",
+	 .fn = do_reload_printers,
+	 .help = "Force smbd to reload printers"},
+	{.name = "nodestatus",
+	 .fn = do_nodestatus,
+	 .help = "Ask nmbd to do a node status request"},
+	{.name = "online",
+	 .fn = do_winbind_online,
+	 .help = "Ask winbind to go into online state"},
+	{.name = "offline",
+	 .fn = do_winbind_offline,
+	 .help = "Ask winbind to go into offline state"},
+	{.name = "onlinestatus",
+	 .fn = do_winbind_onlinestatus,
+	 .help = "Request winbind online status"},
 	{
-		.name = "reload-certs",
-		.fn   = do_reload_certs,
-		.help = "Reload TLS certificates"
-	},
-	{
-		.name = "reload-config",
-		.fn   = do_reload_config,
-		.help = "Force smbd or winbindd to reload config file"},
-	{
-		.name = "reload-printers",
-		.fn   = do_reload_printers,
-		.help = "Force smbd to reload printers"},
-	{
-		.name = "nodestatus",
-		.fn   = do_nodestatus,
-		.help = "Ask nmbd to do a node status request"},
-	{
-		.name = "online",
-		.fn   = do_winbind_online,
-		.help = "Ask winbind to go into online state"},
-	{
-		.name = "offline",
-		.fn   = do_winbind_offline,
-		.help = "Ask winbind to go into offline state"},
-	{
-		.name = "onlinestatus",
-		.fn   = do_winbind_onlinestatus,
-		.help = "Request winbind online status"},
-	{
-		.name = "validate-cache" ,
-		.fn   = do_winbind_validate_cache,
+		.name = "validate-cache",
+		.fn = do_winbind_validate_cache,
 		.help = "Validate winbind's credential cache",
 	},
-	{
-		.name = "dump-domain-list",
-		.fn   = do_winbind_dump_domain_list,
-		.help = "Dump winbind domain list"},
+	{.name = "dump-domain-list",
+	 .fn = do_winbind_dump_domain_list,
+	 .help = "Dump winbind domain list"},
 	{
 		.name = "disconnect-dc",
-		.fn   = do_msg_disconnect_dc,
+		.fn = do_msg_disconnect_dc,
 	},
 	{
 		.name = "notify-cleanup",
-		.fn   = do_notify_cleanup,
+		.fn = do_notify_cleanup,
 	},
 	{
 		.name = "num-children",
-		.fn   = do_num_children,
+		.fn = do_num_children,
 		.help = "Print number of smbd child processes",
 	},
 	{
 		.name = "msg-cleanup",
-		.fn   = do_msg_cleanup,
+		.fn = do_msg_cleanup,
 	},
 	{
 		.name = "noop",
-		.fn   = do_noop,
+		.fn = do_noop,
 		.help = "Do nothing",
 	},
 	{
 		.name = "sleep",
-		.fn   = do_sleep,
+		.fn = do_sleep,
 		.help = "Cause the target process to sleep",
 	},
 	{
