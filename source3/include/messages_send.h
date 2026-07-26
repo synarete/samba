@@ -35,4 +35,12 @@ NTSTATUS messaging_send_debug(struct messaging_context *msg_ctx,
 			      struct server_id dst,
 			      const char *debug_string);
 
+NTSTATUS messaging_send_req_debuglevel(struct messaging_context *msg_ctx,
+				       struct server_id dst);
+NTSTATUS messaging_send_req_debuglevel_v1(struct messaging_context *msg_ctx,
+					  struct server_id dst);
+NTSTATUS messaging_send_req_debuglevel_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
