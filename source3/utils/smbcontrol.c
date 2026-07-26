@@ -132,6 +132,34 @@ static void print_pid_string_cb(struct messaging_context *msg,
 	num_replies++;
 }
 
+static void print_pid_string_v1_cb(struct messaging_context *msg,
+				   void *private_data,
+				   uint32_t msg_type,
+				   struct server_id pid,
+				   DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_debuglevel reply = {};
+	struct server_id_buf pidstr;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_debuglevel_pull(frame, data, &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr,
+			"Invalid MSG_DEBUGLEVEL from PID %s: %s\n",
+			server_id_str_buf(pid, &pidstr),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	printf("PID %s: %s",
+	       server_id_str_buf(pid, &pidstr),
+	       reply.info.info1.debuglevel_string);
+	num_replies++;
+out:
+	TALLOC_FREE(frame);
+}
+
 /* Send no message.  Useful for testing. */
 
 static bool do_noop(struct tevent_context *ev_ctx,
@@ -625,6 +653,10 @@ static bool do_debuglevel(struct tevent_context *ev_ctx,
 			  const struct server_id pid,
 			  const int argc, const char **argv)
 {
+	const bool v1 = messaging_use_ndr_v1();
+	const uint32_t reply_type = v1 ? MSG_DEBUGLEVEL_V1 : MSG_DEBUGLEVEL;
+	NTSTATUS status;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> debuglevel\n");
 		return False;
@@ -632,10 +664,21 @@ static bool do_debuglevel(struct tevent_context *ev_ctx,
 
 	/* Send a message and register our interest in a reply */
 
-	if (!send_message(msg_ctx, pid, MSG_REQ_DEBUGLEVEL, NULL, 0))
+	if (v1) {
+		status = messaging_send_req_debuglevel_v1(msg_ctx, pid);
+	} else {
+		status = messaging_send_req_debuglevel_legacy(msg_ctx, pid);
+	}
+	if (!NT_STATUS_IS_OK(status))
 		return False;
 
-	messaging_register(msg_ctx, NULL, MSG_DEBUGLEVEL, print_pid_string_cb);
+	if (v1) {
+		messaging_register(msg_ctx, NULL, reply_type,
+				   print_pid_string_v1_cb);
+	} else {
+		messaging_register(msg_ctx, NULL, reply_type,
+				   print_pid_string_cb);
+	}
 
 	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
 
@@ -644,7 +687,7 @@ static bool do_debuglevel(struct tevent_context *ev_ctx,
 	if (num_replies == 0)
 		printf("No replies received\n");
 
-	messaging_deregister(msg_ctx, MSG_DEBUGLEVEL, NULL);
+	messaging_deregister(msg_ctx, reply_type, NULL);
 
 	return num_replies;
 }
