@@ -1125,12 +1125,28 @@ static bool do_dmalloc_mark(struct tevent_context *ev_ctx,
 			    const struct server_id pid,
 			    const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_req_dmalloc_mark msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> dmalloc-mark\n");
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_REQ_DMALLOC_MARK, NULL, 0);
+	frame = talloc_stackframe();
+	ndr_err = messaging_req_dmalloc_mark_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_REQ_DMALLOC_MARK, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 /* Perform a dmalloc changed */
@@ -1140,14 +1156,32 @@ static bool do_dmalloc_changed(struct tevent_context *ev_ctx,
 			       const struct server_id pid,
 			       const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_req_dmalloc_log_changed msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> "
 			"dmalloc-log-changed\n");
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_REQ_DMALLOC_LOG_CHANGED,
-			    NULL, 0);
+	frame = talloc_stackframe();
+	ndr_err = messaging_req_dmalloc_log_changed_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(msg_ctx,
+			  pid,
+			  MSG_REQ_DMALLOC_LOG_CHANGED,
+			  blob.data,
+			  blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 static void print_uint32_cb(struct messaging_context *msg, void *private_data,
