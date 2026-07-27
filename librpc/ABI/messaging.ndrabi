@@ -7,9 +7,30 @@
 # are comments, they are not compared.
 
 root messaging_type
+root messaging_debug_version_values
+root messaging_debug
 root messaging_rec
 root messaging_reclog
 root messaging_hdr
+
+struct messaging_debug align(4) {
+	[value(MESSAGING_DEBUG_VERSION_1)] enum:messaging_debug_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_debugU	# info
+}
+
+union messaging_debugU align(4) switch_type(enum:messaging_debug_version_values) {
+	case(MESSAGING_DEBUG_VERSION_1): struct:messaging_debug_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_debug_v1 align(4) {
+	[flag(LIBNDR_FLAG_STR_UTF8|LIBNDR_FLAG_STR_NULLTERM)] scalar:string	# debug_string
+}
+
+enum messaging_debug_version_values base(uint32) {
+	0x00000001	# MESSAGING_DEBUG_VERSION_1
+}
 
 [flag(LIBNDR_FLAG_NOALIGN)] struct messaging_hdr align(8) {
 	struct:server_id	# dest
@@ -35,6 +56,7 @@ struct messaging_reclog align(8) {
 
 enum messaging_type base(uint32) {
 	0x0001	# MSG_DEBUG
+	0x1001	# MSG_DEBUG_V1
 	0x0002	# MSG_PING
 	0x0003	# MSG_PONG
 	0x0004	# MSG_PROFILE
@@ -124,6 +146,17 @@ struct server_id align(8) {
 	scalar:uint32	# vnn
 	scalar:hyper	# unique_id
 }
+
+sample messaging_debug length(27) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 73 74 72 69
+	[0010] 6e 67 30 30 30 30 30 30  30 31 00
+}
+#	    messaging_debug: struct messaging_debug
+#	        version                  : MESSAGING_DEBUG_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_debugU(case 1)
+#	        info1: struct messaging_debug_v1
+#	            debug_string             : 'string00000001'
 
 sample messaging_rec length(84) {
 	[0000] 01 02 03 04 02 03 04 05  03 04 05 06 07 08 09 0a
