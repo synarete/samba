@@ -1,0 +1,188 @@
+/*
+ * Unit tests for messaging NDR encode/decode.
+ */
+
+#include <stdarg.h>
+#include <stddef.h>
+#include <setjmp.h>
+#include <stdint.h>
+#include "cmocka.h"
+
+#include "replace.h"
+#include "talloc.h"
+#include "librpc/gen_ndr/ndr_messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
+
+/* MSG_DEBUG_V1 */
+/*
+ * Wire encoding of messaging_debug with debug_string = "5/all":
+ *
+ *   01 00 00 00  - version (MESSAGING_DEBUG_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (version repeated inside union, uint32
+ * LE) 35 2f 61 6c  - "5/al" (UTF-8) 6c 00        - "l\0" (no trailing padding;
+ * utf8string is not aligned)
+ */
+static const uint8_t debug_blob_5_all[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x35,
+	0x2f,
+	0x61,
+	0x6c, /* "5/al" */
+	0x6c,
+	0x00, /* "l\0" */
+};
+
+/*
+ * Wire encoding of messaging_debug with debug_string = "3":
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   33 00        - "3\0" (no trailing padding; utf8string is not aligned)
+ */
+static const uint8_t debug_blob_3[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x33,
+	0x00, /* "3\0" */
+};
+
+static void test_ndr_pull_messaging_debug(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_debug msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, debug_blob_5_all),
+		.length = sizeof(debug_blob_5_all),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_debug_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_DEBUG_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_string_equal("5/all", msg.info.info1.debug_string);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_push_messaging_debug(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_debug msg = {
+		.info.info1.debug_string = "5/all",
+	};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, debug_blob_5_all),
+		.length = sizeof(debug_blob_5_all),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_debug_push(mem_ctx, &msg, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_roundtrip_messaging_debug(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_debug orig = {
+		.info.info1.debug_string = "3",
+	};
+	struct messaging_debug decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_debug_push(mem_ctx, &orig, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded "3" blob must match the reference vector. */
+	assert_int_equal(sizeof(debug_blob_3), blob.length);
+	assert_memory_equal(debug_blob_3, blob.data, sizeof(debug_blob_3));
+
+	err = messaging_debug_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_DEBUG_VERSION_1, decoded.version);
+	assert_string_equal("3", decoded.info.info1.debug_string);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_pull_messaging_debug_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_debug msg = {};
+	/*
+	 * Same layout as debug_blob_3 but with version = 0x00000002
+	 * (an unknown version value).
+	 */
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x33,
+		0x00, /* "3\0" */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_debug_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
+int main(void)
+{
+	const struct CMUnitTest tests[] = {
+		cmocka_unit_test(test_ndr_pull_messaging_debug),
+		cmocka_unit_test(test_ndr_push_messaging_debug),
+		cmocka_unit_test(test_ndr_roundtrip_messaging_debug),
+		cmocka_unit_test(test_ndr_pull_messaging_debug_bad_version),
+	};
+	if (!isatty(1)) {
+		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);
+	}
+	return cmocka_run_group_tests(tests, NULL, NULL);
+}
