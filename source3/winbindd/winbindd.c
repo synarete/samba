@@ -1176,6 +1176,9 @@ static void winbindd_register_handlers(struct messaging_context *msg_ctx,
 	messaging_register(msg_ctx, NULL,
 			   MSG_DEBUG,
 			   winbind_msg_debug);
+	messaging_register(msg_ctx, NULL,
+			   MSG_DEBUG_V1,
+			   winbind_msg_debug_v1);
 
 	messaging_register(msg_ctx, NULL,
 			   MSG_WINBIND_DISCONNECT_DC,
