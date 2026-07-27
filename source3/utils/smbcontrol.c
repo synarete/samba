@@ -28,6 +28,7 @@
 #include "lib/util/server_id.h"
 #include "lib/cmdline/cmdline.h"
 #include "librpc/gen_ndr/spoolss.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "nt_printing.h"
 #include "printing/notify.h"
 #include "libsmb/nmblib.h"
@@ -40,6 +41,7 @@
 #include "lib/util/string_wrappers.h"
 #include "lib/global_contexts.h"
 #include "lib/param/param.h"
+#include "lib/cluster_support.h"
 
 #ifdef HAVE_LIBUNWIND_H
 #include <libunwind.h>
@@ -148,6 +150,29 @@ static bool do_noop(struct tevent_context *ev_ctx,
 
 /* Send a debug string */
 
+static bool do_debug_v1(struct messaging_context *msg_ctx,
+			const struct server_id pid,
+			const char *debug_string)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_debug msg = {
+		.info.info1.debug_string = debug_string,
+	};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	ndr_err = messaging_debug_push_v1(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(msg_ctx, pid, MSG_DEBUG_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_debug(struct tevent_context *ev_ctx,
 		     struct messaging_context *msg_ctx,
 		     const struct server_id pid,
@@ -157,6 +182,10 @@ static bool do_debug(struct tevent_context *ev_ctx,
 		fprintf(stderr, "Usage: smbcontrol <dest> debug "
 			"<debug-string>\n");
 		return False;
+	}
+
+	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		return do_debug_v1(msg_ctx, pid, argv[1]);
 	}
 
 	return send_message(msg_ctx, pid, MSG_DEBUG, argv[1],
