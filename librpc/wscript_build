@@ -474,7 +474,7 @@ bld.SAMBA_SUBSYSTEM('NDR_FILE_ID',
     )
 
 bld.SAMBA_SUBSYSTEM('NDR_MESSAGING',
-    source='gen_ndr/ndr_messaging.c',
+    source='gen_ndr/ndr_messaging.c ndr/ndr_messaging.c',
     public_deps='ndr NDR_SERVER_ID'
     )
 
