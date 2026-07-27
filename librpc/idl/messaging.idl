@@ -189,6 +189,18 @@ interface messaging
 		MSG_TMP_BASE                    = 0xF000
 	} messaging_type;
 
+	/* general messages */
+	typedef [public, v1_enum] enum {
+		MESSAGING_VERSION_0 = 0x00000000
+	} messaging_version_values;
+
+	const uint32 MESSAGING_VERSION_CURRENT = MESSAGING_VERSION_0;
+
+	typedef [public] struct {
+		messaging_version_values version;
+		utf8string debug_string;
+	} messaging_debug;
+
 	/* messaging struct sent across the sockets and stored in the tdb */
 
 	typedef [public] struct {
