@@ -277,14 +277,14 @@ static struct tevent_req *msg_pingpong_send(TALLOC_CTX *mem_ctx,
 		return tevent_req_post(req, ev);
 	}
 
-	status = messaging_send_buf(state->msg_ctx, dst, MSG_PING, NULL, 0);
+	status = messaging_send_ping(state->msg_ctx, dst);
 	if (!NT_STATUS_IS_OK(status)) {
-		DBG_DEBUG("messaging_send_buf failed: %s\n", nt_errstr(status));
+		DBG_DEBUG("messaging_send_ping failed: %s\n", nt_errstr(status));
 		tevent_req_error(req, map_errno_from_nt_status(status));
 		return tevent_req_post(req, ev);
 	}
 
-	subreq = messaging_read_send(state, ev, state->msg_ctx, MSG_PONG);
+	subreq = messaging_read_send_pong(state, ev, state->msg_ctx);
 	if (tevent_req_nomem(subreq, req)) {
 		return tevent_req_post(req, ev);
 	}

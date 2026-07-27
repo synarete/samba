@@ -100,12 +100,12 @@ int main(int argc, const char *argv[])
 		}
 	}
 
-	req = messaging_read_send(ev, ev, msg_ctx, MSG_PONG);
+	req = messaging_read_send_pong(ev, ev, msg_ctx);
 	if (req == NULL) {
-		fprintf(stderr, "messaging_read_send failed\n");
+		fprintf(stderr, "messaging_read_send_pong failed\n");
 		exit(1);
 	}
-	messaging_send_buf(msg_ctx, notifyd, MSG_PING, NULL, 0);
+	messaging_send_ping(msg_ctx, notifyd);
 
 	ok = tevent_req_poll(req, ev);
 	if (!ok) {

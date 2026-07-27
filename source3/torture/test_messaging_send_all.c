@@ -129,7 +129,7 @@ static struct tevent_req *collect_pong_send(TALLOC_CTX *mem_ctx,
 	state->ev = ev;
 	state->msg = msg;
 
-	subreq = messaging_read_send(state, state->ev, state->msg, MSG_PONG);
+	subreq = messaging_read_send_pong(state, state->ev, state->msg);
 	if (tevent_req_nomem(subreq, req)) {
 		return tevent_req_post(req, ev);
 	}
@@ -179,7 +179,7 @@ static void collect_pong_received(struct tevent_req *subreq)
 		return;
 	}
 
-	subreq = messaging_read_send(state, state->ev, state->msg, MSG_PONG);
+	subreq = messaging_read_send_pong(state, state->ev, state->msg);
 	if (tevent_req_nomem(subreq, req)) {
 		return;
 	}
@@ -242,7 +242,7 @@ bool run_messaging_send_all(int dummy)
 		return false;
 	}
 
-	messaging_send_all(msg_ctx, MSG_PING, NULL, 0);
+	messaging_send_all_ping(msg_ctx);
 
 	ok = tevent_req_poll_unix(req, ev, &err);
 	if (!ok) {

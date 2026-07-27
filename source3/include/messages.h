@@ -125,5 +125,20 @@ struct messaging_rec *messaging_rec_create(
 	const int *fds, size_t num_fds);
 
 #include "librpc/gen_ndr/ndr_messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
+
+NTSTATUS messaging_send_ping(struct messaging_context *msg_ctx,
+			     struct server_id server);
+void messaging_send_all_ping(struct messaging_context *msg_ctx);
+NTSTATUS messaging_register_pong(struct messaging_context *msg_ctx,
+				 void *private_data,
+				 void (*fn)(struct messaging_context *msg,
+					    void *private_data,
+					    uint32_t msg_type,
+					    struct server_id server_id,
+					    DATA_BLOB *data));
+struct tevent_req *messaging_read_send_pong(TALLOC_CTX *mem_ctx,
+					    struct tevent_context *ev,
+					    struct messaging_context *msg_ctx);
 
 #endif

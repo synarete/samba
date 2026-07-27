@@ -42,6 +42,8 @@ typedef void (*msg_callback_t)(
 
 NTSTATUS imessaging_send(struct imessaging_context *msg, struct server_id server,
 			uint32_t msg_type, const DATA_BLOB *data);
+NTSTATUS imessaging_send_ping(struct imessaging_context *msg,
+			      struct server_id server);
 NTSTATUS imessaging_register(struct imessaging_context *msg, void *private_data,
 			    uint32_t msg_type,
 			    msg_callback_t fn);

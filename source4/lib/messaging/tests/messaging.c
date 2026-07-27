@@ -224,10 +224,9 @@ static bool test_messaging_overflow(struct torture_context *tctx)
 
 	for (i=0; i<1000; i++) {
 		NTSTATUS status;
-		status = imessaging_send(msg_ctx, cluster_id(child, 0),
-					 MSG_PING, NULL);
+		status = imessaging_send_ping(msg_ctx, cluster_id(child, 0));
 		torture_assert_ntstatus_ok(tctx, status,
-					   "imessaging_send failed");
+					   "imessaging_send_ping failed");
 	}
 
 	tevent_loop_once(tctx->ev);

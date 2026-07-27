@@ -29,6 +29,8 @@
 #include "lib/util/server_id_db.h"
 #include "cluster/cluster.h"
 #include "../lib/util/unix_privs.h"
+#include "librpc/gen_ndr/ndr_messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /*
  * This file is for functions that can be called from auth_log without
@@ -112,4 +114,27 @@ NTSTATUS imessaging_send_ptr(struct imessaging_context *msg, struct server_id se
 	blob.length = sizeof(void *);
 
 	return imessaging_send(msg, server, msg_type, &blob);
+}
+
+/*
+ * Send a versioned MSG_PING to the given server using NDR encoding.
+ */
+NTSTATUS imessaging_send_ping(struct imessaging_context *msg,
+			      struct server_id server)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_ping ping = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_ping_push(frame, &ping, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return NT_STATUS_INTERNAL_ERROR;
+	}
+
+	status = imessaging_send(msg, server, MSG_PING, &blob);
+	TALLOC_FREE(frame);
+	return status;
 }

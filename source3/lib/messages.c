@@ -1498,4 +1498,73 @@ struct server_id_db *messaging_names_db(struct messaging_context *msg_ctx)
 	return msg_ctx->names_db;
 }
 
+/*
+ * Send a versioned MSG_PING to the given server using NDR encoding.
+ */
+NTSTATUS messaging_send_ping(struct messaging_context *msg_ctx,
+			     struct server_id server)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_ping ping = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_ping_push(frame, &ping, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return NT_STATUS_INTERNAL_ERROR;
+	}
+
+	status = messaging_send(msg_ctx, server, MSG_PING, &blob);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+/*
+ * Broadcast a versioned MSG_PING to all registered processes.
+ */
+void messaging_send_all_ping(struct messaging_context *msg_ctx)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_ping ping = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_ping_push(frame, &ping, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("messaging_ping_push failed: %s\n",
+			    ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return;
+	}
+
+	messaging_send_all(msg_ctx, MSG_PING, blob.data, blob.length);
+	TALLOC_FREE(frame);
+}
+
+/*
+ * Convenience wrapper: register a handler for MSG_PONG messages.
+ */
+NTSTATUS messaging_register_pong(struct messaging_context *msg_ctx,
+				 void *private_data,
+				 void (*fn)(struct messaging_context *msg,
+					    void *private_data,
+					    uint32_t msg_type,
+					    struct server_id server_id,
+					    DATA_BLOB *data))
+{
+	return messaging_register(msg_ctx, private_data, MSG_PONG, fn);
+}
+
+/*
+ * Convenience wrapper: asynchronously receive a MSG_PONG message.
+ */
+struct tevent_req *messaging_read_send_pong(TALLOC_CTX *mem_ctx,
+					    struct tevent_context *ev,
+					    struct messaging_context *msg_ctx)
+{
+	return messaging_read_send(mem_ctx, ev, msg_ctx, MSG_PONG);
+}
+
 /** @} **/

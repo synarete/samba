@@ -34,7 +34,7 @@ static void test_background_send(void)
 	struct tevent_context *ev = NULL;
 	struct messaging_context *msg_ctx = NULL;
 	struct tevent_req *req = NULL;
-	uint32_t ping_msg = MSG_PING;
+	uint32_t ping_msg = (uint32_t)MSG_PING;
 
 	ev = tevent_context_init(frame);
 	assert(ev != NULL);

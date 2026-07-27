@@ -44,7 +44,6 @@ static void pong_message(struct messaging_context *msg_ctx,
 	struct messaging_context *msg_ctx;
 	pid_t pid;
 	int i, n;
-	char buf[12];
 	int ret;
 	TALLOC_CTX *frame = talloc_stackframe();
 
@@ -71,10 +70,10 @@ static void pong_message(struct messaging_context *msg_ctx,
 	pid = atoi(argv[1]);
 	n = atoi(argv[2]);
 
-	messaging_register(msg_ctx, NULL, MSG_PONG, pong_message);
+	messaging_register_pong(msg_ctx, NULL, pong_message);
 
 	for (i=0;i<n;i++) {
-		messaging_send(msg_ctx, pid_to_procid(pid), MSG_PING, NULL);
+		messaging_send_ping(msg_ctx, pid_to_procid(pid));
 	}
 
 	while (pong_count < i) {
@@ -87,15 +86,9 @@ static void pong_message(struct messaging_context *msg_ctx,
 	/* Ensure all messages get through to ourselves. */
 	pong_count = 0;
 
-	strlcpy(buf, "1234567890", sizeof(buf));
-
 	for (i=0;i<n;i++) {
-		messaging_send(msg_ctx,
-			       messaging_server_id(msg_ctx),
-			       MSG_PING,
-			       NULL);
-		messaging_send_buf(msg_ctx, messaging_server_id(msg_ctx),
-				   MSG_PING,(uint8_t *)buf, 11);
+		messaging_send_ping(msg_ctx, messaging_server_id(msg_ctx));
+		messaging_send_ping(msg_ctx, messaging_server_id(msg_ctx));
 	}
 
 	/*
@@ -130,15 +123,11 @@ static void pong_message(struct messaging_context *msg_ctx,
 
 		printf("Sending pings for %d seconds\n", (int)timelimit);
 		while (timeval_elapsed(&tv) < timelimit) {		
-			if(NT_STATUS_IS_OK(messaging_send_buf(
-						   msg_ctx, pid_to_procid(pid),
-						   MSG_PING,
-						   (uint8_t *)buf, 11)))
+			if(NT_STATUS_IS_OK(messaging_send_ping(
+						   msg_ctx, pid_to_procid(pid))))
 			   ping_count++;
-			if (NT_STATUS_IS_OK(messaging_send(msg_ctx,
-							   pid_to_procid(pid),
-							   MSG_PING,
-							   NULL)))
+			if (NT_STATUS_IS_OK(messaging_send_ping(msg_ctx,
+							   pid_to_procid(pid))))
 				ping_count++;
 
 			while (ping_count > pong_count + 20) {
