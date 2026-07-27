@@ -391,6 +391,12 @@ static bool messaging_alert_event_contexts(struct messaging_context *ctx)
  * Some message types have a legacy and a little endian
  * variant, the variant to use depends on the cluster level.
  *
+ * Note: MSG_*_V1 NDR message types (MSG_DEBUG_V1, MSG_PING_V1,
+ * MSG_SHUTDOWN_V1, etc.) are not checked here because reply handlers
+ * (e.g. ping_message, debuglevel_message, reqprofile_message) mirror
+ * the request format rather than checking the active cluster level,
+ * and certain tests/tools send specific legacy/V1 types directly.
+ *
  * Returns false if the message type doesn't match the
  * active cluster level, *required describes the
  * required level.
