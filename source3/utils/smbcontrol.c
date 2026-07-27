@@ -28,6 +28,7 @@
 #include "lib/util/server_id.h"
 #include "lib/cmdline/cmdline.h"
 #include "librpc/gen_ndr/spoolss.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "nt_printing.h"
 #include "printing/notify.h"
 #include "libsmb/nmblib.h"
@@ -153,14 +154,30 @@ static bool do_debug(struct tevent_context *ev_ctx,
 		     const struct server_id pid,
 		     const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_debug_v1 msg = {
+		.debug_string = argv[1],
+	};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
 	if (argc != 2) {
 		fprintf(stderr, "Usage: smbcontrol <dest> debug "
 			"<debug-string>\n");
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_DEBUG, argv[1],
-			    strlen(argv[1]) + 1);
+	frame = talloc_stackframe();
+	ndr_err = messaging_debug_v1_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(msg_ctx, pid, MSG_DEBUG_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 
