@@ -21,6 +21,7 @@
 #include "includes.h"
 #include "lib/util/server_id.h"
 #include "librpc/gen_ndr/messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "messages.h"
 #include "lib/util/memory.h"
 
@@ -84,21 +85,29 @@ void debug_message(struct messaging_context *msg_ctx,
 			  struct server_id src,
 			  DATA_BLOB *data)
 {
-	const char *params_str = (const char *)data->data;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_debug msg = {};
+	enum ndr_err_code ndr_err;
+	const char *params_str;
 
-	/* Check, it's a proper string! */
-	if (params_str[(data->length)-1] != '\0') {
-		DEBUG(1, ("Invalid debug message from pid %u to pid %u\n",
+	ndr_err = messaging_debug_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(1, ("Invalid debug message from pid %u to pid %u: %s\n",
 			  (unsigned int)procid_to_pid(&src),
-			  (unsigned int)getpid()));
-		return;
+			  (unsigned int)getpid(),
+			  ndr_errstr(ndr_err)));
+		goto out;
 	}
+
+	params_str = msg.debug_string;
 
 	DEBUG(3, ("INFO: Remote set of debug to `%s'  (pid %u from pid %u)\n",
 		  params_str, (unsigned int)getpid(),
 		  (unsigned int)procid_to_pid(&src)));
 
 	debug_parse_levels(params_str);
+out:
+	TALLOC_FREE(frame);
 }
 
 /****************************************************************************

@@ -15,7 +15,7 @@ interface messaging
 
 	typedef [v1_enum,public] enum {
 
-		/* general messages */
+		/* MSG_DEBUG */
 		MSG_DEBUG			= 0x0001,
 		MSG_PING			= 0x0002,
 		MSG_PONG			= 0x0003,
@@ -191,6 +191,19 @@ interface messaging
 		 */
 		MSG_TMP_BASE                    = 0xF000
 	} messaging_type;
+
+	/* MSG_DEBUG */
+	typedef [public, v1_enum] enum {
+		MESSAGING_DEBUG_VERSION_0 = 0x00000000
+	} messaging_debug_version_values;
+
+	const uint32 MESSAGING_DEBUG_VERSION_CURRENT =
+		MESSAGING_DEBUG_VERSION_0;
+
+	typedef [public] struct {
+		[skip] messaging_debug_version_values version;
+		utf8string debug_string;
+	} messaging_debug;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 
