@@ -474,7 +474,7 @@ bld.SAMBA_SUBSYSTEM('NDR_FILE_ID',
     )
 
 bld.SAMBA_SUBSYSTEM('NDR_MESSAGING',
-    source='gen_ndr/ndr_messaging.c',
+    source='gen_ndr/ndr_messaging.c ndr/ndr_messaging.c',
     public_deps='ndr NDR_SERVER_ID'
     )
 
@@ -816,6 +816,17 @@ bld.SAMBA_BINARY(
         cmocka
         talloc
         NDR_GMSA
+    ''',
+    for_selftest=True,
+)
+
+bld.SAMBA_BINARY(
+    'test_ndr_messaging',
+    source='tests/test_ndr_messaging.c',
+    deps='''
+        cmocka
+        talloc
+        NDR_MESSAGING
     ''',
     for_selftest=True,
 )
