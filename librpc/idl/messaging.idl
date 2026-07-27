@@ -17,6 +17,7 @@ interface messaging
 
 		/* general messages */
 		MSG_DEBUG			= 0x0001,
+		MSG_DEBUG_V1			= 0x1001,
 		MSG_PING			= 0x0002,
 		MSG_PONG			= 0x0003,
 		MSG_PROFILE			= 0x0004,
@@ -191,6 +192,19 @@ interface messaging
 		 */
 		MSG_TMP_BASE                    = 0xF000
 	} messaging_type;
+
+	/* MSG_DEBUG */
+	typedef [public, v1_enum] enum {
+		MESSAGING_DEBUG_VERSION_1 = 0x00000001
+	} messaging_debug_version_values;
+
+	const uint32 MESSAGING_DEBUG_VERSION_CURRENT =
+		MESSAGING_DEBUG_VERSION_1;
+
+	typedef [public] struct {
+		messaging_debug_version_values version;
+		utf8string debug_string;
+	} messaging_debug_v1;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 

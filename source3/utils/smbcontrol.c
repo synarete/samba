@@ -28,6 +28,7 @@
 #include "lib/util/server_id.h"
 #include "lib/cmdline/cmdline.h"
 #include "librpc/gen_ndr/spoolss.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "nt_printing.h"
 #include "printing/notify.h"
 #include "libsmb/nmblib.h"
@@ -148,21 +149,49 @@ static bool do_noop(struct tevent_context *ev_ctx,
 
 /* Send a debug string */
 
+static bool do_debug_v1(struct messaging_context *msg_ctx,
+			const struct server_id pid,
+			const char *debug_string)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_debug_v1 msg = {
+		.debug_string = debug_string,
+	};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	ndr_err = messaging_debug_v1_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(msg_ctx, pid, MSG_DEBUG_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_debug(struct tevent_context *ev_ctx,
 		     struct messaging_context *msg_ctx,
 		     const struct server_id pid,
-		     const int argc, const char **argv)
+		     const int argc,
+		     const char **argv)
 {
 	if (argc != 2) {
-		fprintf(stderr, "Usage: smbcontrol <dest> debug "
+		fprintf(stderr,
+			"Usage: smbcontrol <dest> debug "
 			"<debug-string>\n");
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_DEBUG, argv[1],
-			    strlen(argv[1]) + 1);
-}
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_debug_v1(msg_ctx, pid, argv[1]);
+	}
 
+	return send_message(
+		msg_ctx, pid, MSG_DEBUG, argv[1], strlen(argv[1]) + 1);
+}
 
 static bool do_idmap(struct tevent_context *ev,
 		     struct messaging_context *msg_ctx,

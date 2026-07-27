@@ -21,6 +21,7 @@
 #include "includes.h"
 #include "lib/util/server_id.h"
 #include "librpc/gen_ndr/messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "messages.h"
 #include "lib/util/memory.h"
 
@@ -79,15 +80,15 @@ bool reopen_logs(void)
 ****************************************************************************/
 
 void debug_message(struct messaging_context *msg_ctx,
-			  void *private_data,
-			  uint32_t msg_type,
-			  struct server_id src,
-			  DATA_BLOB *data)
+		   void *private_data,
+		   uint32_t msg_type,
+		   struct server_id src,
+		   DATA_BLOB *data)
 {
 	const char *params_str = (const char *)data->data;
 
 	/* Check, it's a proper string! */
-	if (params_str[(data->length)-1] != '\0') {
+	if (params_str[(data->length) - 1] != '\0') {
 		DEBUG(1, ("Invalid debug message from pid %u to pid %u\n",
 			  (unsigned int)procid_to_pid(&src),
 			  (unsigned int)getpid()));
@@ -99,6 +100,34 @@ void debug_message(struct messaging_context *msg_ctx,
 		  (unsigned int)procid_to_pid(&src)));
 
 	debug_parse_levels(params_str);
+}
+
+static void debug_message_v1(struct messaging_context *msg_ctx,
+			     void *private_data,
+			     uint32_t msg_type,
+			     struct server_id src,
+			     DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_debug_v1 msg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_debug_v1_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(1, ("Invalid MSG_DEBUG_V1 from pid %u to pid %u: %s\n",
+			  (unsigned int)procid_to_pid(&src),
+			  (unsigned int)getpid(),
+			  ndr_errstr(ndr_err)));
+		goto out;
+	}
+
+	DEBUG(3, ("INFO: Remote set of debug to `%s'  (pid %u from pid %u)\n",
+		  msg.debug_string, (unsigned int)getpid(),
+		  (unsigned int)procid_to_pid(&src)));
+
+	debug_parse_levels(msg.debug_string);
+out:
+	TALLOC_FREE(frame);
 }
 
 /****************************************************************************
@@ -148,6 +177,7 @@ static void debug_ringbuf_log(struct messaging_context *msg_ctx,
 void debug_register_msgs(struct messaging_context *msg_ctx)
 {
 	messaging_register(msg_ctx, NULL, MSG_DEBUG, debug_message);
+	messaging_register(msg_ctx, NULL, MSG_DEBUG_V1, debug_message_v1);
 	messaging_register(msg_ctx, NULL, MSG_REQ_DEBUGLEVEL,
 			   debuglevel_message);
 	messaging_register(msg_ctx, NULL, MSG_REQ_RINGBUF_LOG,
