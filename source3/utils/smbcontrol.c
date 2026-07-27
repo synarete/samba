@@ -28,10 +28,12 @@
 #include "lib/util/server_id.h"
 #include "lib/cmdline/cmdline.h"
 #include "librpc/gen_ndr/spoolss.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "nt_printing.h"
 #include "printing/notify.h"
 #include "libsmb/nmblib.h"
 #include "messages.h"
+#include "messages_send.h"
 #include "util_tdb.h"
 #include "../lib/util/pidfile.h"
 #include "serverid.h"
@@ -40,6 +42,7 @@
 #include "lib/util/string_wrappers.h"
 #include "lib/global_contexts.h"
 #include "lib/param/param.h"
+#include "lib/cluster_support.h"
 
 #ifdef HAVE_LIBUNWIND_H
 #include <libunwind.h>
@@ -159,8 +162,7 @@ static bool do_debug(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_DEBUG, argv[1],
-			    strlen(argv[1]) + 1);
+	return NT_STATUS_IS_OK(messaging_send_debug(msg_ctx, pid, argv[1]));
 }
 
 

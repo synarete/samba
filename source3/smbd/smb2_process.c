@@ -2112,6 +2112,10 @@ void smbd_process(struct tevent_context *ev_ctx,
 			     MSG_DEBUG, NULL);
 	messaging_register(sconn->msg_ctx, NULL,
 			   MSG_DEBUG, debug_message);
+	messaging_deregister(sconn->msg_ctx,
+			     MSG_DEBUG_V1, NULL);
+	messaging_register(sconn->msg_ctx, NULL,
+			   MSG_DEBUG_V1, debug_message_v1);
 
 	messaging_deregister(sconn->msg_ctx, MSG_SMB_IP_DROPPED, NULL);
 	messaging_register(sconn->msg_ctx,
