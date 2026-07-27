@@ -1,0 +1,35 @@
+/*
+   Unix SMB/CIFS implementation.
+
+   Helper routines for messaging IDL-based messages
+
+   Copyright (C) Shachar Sharon 2026 <ssharon@redhat.com>
+
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#ifndef __LIBRPC_NDR_NDR_MESSAGING_H__
+#define __LIBRPC_NDR_NDR_MESSAGING_H__
+
+#include "librpc/gen_ndr/messaging.h"
+
+enum ndr_err_code messaging_debug_v1_push(TALLOC_CTX *mem_ctx,
+					  struct messaging_debug_v1 *msg,
+					  DATA_BLOB *blob);
+
+enum ndr_err_code messaging_debug_v1_pull(TALLOC_CTX *mem_ctx,
+					  const DATA_BLOB *blob,
+					  struct messaging_debug_v1 *msg);
+
+#endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */
