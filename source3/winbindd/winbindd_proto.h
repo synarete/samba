@@ -327,6 +327,11 @@ void winbind_msg_debug(struct messaging_context *msg_ctx,
 			 uint32_t msg_type,
 			 struct server_id server_id,
 			 DATA_BLOB *data);
+void winbind_msg_debug_v1(struct messaging_context *msg_ctx,
+			    void *private_data,
+			    uint32_t msg_type,
+			    struct server_id server_id,
+			    DATA_BLOB *data);
 void winbind_disconnect_dc_parent(struct messaging_context *msg_ctx,
 				  void *private_data,
 				  uint32_t msg_type,
