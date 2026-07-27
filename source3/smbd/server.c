@@ -337,6 +337,17 @@ static void smbd_msg_debug(struct messaging_context *msg_ctx,
 	messaging_send_to_children(msg_ctx, MSG_DEBUG, data);
 }
 
+static void smbd_msg_debug_v1(struct messaging_context *msg_ctx,
+			      void *private_data,
+			      uint32_t msg_type,
+			      struct server_id server_id,
+			      DATA_BLOB *data)
+{
+	debug_message_v1(msg_ctx, private_data, MSG_DEBUG_V1, server_id, data);
+
+	messaging_send_to_children(msg_ctx, MSG_DEBUG_V1, data);
+}
+
 static void smbd_parent_id_cache_kill(struct messaging_context *msg_ctx,
 				      void *private_data,
 				      uint32_t msg_type,
@@ -1671,6 +1682,7 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 	messaging_register(msg_ctx, ev_ctx, MSG_SMB_CONF_UPDATED,
 			   smbd_parent_conf_updated);
 	messaging_register(msg_ctx, NULL, MSG_DEBUG, smbd_msg_debug);
+	messaging_register(msg_ctx, NULL, MSG_DEBUG_V1, smbd_msg_debug_v1);
 	messaging_register(msg_ctx, NULL, MSG_SMB_FORCE_TDIS,
 			   smb_parent_send_to_children);
 	messaging_register(msg_ctx, NULL, MSG_SMB_FORCE_TDIS_DENIED,
