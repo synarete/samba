@@ -28,6 +28,8 @@
 #include "../lib/util/dlinklist.h"
 #include "lib/socket/socket.h"
 #include "librpc/gen_ndr/ndr_irpc.h"
+#include "librpc/gen_ndr/ndr_messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "lib/messaging/irpc.h"
 #include "../lib/util/unix_privs.h"
 #include "librpc/rpc/dcerpc.h"
@@ -89,17 +91,37 @@ static void ping_message(struct imessaging_context *msg,
 			 int *fds,
 			 DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_ping ping = {};
+	struct messaging_pong pong = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 	struct server_id_buf idbuf;
 
 	if (num_fds != 0) {
 		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
+		TALLOC_FREE(frame);
 		return;
 	}
 
-	DEBUG(1,("INFO: Received PING message from server %s [%.*s]\n",
-		 server_id_str_buf(src, &idbuf), (int)data->length,
-		 data->data?(const char *)data->data:""));
-	imessaging_send(msg, src, MSG_PONG, data);
+	ndr_err = messaging_ping_pull(frame, data, &ping);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid ping message from server %s: %s\n",
+			    server_id_str_buf(src, &idbuf),
+			    ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return;
+	}
+
+	DEBUG(1,("INFO: Received PING message from server %s\n",
+		 server_id_str_buf(src, &idbuf)));
+	ndr_err = messaging_pong_push(frame, &pong, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return;
+	}
+	imessaging_send(msg, src, MSG_PONG, &blob);
+	TALLOC_FREE(frame);
 }
 
 static void pool_message(struct imessaging_context *msg,

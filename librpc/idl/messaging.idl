@@ -201,6 +201,14 @@ interface messaging
 		utf8string debug_string;
 	} messaging_debug;
 
+	typedef [public] struct {
+		messaging_version_values version;
+	} messaging_ping;
+
+	typedef [public] struct {
+		messaging_version_values version;
+	} messaging_pong;
+
 	/* messaging struct sent across the sockets and stored in the tdb */
 
 	typedef [public] struct {
