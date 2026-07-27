@@ -939,6 +939,23 @@ void winbind_msg_debug(struct messaging_context *msg_ctx,
 	forall_children(winbind_msg_relay_fn, &state);
 }
 
+void winbind_msg_debug_v1(struct messaging_context *msg_ctx,
+			    void *private_data,
+			    uint32_t msg_type,
+			    struct server_id server_id,
+			    DATA_BLOB *data)
+{
+	struct winbind_msg_relay_state state = {
+		.msg_ctx = msg_ctx, .msg_type = msg_type, .data = data
+	};
+
+	DEBUG(10,("winbind_msg_debug_v1: got debug message.\n"));
+
+	debug_message_v1(msg_ctx, private_data, MSG_DEBUG_V1, server_id, data);
+
+	forall_children(winbind_msg_relay_fn, &state);
+}
+
 void winbind_disconnect_dc_parent(struct messaging_context *msg_ctx,
 				  void *private_data,
 				  uint32_t msg_type,
@@ -1616,6 +1633,8 @@ NTSTATUS winbindd_reinit_after_fork(const struct winbindd_child *myself,
 			     MSG_WINBIND_DUMP_DOMAIN_LIST, NULL);
 	messaging_deregister(global_messaging_context(),
 			     MSG_DEBUG, NULL);
+	messaging_deregister(global_messaging_context(),
+			     MSG_DEBUG_V1, NULL);
 
 	messaging_deregister(global_messaging_context(),
 			     MSG_WINBIND_DOMAIN_OFFLINE, NULL);
@@ -1830,6 +1849,8 @@ static bool fork_domain_child(struct winbindd_child *child)
 			   MSG_WINBIND_ONLINE, child_msg_online);
 	messaging_register(global_messaging_context(), NULL,
 			   MSG_DEBUG, debug_message);
+	messaging_register(global_messaging_context(), NULL,
+			   MSG_DEBUG_V1, debug_message_v1);
 	messaging_register(global_messaging_context(), NULL,
 			   MSG_WINBIND_IP_DROPPED,
 			   winbind_msg_ip_dropped);
