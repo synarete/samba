@@ -213,6 +213,23 @@ interface messaging
 	const uint32 MESSAGING_PROFILE_VERSION_CURRENT =
 		MESSAGING_PROFILE_VERSION_0;
 
+	/* MSG_PING / MSG_PONG */
+	typedef [public, v1_enum] enum {
+		MESSAGING_PING_VERSION_0 = 0x00000000
+	} messaging_ping_version_values;
+
+	const uint32 MESSAGING_PING_VERSION_CURRENT =
+		MESSAGING_PING_VERSION_0;
+
+	typedef [public] struct {
+		messaging_ping_version_values version;
+		utf8string payload;
+	} messaging_ping;
+
+	typedef [public] struct {
+		messaging_ping_version_values version;
+	} messaging_pong;
+
 	typedef [public] struct {
 		[skip] messaging_profile_version_values version;
 		uint32 level;

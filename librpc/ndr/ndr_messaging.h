@@ -32,6 +32,23 @@ enum ndr_err_code messaging_debug_pull(TALLOC_CTX *mem_ctx,
 				       const DATA_BLOB *blob,
 				       struct messaging_debug *msg);
 
+enum ndr_err_code messaging_ping_push(TALLOC_CTX *mem_ctx,
+				      struct messaging_ping *msg,
+				      const char *payload,
+				      DATA_BLOB *blob);
+
+enum ndr_err_code messaging_ping_pull(TALLOC_CTX *mem_ctx,
+				      const DATA_BLOB *blob,
+				      struct messaging_ping *msg);
+
+enum ndr_err_code messaging_pong_push(TALLOC_CTX *mem_ctx,
+				      struct messaging_pong *msg,
+				      DATA_BLOB *blob);
+
+enum ndr_err_code messaging_pong_pull(TALLOC_CTX *mem_ctx,
+				      const DATA_BLOB *blob,
+				      struct messaging_pong *msg);
+
 enum ndr_err_code messaging_profile_push(TALLOC_CTX *mem_ctx,
 					 struct messaging_profile *msg,
 					 DATA_BLOB *blob);
