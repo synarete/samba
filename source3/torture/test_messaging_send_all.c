@@ -23,6 +23,7 @@
 #include "messages.h"
 #include "lib/async_req/async_sock.h"
 #include "lib/util/sys_rw.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 static pid_t fork_responder(struct messaging_context *msg_ctx,
 			    int exit_pipe[2])
@@ -200,6 +201,9 @@ bool run_messaging_send_all(int dummy)
 	int exit_pipe[2];
 	pid_t children[MAX(5, torture_nprocs)];
 	struct tevent_req *req;
+	struct messaging_ping ping = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 	size_t i;
 	bool ok;
 	int ret, err;
@@ -242,7 +246,13 @@ bool run_messaging_send_all(int dummy)
 		return false;
 	}
 
-	messaging_send_all(msg_ctx, MSG_PING, NULL, 0);
+	ndr_err = messaging_ping_push(ev, &ping, "", &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr, "messaging_ping_push failed\n");
+		return false;
+	}
+
+	messaging_send_all(msg_ctx, MSG_PING, blob.data, blob.length);
 
 	ok = tevent_req_poll_unix(req, ev, &err);
 	if (!ok) {

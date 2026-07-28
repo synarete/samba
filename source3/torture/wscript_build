@@ -87,6 +87,7 @@ bld.SAMBA3_BINARY('msgtest',
                  deps='''
                       talloc
                       smbconf
+                      NDR_MESSAGING
                       ''',
                  install=False)
 

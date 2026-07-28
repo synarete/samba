@@ -91,6 +91,11 @@ static void ping_message(struct imessaging_context *msg,
 			 int *fds,
 			 DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_ping ping = {};
+	struct messaging_pong pong = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 	struct server_id_buf idbuf;
 
 	if (num_fds != 0) {
@@ -98,10 +103,24 @@ static void ping_message(struct imessaging_context *msg,
 		return;
 	}
 
-	DEBUG(1,("INFO: Received PING message from server %s [%.*s]\n",
-		 server_id_str_buf(src, &idbuf), (int)data->length,
-		 data->data?(const char *)data->data:""));
-	imessaging_send(msg, src, MSG_PONG, data);
+	frame = talloc_stackframe();
+	ndr_err = messaging_ping_pull(frame, data, &ping);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid ping message from server %s: %s\n",
+			    server_id_str_buf(src, &idbuf),
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	DEBUG(1,("INFO: Received PING message from server %s\n",
+		 server_id_str_buf(src, &idbuf)));
+	ndr_err = messaging_pong_push(frame, &pong, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+	imessaging_send(msg, src, MSG_PONG, &blob);
+out:
+	TALLOC_FREE(frame);
 }
 
 static void pool_message(struct imessaging_context *msg,

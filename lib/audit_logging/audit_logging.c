@@ -32,6 +32,7 @@
 #include "auth/common_auth.h"
 #include "audit_logging.h"
 #include "auth/authn_policy.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /*
  * @brief Get a human readable timestamp.
@@ -182,7 +183,16 @@ static NTSTATUS get_event_server(
 	 * without waiting
 	 */
 	for (i = 0; i < num_servers; i++) {
-		status = imessaging_send(msg_ctx, servers[i], MSG_PING, NULL);
+		struct messaging_ping ping = {};
+		DATA_BLOB blob = data_blob_null;
+		enum ndr_err_code ndr_err;
+
+		ndr_err = messaging_ping_push(frame, &ping, "", &blob);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			TALLOC_FREE(frame);
+			return NT_STATUS_NO_MEMORY;
+		}
+		status = imessaging_send(msg_ctx, servers[i], MSG_PING, &blob);
 		if (NT_STATUS_IS_OK(status)) {
 			*event_server = servers[i];
 			TALLOC_FREE(frame);
