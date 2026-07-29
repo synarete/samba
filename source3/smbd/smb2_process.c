@@ -48,6 +48,7 @@
 #include "libcli/smb/smbXcli_base.h"
 #include "lib/util/time_basic.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "source3/smbd/dir.h"
 
 /* Internal message queue for deferred opens. */
@@ -1610,14 +1611,23 @@ static bool deadtime_fn(const struct timeval *now, void *private_data)
 {
 	struct smbd_server_connection *sconn =
 		(struct smbd_server_connection *)private_data;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_shutdown msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	if ((conn_num_open(sconn) == 0)
 	    || (conn_idle_all(sconn, now->tv_sec))) {
 		DEBUG( 2, ( "Closing idle connection\n" ) );
-		messaging_send(sconn->msg_ctx,
-			       messaging_server_id(sconn->msg_ctx),
-			       MSG_SHUTDOWN,
-			       NULL);
+		frame = talloc_stackframe();
+		ndr_err = messaging_shutdown_push(frame, &msg, &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			messaging_send(sconn->msg_ctx,
+				       messaging_server_id(sconn->msg_ctx),
+				       MSG_SHUTDOWN,
+				       &blob);
+		}
+		TALLOC_FREE(frame);
 		return False;
 	}
 

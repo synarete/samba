@@ -30,6 +30,7 @@
 #include "lib/gencache.h"
 #include "lib/global_contexts.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 int ClientNMB       = -1;
 int ClientDGRAM     = -1;
@@ -196,7 +197,20 @@ static void nmbd_terminate(struct messaging_context *msg,
 			   struct server_id server_id,
 			   DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_shutdown_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid shutdown message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
 	terminate(msg);
+out:
+	TALLOC_FREE(frame);
 }
 
 /**************************************************************************** **

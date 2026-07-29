@@ -45,6 +45,7 @@
 #include "serverid.h"
 #include "lib/global_contexts.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "lib/tsocket/tsocket.h"
 #include "librpc/rpc/dcesrv_core.h"
 
@@ -1685,6 +1686,10 @@ WERROR _srvsvc_NetSessDel(struct pipes_struct *p,
 	const char *machine;
 	bool not_root = False;
 	WERROR werr;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_shutdown msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	DEBUG(5,("_srvsvc_NetSessDel: %d\n", __LINE__));
 
@@ -1719,10 +1724,17 @@ WERROR _srvsvc_NetSessDel(struct pipes_struct *p,
 			become_root();
 		}
 
-		ntstat = messaging_send(p->msg_ctx,
-					session_list[snum].pid,
-					MSG_SHUTDOWN,
-					NULL);
+		frame = talloc_stackframe();
+		ndr_err = messaging_shutdown_push(frame, &msg, &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			ntstat = messaging_send(p->msg_ctx,
+						session_list[snum].pid,
+						MSG_SHUTDOWN,
+						&blob);
+		} else {
+			ntstat = NT_STATUS_INTERNAL_ERROR;
+		}
+		TALLOC_FREE(frame);
 
 		if (NT_STATUS_IS_OK(ntstat))
 			werr = WERR_OK;

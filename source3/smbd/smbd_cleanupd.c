@@ -27,6 +27,7 @@
 #include "locking/proto.h"
 #include "cleanupdb.h"
 #include "g_lock.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "lib/util/util_tdb.h"
 #include "smbd/globals.h"
 #include "librpc/gen_ndr/ndr_open_files.h"
@@ -207,19 +208,31 @@ static void smbd_cleanupd_shutdown(struct messaging_context *msg,
 		private_data, struct tevent_req);
 	struct smbd_cleanupd_state *state = tevent_req_data(
 		req, struct smbd_cleanupd_state);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown m = {};
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
+
+	ndr_err = messaging_shutdown_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid shutdown message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
 
 	if (!state->got_glock) {
 		tevent_req_done(req);
-		return;
+		goto out;
 	}
 
 	status = g_lock_unlock(state->glock_ctx,
 			       string_term_tdb_data("cleanupd"));
 	if (tevent_req_nterror(req, status)) {
-		return;
+		goto out;
 	}
 	tevent_req_done(req);
+out:
+	TALLOC_FREE(frame);
 }
 
 struct cleanup_child {
