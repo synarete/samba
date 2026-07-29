@@ -221,19 +221,16 @@ static void smbd_cleanupd_shutdown(struct messaging_context *msg,
 	}
 
 	if (!state->got_glock) {
-		TALLOC_FREE(frame);
 		tevent_req_done(req);
-		return;
+		goto out;
 	}
 
-	TALLOC_FREE(frame);
 	status = g_lock_unlock(state->glock_ctx,
 			       string_term_tdb_data("cleanupd"));
 	if (tevent_req_nterror(req, status)) {
-		return;
+		goto out;
 	}
 	tevent_req_done(req);
-	return;
 out:
 	TALLOC_FREE(frame);
 }
