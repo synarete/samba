@@ -273,6 +273,7 @@ static void debuglevel_imessage(struct imessaging_context *msg_ctx,
 		DBG_ERR("debug_list_class_names_and_levels returned NULL\n");
 		goto out;
 	}
+	talloc_steal(frame, reply.debuglevel_string);
 
 	ndr_err = messaging_debuglevel_push(frame, &reply, &blob);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {

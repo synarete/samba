@@ -141,6 +141,7 @@ static void debuglevel_message(struct messaging_context *msg_ctx,
 			  "debug_list_class_names_and_levels returned NULL\n"));
 		goto out;
 	}
+	talloc_steal(frame, reply.debuglevel_string);
 
 	DEBUG(1, ("INFO: Received REQ_DEBUGLEVEL message from PID %s\n",
 		  server_id_str_buf(src, &tmp)));
