@@ -37,6 +37,7 @@
 #include "libcli/security/security_token.h"
 #include "libcli/security/dom_sid.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /*
  * This is the generic code that becomes the
@@ -654,7 +655,20 @@ static void rpc_worker_shutdown(
 {
 	struct tevent_req *req = talloc_get_type_abort(
 		private_data, struct tevent_req);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_shutdown_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid shutdown message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
 	tevent_req_done(req);
+out:
+	TALLOC_FREE(frame);
 }
 
 static int rpc_worker_recv(struct tevent_req *req)

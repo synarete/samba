@@ -57,6 +57,14 @@ enum ndr_err_code messaging_profile_pull(TALLOC_CTX *mem_ctx,
 					 const DATA_BLOB *blob,
 					 struct messaging_profile *msg);
 
+enum ndr_err_code messaging_shutdown_push(TALLOC_CTX *mem_ctx,
+					  struct messaging_shutdown *msg,
+					  DATA_BLOB *blob);
+
+enum ndr_err_code messaging_shutdown_pull(TALLOC_CTX *mem_ctx,
+					  const DATA_BLOB *blob,
+					  struct messaging_shutdown *msg);
+
 enum ndr_err_code messaging_req_pool_usage_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_req_pool_usage *msg,

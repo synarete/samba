@@ -65,6 +65,7 @@
 #include "lib/addrchange.h"
 #include "../source4/lib/tls/tls.h"
 #include "libcli/smb/smbXcli_base.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #ifdef HAVE_LIBQUIC
 #include <netinet/quic.h>
@@ -158,8 +159,21 @@ static void msg_exit_server(struct messaging_context *msg,
 			    struct server_id server_id,
 			    DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_shutdown_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid shutdown message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
 	DEBUG(3, ("got a SHUTDOWN message\n"));
 	exit_server_cleanly(NULL);
+out:
+	TALLOC_FREE(frame);
 }
 
 #ifdef DEVELOPER

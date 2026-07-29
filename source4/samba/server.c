@@ -37,6 +37,7 @@
 #include "dsdb/samdb/samdb.h"
 #include "auth/session.h"
 #include "lib/messaging/irpc.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "librpc/gen_ndr/ndr_irpc.h"
 #include "cluster/cluster.h"
 #include "dynconfig/dynconfig.h"
@@ -377,10 +378,20 @@ static void samba_parent_shutdown(struct imessaging_context *msg,
 	struct server_id_buf src_buf;
 	struct server_id dst = imessaging_get_server_id(msg);
 	struct server_id_buf dst_buf;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown m = {};
+	enum ndr_err_code ndr_err;
 
 	if (num_fds != 0) {
 		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
-		return;
+		goto out;
+	}
+
+	ndr_err = messaging_shutdown_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid shutdown message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
 	}
 
 	DBG_ERR("samba_shutdown of %s %s: from %s\n",
@@ -390,6 +401,8 @@ static void samba_parent_shutdown(struct imessaging_context *msg,
 
 	TALLOC_FREE(state);
 	exit(0);
+out:
+	TALLOC_FREE(frame);
 }
 
 /*

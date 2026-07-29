@@ -73,6 +73,7 @@
 #include "libcli/security/dom_sid.h"
 #include "libcli/security/security_token.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 extern bool override_logfile;
 
@@ -2091,6 +2092,10 @@ static void rpc_host_exit_worker(
 	struct rpc_server *server = talloc_get_type_abort(
 		private_data, struct rpc_server);
 	size_t i, num_workers = talloc_array_length(server->workers);
+	TALLOC_CTX *frame = NULL;
+	struct messaging_shutdown msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	/*
 	 * Scan for the right worker. We don't have too many of those,
@@ -2108,15 +2113,19 @@ static void rpc_host_exit_worker(
 
 		SMB_ASSERT(w->num_associations == 0);
 
-		status = messaging_send(
-			server->host->msg_ctx,
-			pid_to_procid(w->pid),
-			MSG_SHUTDOWN,
-			NULL);
-		if (!NT_STATUS_IS_OK(status)) {
-			DBG_DEBUG("Could not send SHUTDOWN msg: %s\n",
-				  nt_errstr(status));
+		frame = talloc_stackframe();
+		ndr_err = messaging_shutdown_push(frame, &msg, &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			status = messaging_send(server->host->msg_ctx,
+						pid_to_procid(w->pid),
+						MSG_SHUTDOWN,
+						&blob);
+			if (!NT_STATUS_IS_OK(status)) {
+				DBG_DEBUG("Could not send SHUTDOWN msg: %s\n",
+					  nt_errstr(status));
+			}
 		}
+		TALLOC_FREE(frame);
 
 		w->available = false;
 		break;
@@ -2218,7 +2227,20 @@ static void rpc_host_msg_shutdown(
 {
 	struct tevent_req *req = talloc_get_type_abort(
 		private_data, struct tevent_req);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_shutdown_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid shutdown message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
 	tevent_req_done(req);
+out:
+	TALLOC_FREE(frame);
 }
 
 /*
