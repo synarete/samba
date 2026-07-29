@@ -226,12 +226,12 @@ static bool do_idmap(struct tevent_context *ev,
 	frame = talloc_stackframe();
 
 	if (strcmp(argv[1], "delete") == 0) {
+		struct messaging_id_cache_delete msg = {};
+
 		if (arg == NULL) {
 			fprintf(stderr, "%s", usage);
 			goto out;
 		}
-		struct messaging_id_cache_delete msg = {};
-
 		ndr_err = messaging_id_cache_delete_push(frame,
 							 &msg,
 							 arg,
@@ -242,12 +242,12 @@ static bool do_idmap(struct tevent_context *ev,
 		ok = send_message(
 			msg_ctx, pid, ID_CACHE_DELETE, blob.data, blob.length);
 	} else if (strcmp(argv[1], "kill") == 0) {
+		struct messaging_id_cache_kill msg = {};
+
 		if (arg == NULL) {
 			fprintf(stderr, "%s", usage);
 			goto out;
 		}
-		struct messaging_id_cache_kill msg = {};
-
 		ndr_err = messaging_id_cache_kill_push(frame,
 						       &msg,
 						       arg,
@@ -581,8 +581,8 @@ static bool do_ping(struct tevent_context *ev_ctx,
 	if (num_replies == 0)
 		printf("No replies received\n");
 
-	messaging_deregister(msg_ctx, MSG_PONG, NULL);
 out:
+	messaging_deregister(msg_ctx, MSG_PONG, NULL);
 	TALLOC_FREE(frame);
 	return ok ? (num_replies > 0) : False;
 }
@@ -750,8 +750,8 @@ static bool do_profilelevel(struct tevent_context *ev_ctx,
 	if (num_replies == 0)
 		printf("No replies received\n");
 
-	messaging_deregister(msg_ctx, MSG_PROFILE, NULL);
 out:
+	messaging_deregister(msg_ctx, MSG_PROFILE, NULL);
 	TALLOC_FREE(frame);
 	return ok ? (num_replies > 0) : False;
 }
@@ -797,8 +797,8 @@ static bool do_debuglevel(struct tevent_context *ev_ctx,
 	if (num_replies == 0)
 		printf("No replies received\n");
 
-	messaging_deregister(msg_ctx, MSG_DEBUGLEVEL, NULL);
 out:
+	messaging_deregister(msg_ctx, MSG_DEBUGLEVEL, NULL);
 	TALLOC_FREE(frame);
 	return ok ? (num_replies > 0) : False;
 }
