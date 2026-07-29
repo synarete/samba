@@ -65,6 +65,28 @@ enum ndr_err_code messaging_shutdown_pull(TALLOC_CTX *mem_ctx,
 					  const DATA_BLOB *blob,
 					  struct messaging_shutdown *msg);
 
+enum ndr_err_code messaging_id_cache_delete_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_id_cache_delete *msg,
+	const char *id,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_id_cache_delete_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_id_cache_delete *msg);
+
+enum ndr_err_code messaging_id_cache_kill_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_id_cache_kill *msg,
+	const char *id,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_id_cache_kill_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_id_cache_kill *msg);
+
 enum ndr_err_code messaging_req_pool_usage_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_req_pool_usage *msg,
