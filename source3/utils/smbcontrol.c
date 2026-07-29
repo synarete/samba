@@ -223,14 +223,13 @@ static bool do_idmap(struct tevent_context *ev,
 		return false;
 	}
 
-	if (arg == NULL) {
-		fprintf(stderr, "%s", usage);
-		return false;
-	}
-
 	frame = talloc_stackframe();
 
 	if (strcmp(argv[1], "delete") == 0) {
+		if (arg == NULL) {
+			fprintf(stderr, "%s", usage);
+			goto out;
+		}
 		struct messaging_id_cache_delete msg = {};
 
 		ndr_err = messaging_id_cache_delete_push(frame,
@@ -243,6 +242,10 @@ static bool do_idmap(struct tevent_context *ev,
 		ok = send_message(
 			msg_ctx, pid, ID_CACHE_DELETE, blob.data, blob.length);
 	} else if (strcmp(argv[1], "kill") == 0) {
+		if (arg == NULL) {
+			fprintf(stderr, "%s", usage);
+			goto out;
+		}
 		struct messaging_id_cache_kill msg = {};
 
 		ndr_err = messaging_id_cache_kill_push(frame,
