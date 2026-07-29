@@ -272,6 +272,24 @@ interface messaging
 		messaging_shutdown_version_values version;
 	} messaging_shutdown;
 
+	/* ID_CACHE_DELETE / ID_CACHE_KILL */
+	typedef [public, v1_enum] enum {
+		MESSAGING_ID_CACHE_VERSION_0 = 0x00000000
+	} messaging_id_cache_version_values;
+
+	const uint32 MESSAGING_ID_CACHE_VERSION_CURRENT =
+		MESSAGING_ID_CACHE_VERSION_0;
+
+	typedef [public] struct {
+		messaging_id_cache_version_values version;
+		utf8string id;
+	} messaging_id_cache_delete;
+
+	typedef [public] struct {
+		messaging_id_cache_version_values version;
+		utf8string id;
+	} messaging_id_cache_kill;
+
 	/* MSG_REQ_DMALLOC_MARK / MSG_REQ_DMALLOC_LOG_CHANGED */
 	typedef [public, v1_enum] enum {
 		MESSAGING_REQ_DMALLOC_VERSION_0 = 0x00000000

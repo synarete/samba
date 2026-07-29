@@ -1732,24 +1732,34 @@ static void smbd_id_cache_kill(struct messaging_context *msg_ctx,
 			       void *private_data,
 			       uint32_t msg_type,
 			       struct server_id server_id,
-			       DATA_BLOB* data)
+			       DATA_BLOB *data)
 {
-	const char *msg = (data && data->data)
-		? (const char *)data->data : "<NULL>";
-	struct id_cache_ref id;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_id_cache_kill msg = {};
+	enum ndr_err_code ndr_err;
 	struct smbd_server_connection *sconn =
 		talloc_get_type_abort(private_data,
 		struct smbd_server_connection);
+	struct id_cache_ref id;
 
-	if (!id_cache_ref_parse(msg, &id)) {
-		DEBUG(0, ("Invalid ?ID: %s\n", msg));
-		return;
+	ndr_err = messaging_id_cache_kill_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid ID_CACHE_KILL message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	if (!id_cache_ref_parse(msg.id, &id)) {
+		DEBUG(0, ("Invalid ?ID: %s\n", msg.id));
+		goto out;
 	}
 
 	if (id_in_use(sconn, &id)) {
-		exit_server_cleanly(msg);
+		exit_server_cleanly(msg.id);
 	}
 	id_cache_delete_from_cache(&id);
+out:
+	TALLOC_FREE(frame);
 }
 
 struct smbd_tevent_trace_state {
