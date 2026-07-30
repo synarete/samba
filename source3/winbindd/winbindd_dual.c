@@ -49,6 +49,7 @@
 #include "../lib/util/pidfile.h"
 #include "librpc/gen_ndr/ndr_winbind_c.h"
 #include "lib/util/util_process.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_WINBIND
@@ -968,22 +969,32 @@ static bool winbindd_child_msg_filter(struct messaging_rec *rec,
 }
 
 /* React on 'smbcontrol winbindd reload-config' in the same way as on SIGHUP*/
-void winbindd_msg_reload_services_parent(struct messaging_context *msg,
+void winbindd_msg_reload_services_parent(struct messaging_context *msg_ctx,
 					 void *private_data,
 					 uint32_t msg_type,
 					 struct server_id server_id,
 					 DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
 	struct winbind_msg_relay_state state = {
-		.msg_ctx = msg,
+		.msg_ctx = msg_ctx,
 		.msg_type = msg_type,
 		.data = data,
 	};
+	struct messaging_smb_conf_updated msg = {};
+	enum ndr_err_code ndr_err;
 	bool ok;
+
+	ndr_err = messaging_smb_conf_updated_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid smb.conf updated message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
 
 	DBG_DEBUG("Got reload-config message\n");
 
-        /* Flush various caches */
+	/* Flush various caches */
 	winbindd_flush_caches();
 
 	winbindd_reload_services_file((const char *)private_data);
@@ -1001,6 +1012,8 @@ void winbindd_msg_reload_services_parent(struct messaging_context *msg,
 	}
 
 	forall_children(winbind_msg_relay_fn, &state);
+out:
+	TALLOC_FREE(frame);
 }
 
 /* Set our domains as offline and forward the offline message to our children. */

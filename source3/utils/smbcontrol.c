@@ -1602,12 +1602,28 @@ static bool do_reload_config(struct tevent_context *ev_ctx,
 			     const struct server_id pid,
 			     const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> reload-config\n");
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_SMB_CONF_UPDATED, NULL, 0);
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_conf_updated_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_SMB_CONF_UPDATED, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 static bool do_reload_printers(struct tevent_context *ev_ctx,

@@ -87,6 +87,16 @@ enum ndr_err_code messaging_id_cache_kill_pull(
 	const DATA_BLOB *blob,
 	struct messaging_id_cache_kill *msg);
 
+enum ndr_err_code messaging_smb_conf_updated_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_conf_updated *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_conf_updated_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_conf_updated *msg);
+
 enum ndr_err_code messaging_req_pool_usage_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_req_pool_usage *msg,

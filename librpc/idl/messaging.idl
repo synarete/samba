@@ -293,6 +293,18 @@ interface messaging
 		utf8string id;
 	} messaging_id_cache_kill;
 
+	/* MSG_SMB_CONF_UPDATED */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_CONF_UPDATED_VERSION_0 = 0x00000000
+	} messaging_smb_conf_updated_version_values;
+
+	const uint32 MESSAGING_SMB_CONF_UPDATED_VERSION_CURRENT =
+		MESSAGING_SMB_CONF_UPDATED_VERSION_0;
+
+	typedef [public] struct {
+		[skip] messaging_smb_conf_updated_version_values version;
+	} messaging_smb_conf_updated;
+
 	/* MSG_REQ_DMALLOC_MARK / MSG_REQ_DMALLOC_LOG_CHANGED */
 	typedef [public, v1_enum] enum {
 		MESSAGING_REQ_DMALLOC_VERSION_0 = 0x00000000

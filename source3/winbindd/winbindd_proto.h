@@ -369,7 +369,7 @@ void winbind_msg_ip_dropped_parent(struct messaging_context *msg_ctx,
 				   uint32_t msg_type,
 				   struct server_id server_id,
 				   DATA_BLOB *data);
-void winbindd_msg_reload_services_parent(struct messaging_context *msg,
+void winbindd_msg_reload_services_parent(struct messaging_context *msg_ctx,
 					 void *private_data,
 					 uint32_t msg_type,
 					 struct server_id server_id,

@@ -1958,6 +1958,10 @@ WERROR _srvsvc_NetShareSetInfo(struct pipes_struct *p,
 	int max_connections = 0;
 	TALLOC_CTX *ctx = p->mem_ctx;
 	union srvsvc_NetShareInfo *info = r->in.info;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	DEBUG(5,("_srvsvc_NetShareSetInfo: %d\n", __LINE__));
 
@@ -2144,8 +2148,17 @@ WERROR _srvsvc_NetShareSetInfo(struct pipes_struct *p,
 			reload_services(NULL, NULL, false);
 
 			/* Tell everyone we updated smb.conf. */
-			messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED,
-					   NULL, 0);
+			frame = talloc_stackframe();
+			ndr_err = messaging_smb_conf_updated_push(frame,
+								  &msg,
+								  &blob);
+			if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+				messaging_send_all(p->msg_ctx,
+						   MSG_SMB_CONF_UPDATED,
+						   blob.data,
+						   blob.length);
+			}
+			TALLOC_FREE(frame);
 		}
 
 		if ( is_disk_op )
@@ -2215,6 +2228,10 @@ WERROR _srvsvc_NetShareAdd(struct pipes_struct *p,
 	TALLOC_CTX *ctx = p->mem_ctx;
 	const struct loadparm_substitution *lp_sub =
 		loadparm_s3_global_substitution();
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	DEBUG(5,("_srvsvc_NetShareAdd: %d\n", __LINE__));
 
@@ -2357,7 +2374,15 @@ WERROR _srvsvc_NetShareAdd(struct pipes_struct *p,
 	ret = smbrun(command, NULL, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		frame = talloc_stackframe();
+		ndr_err = messaging_smb_conf_updated_push(frame, &msg, &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			messaging_send_all(p->msg_ctx,
+					   MSG_SMB_CONF_UPDATED,
+					   blob.data,
+					   blob.length);
+		}
+		TALLOC_FREE(frame);
 	}
 
 	if ( is_disk_op )
@@ -2415,6 +2440,10 @@ WERROR _srvsvc_NetShareDel(struct pipes_struct *p,
 	TALLOC_CTX *ctx = p->mem_ctx;
 	const struct loadparm_substitution *lp_sub =
 		loadparm_s3_global_substitution();
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	DEBUG(5,("_srvsvc_NetShareDel: %d\n", __LINE__));
 
@@ -2473,7 +2502,15 @@ WERROR _srvsvc_NetShareDel(struct pipes_struct *p,
 	ret = smbrun(command, NULL, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		frame = talloc_stackframe();
+		ndr_err = messaging_smb_conf_updated_push(frame, &msg, &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			messaging_send_all(p->msg_ctx,
+					   MSG_SMB_CONF_UPDATED,
+					   blob.data,
+					   blob.length);
+		}
+		TALLOC_FREE(frame);
 	}
 
 	if ( is_disk_op )

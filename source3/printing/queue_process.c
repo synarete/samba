@@ -38,6 +38,7 @@
 #include "rpc_server/spoolss/srv_spoolss_nt.h"
 #include "auth.h"
 #include "nt_printing.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "util_event.h"
 #include "lib/global_contexts.h"
 #include "lib/util/pidfile.h"
@@ -258,7 +259,17 @@ static void bq_smb_conf_updated(struct messaging_context *msg_ctx,
 				struct server_id server_id,
 				DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
 	struct bq_state *state;
+	struct messaging_smb_conf_updated msg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_conf_updated_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid smb.conf updated message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
 
 	state = talloc_get_type_abort(private_data, struct bq_state);
 
@@ -268,6 +279,8 @@ static void bq_smb_conf_updated(struct messaging_context *msg_ctx,
 	lp_load_with_shares(get_dyn_CONFIGFILE());
 	pcap_cache_reload(state->ev, msg_ctx, reload_pcap_change_notify);
 	printing_subsystem_queue_tasks(state);
+out:
+	TALLOC_FREE(frame);
 }
 
 static int bq_state_destructor(struct bq_state *s)

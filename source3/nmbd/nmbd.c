@@ -162,12 +162,24 @@ static void nmbd_sig_hup_handler(struct tevent_context *ev,
 				 void *siginfo,
 				 void *private_data)
 {
-	struct messaging_context *msg = talloc_get_type_abort(
+	struct messaging_context *msg_ctx = talloc_get_type_abort(
 		private_data, struct messaging_context);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	DBG_WARNING("Got SIGHUP dumping debug info.\n");
-	msg_reload_nmbd_services(msg, NULL, MSG_SMB_CONF_UPDATED,
-				 messaging_server_id(msg), NULL);
+
+	ndr_err = messaging_smb_conf_updated_push(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		msg_reload_nmbd_services(msg_ctx,
+					 NULL,
+					 MSG_SMB_CONF_UPDATED,
+					 messaging_server_id(msg_ctx),
+					 &blob);
+	}
+	TALLOC_FREE(frame);
 }
 
 static bool nmbd_setup_sig_hup_handler(struct messaging_context *msg)
@@ -438,18 +450,31 @@ static bool reload_nmbd_services(bool test)
  * React on 'smbcontrol nmbd reload-config' in the same way as to SIGHUP
  **************************************************************************** */
 
-static void msg_reload_nmbd_services(struct messaging_context *msg,
+static void msg_reload_nmbd_services(struct messaging_context *msg_ctx,
 				     void *private_data,
 				     uint32_t msg_type,
 				     struct server_id server_id,
 				     DATA_BLOB *data)
 {
-	write_browse_list( 0, True );
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated msg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_conf_updated_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid smb.conf updated message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	write_browse_list(0, True);
 	dump_all_namelists();
-	reload_nmbd_services( True );
+	reload_nmbd_services(True);
 	reopen_logs();
 	reload_interfaces(0);
 	nmbd_init_my_netbios_names();
+out:
+	TALLOC_FREE(frame);
 }
 
 static void msg_nmbd_send_packet(struct messaging_context *msg,

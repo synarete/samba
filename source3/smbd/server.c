@@ -124,13 +124,23 @@ struct smbd_child_pid {
 static NTSTATUS messaging_send_to_children(struct messaging_context *msg_ctx,
 					   uint32_t msg_type, DATA_BLOB* data);
 
-static void smbd_parent_conf_updated(struct messaging_context *msg,
+static void smbd_parent_conf_updated(struct messaging_context *msg_ctx,
 				     void *private_data,
 				     uint32_t msg_type,
 				     struct server_id server_id,
 				     DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated msg = {};
+	enum ndr_err_code ndr_err;
 	bool ok;
+
+	ndr_err = messaging_smb_conf_updated_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid smb.conf updated message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
 
 	DEBUG(10,("smbd_parent_conf_updated: Got message saying smb.conf was "
 		  "updated. Reloading.\n"));
@@ -141,7 +151,9 @@ static void smbd_parent_conf_updated(struct messaging_context *msg,
 	if (!ok) {
 		DBG_ERR("Failed to reinit guest info\n");
 	}
-	messaging_send_to_children(msg, MSG_SMB_CONF_UPDATED, NULL);
+	messaging_send_to_children(msg_ctx, MSG_SMB_CONF_UPDATED, data);
+out:
+	TALLOC_FREE(frame);
 }
 
 /****************************************************************************

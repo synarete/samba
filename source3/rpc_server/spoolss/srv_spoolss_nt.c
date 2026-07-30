@@ -67,6 +67,7 @@
 #include "printing/nt_printing_migrate_internal.h"
 #include "lib/util/string_wrappers.h"
 #include "lib/global_contexts.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /* macros stolen from s4 spoolss server */
 #define SPOOLSS_BUFFER_UNION(fn,info,level) \
@@ -367,6 +368,10 @@ static WERROR delete_printer_hook(TALLOC_CTX *ctx, struct security_token *token,
 	char *command = NULL;
 	int ret;
 	bool is_print_op = false;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	/* can't fail if we don't try */
 
@@ -392,7 +397,14 @@ static WERROR delete_printer_hook(TALLOC_CTX *ctx, struct security_token *token,
 	ret = smbrun(command, NULL, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		frame = talloc_stackframe();
+		ndr_err = messaging_smb_conf_updated_push(
+			frame, &msg, &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED,
+					   blob.data, blob.length);
+		}
+		TALLOC_FREE(frame);
 	}
 
 	if ( is_print_op )
@@ -6533,6 +6545,10 @@ static bool add_printer_hook(TALLOC_CTX *ctx, struct security_token *token,
 	int ret;
 	int fd;
 	bool is_print_op = false;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	if (!remote_machine) {
 		return false;
@@ -6560,7 +6576,14 @@ static bool add_printer_hook(TALLOC_CTX *ctx, struct security_token *token,
 	ret = smbrun(command, &fd, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		frame = talloc_stackframe();
+		ndr_err = messaging_smb_conf_updated_push(
+			frame, &msg, &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED,
+					   blob.data, blob.length);
+		}
+		TALLOC_FREE(frame);
 	}
 
 	if ( is_print_op )
