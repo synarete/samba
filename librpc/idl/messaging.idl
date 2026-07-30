@@ -305,6 +305,18 @@ interface messaging
 		[skip] messaging_smb_conf_updated_version_values version;
 	} messaging_smb_conf_updated;
 
+	/* MSG_RELOAD_TLS_CERTIFICATES */
+	typedef [public, v1_enum] enum {
+		MESSAGING_RELOAD_TLS_CERTIFICATES_VERSION_0 = 0x00000000
+	} messaging_reload_tls_certificates_version_values;
+
+	const uint32 MESSAGING_RELOAD_TLS_CERTIFICATES_VERSION_CURRENT =
+		MESSAGING_RELOAD_TLS_CERTIFICATES_VERSION_0;
+
+	typedef [public] struct {
+		[skip] messaging_reload_tls_certificates_version_values version;
+	} messaging_reload_tls_certificates;
+
 	/* MSG_REQ_DMALLOC_MARK / MSG_REQ_DMALLOC_LOG_CHANGED */
 	typedef [public, v1_enum] enum {
 		MESSAGING_REQ_DMALLOC_VERSION_0 = 0x00000000

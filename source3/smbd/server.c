@@ -319,31 +319,45 @@ static void smb_parent_reload_tls_certificates(struct messaging_context *ctx,
 					       void *private_data,
 					       uint32_t msg_type,
 					       struct server_id srv_id,
-					       DATA_BLOB* msg_data)
+					       DATA_BLOB *msg_data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_reload_tls_certificates msg = {};
+	enum ndr_err_code ndr_err;
 	struct smbd_parent_context *parent = am_parent;
 	struct loadparm_context *lp_ctx = NULL;
 	NTSTATUS status;
 
+	ndr_err = messaging_reload_tls_certificates_pull(frame,
+							 msg_data,
+							 &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid reload-tls-certificates message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
 	if (parent == NULL) {
-		return;
+		goto out;
 	}
 
 	lp_ctx = loadparm_init_s3(talloc_tos(), loadparm_s3_helpers());
 	if (lp_ctx == NULL) {
 		DBG_ERR("loadparm_init_s3() failed\n");
-		return;
+		goto out;
 	}
 
 	status = smb_parent_load_tls_certificates(parent, lp_ctx);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_ERR("smb_parent_load_tls_certificates(): %s\n",
 			nt_errstr(status));
-		return;
+		goto out;
 	}
 
 	DBG_DEBUG("smb_parent_load_tls_certificates(): %s\n",
 		  nt_errstr(status));
+out:
+	TALLOC_FREE(frame);
 }
 
 /*

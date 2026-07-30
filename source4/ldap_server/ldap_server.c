@@ -51,6 +51,7 @@
 #include "lib/util/server_id.h"
 #include "lib/util/server_id_db.h"
 #include "lib/messaging/messaging_internal.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #undef strcasecmp
 
@@ -1312,6 +1313,8 @@ static void ldap_reload_certs(struct imessaging_context *msg_ctx,
 	struct ldapsrv_service *ldap_service =
 		talloc_get_type_abort(private_data,
 		struct ldapsrv_service);
+	struct messaging_reload_tls_certificates msg = {};
+	enum ndr_err_code ndr_err;
 	int default_children;
 	int num_children;
 	int i;
@@ -1322,6 +1325,13 @@ static void ldap_reload_certs(struct imessaging_context *msg_ctx,
 
 	SMB_ASSERT(msg_ctx == ldap_service->current_msg);
 
+	ndr_err = messaging_reload_tls_certificates_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid reload-tls-certificates message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
 	/* reload certificates */
 	status = tstream_tls_params_server_lpcfg(ldap_service,
 						 ldap_service->lp_ctx,
@@ -1329,8 +1339,7 @@ static void ldap_reload_certs(struct imessaging_context *msg_ctx,
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_ERR("ldapsrv failed tstream_tls_params_server - %s\n",
 			nt_errstr(status));
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	TALLOC_FREE(ldap_service->tls_params);
@@ -1340,8 +1349,7 @@ static void ldap_reload_certs(struct imessaging_context *msg_ctx,
 		/*
 		 * If we are not the master process we are done
 		 */
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	/*
@@ -1354,8 +1362,7 @@ static void ldap_reload_certs(struct imessaging_context *msg_ctx,
 		/*
 		 * We are done if another process model is in use.
 		 */
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	/*
@@ -1369,6 +1376,9 @@ static void ldap_reload_certs(struct imessaging_context *msg_ctx,
 	for (i = 0; i < num_children; i++) {
 		char child_name[64] = { 0, };
 		struct server_id ldap_worker_id;
+		struct messaging_reload_tls_certificates fwd_msg = {};
+		DATA_BLOB fwd_blob;
+		enum ndr_err_code fwd_ndr_err;
 
 		snprintf(child_name, sizeof(child_name), "prefork-worker-ldap-%d", i);
 		ok = server_id_db_lookup_one(msg_ctx->names, child_name, &ldap_worker_id);
@@ -1378,8 +1388,19 @@ static void ldap_reload_certs(struct imessaging_context *msg_ctx,
 			continue;
 		}
 
-		status = imessaging_send(msg_ctx, ldap_worker_id,
-				         MSG_RELOAD_TLS_CERTIFICATES, NULL);
+		fwd_ndr_err = messaging_reload_tls_certificates_push(
+			frame, &fwd_msg, &fwd_blob);
+		if (!NDR_ERR_CODE_IS_SUCCESS(fwd_ndr_err)) {
+			DBG_ERR("ldapsrv failed to encode "
+				"reload-tls-certificates: %s\n",
+				ndr_errstr(fwd_ndr_err));
+			continue;
+		}
+
+		status = imessaging_send(msg_ctx,
+					 ldap_worker_id,
+					 MSG_RELOAD_TLS_CERTIFICATES,
+					 &fwd_blob);
 		if (!NT_STATUS_IS_OK(status)) {
 			struct server_id_buf id_buf;
 			DBG_ERR("ldapsrv failed imessaging_send(%s, %s) - %s\n",
@@ -1389,7 +1410,7 @@ static void ldap_reload_certs(struct imessaging_context *msg_ctx,
 			continue;
 		}
 	}
-
+out:
 	TALLOC_FREE(frame);
 }
 
