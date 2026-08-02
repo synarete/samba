@@ -334,6 +334,18 @@ interface messaging
 		utf8string log;
 	} messaging_ringbuf_log;
 
+	/* MSG_DAEMON_READY_FD */
+	typedef [public, v1_enum] enum {
+		MESSAGING_DAEMON_READY_FD_VERSION_0 = 0x00000000
+	} messaging_daemon_ready_fd_version_values;
+
+	const uint32 MESSAGING_DAEMON_READY_FD_VERSION_CURRENT =
+		MESSAGING_DAEMON_READY_FD_VERSION_0;
+
+	typedef [public] struct {
+		[skip] messaging_daemon_ready_fd_version_values version;
+	} messaging_daemon_ready_fd;
+
 	/* MSG_REQ_DMALLOC_MARK / MSG_REQ_DMALLOC_LOG_CHANGED */
 	typedef [public, v1_enum] enum {
 		MESSAGING_REQ_DMALLOC_VERSION_0 = 0x00000000

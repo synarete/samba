@@ -2543,25 +2543,35 @@ static void rpc_host_report_readiness(
 static bool rpc_host_ready_signal_filter(
 	struct messaging_rec *rec, void *private_data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
 	struct rpc_host_state *state = talloc_get_type_abort(
 		private_data, struct rpc_host_state);
 	size_t num_fds = talloc_array_length(state->ready_signal_fds);
+	struct messaging_daemon_ready_fd msg = {};
+	enum ndr_err_code ndr_err;
 	int *tmp = NULL;
 
 	if (rec->msg_type != MSG_DAEMON_READY_FD) {
-		return false;
+		goto out;
 	}
 	if (rec->num_fds != 1) {
 		DBG_DEBUG("Got %"PRIu8" fds\n", rec->num_fds);
-		return false;
+		goto out;
+	}
+
+	ndr_err = messaging_daemon_ready_fd_pull(frame, &rec->buf, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid daemon-ready-fd message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
 	}
 
 	if (num_fds + 1 < num_fds) {
-		return false;
+		goto out;
 	}
 	tmp = talloc_realloc(state, state->ready_signal_fds, int, num_fds+1);
 	if (tmp == NULL) {
-		return false;
+		goto out;
 	}
 	state->ready_signal_fds = tmp;
 
@@ -2574,6 +2584,8 @@ static bool rpc_host_ready_signal_filter(
 		rpc_host_report_readiness,
 		state);
 
+out:
+	TALLOC_FREE(frame);
 	return false;
 }
 
@@ -2912,6 +2924,12 @@ static int rpc_host_pidfile_create(
 	const char *progname,
 	int ready_signal_fd)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_daemon_ready_fd msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	struct iovec iov;
+	NTSTATUS status;
 	const char *piddir = lp_pid_directory();
 	size_t len = strlen(piddir) + strlen(progname) + 6;
 	char pidFile[len];
@@ -2937,21 +2955,40 @@ static int rpc_host_pidfile_create(
 
 	DBG_DEBUG("%s pid %d exists\n", progname, (int)existing_pid);
 
-	if (ready_signal_fd != -1) {
-		NTSTATUS status = messaging_send_iov(
-			msg_ctx,
-			pid_to_procid(existing_pid),
-			MSG_DAEMON_READY_FD,
-			NULL,
-			0,
-			&ready_signal_fd,
-			1);
-		if (!NT_STATUS_IS_OK(status)) {
-			DBG_DEBUG("Could not send ready_signal_fd: %s\n",
-				  nt_errstr(status));
-		}
+	if (ready_signal_fd == -1) {
+		return EAGAIN;
 	}
 
+	/*
+	 * We lost the race for the pidfile, but someone else
+	 * can report readiness on our behalf.
+	 */
+	frame = talloc_stackframe();
+	ndr_err = messaging_daemon_ready_fd_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("Failed to encode daemon-ready-fd: %s\n",
+			  ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	iov = (struct iovec){
+		.iov_base = blob.data,
+		.iov_len = blob.length,
+	};
+
+	status = messaging_send_iov(msg_ctx,
+				    pid_to_procid(existing_pid),
+				    MSG_DAEMON_READY_FD,
+				    &iov,
+				    1,
+				    &ready_signal_fd,
+				    1);
+	if (!NT_STATUS_IS_OK(status)) {
+		DBG_DEBUG("Could not send ready_signal_fd: %s\n",
+			  nt_errstr(status));
+	}
+out:
+	TALLOC_FREE(frame);
 	return EAGAIN;
 }
 

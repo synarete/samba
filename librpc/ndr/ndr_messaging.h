@@ -127,6 +127,16 @@ enum ndr_err_code messaging_ringbuf_log_pull(
 	const DATA_BLOB *blob,
 	struct messaging_ringbuf_log *msg);
 
+enum ndr_err_code messaging_daemon_ready_fd_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_daemon_ready_fd *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_daemon_ready_fd_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_daemon_ready_fd *msg);
+
 enum ndr_err_code messaging_req_pool_usage_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_req_pool_usage *msg,
