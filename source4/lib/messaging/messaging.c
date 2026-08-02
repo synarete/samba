@@ -170,24 +170,41 @@ static void ringbuf_log_msg(struct imessaging_context *msg,
 			    int *fds,
 			    DATA_BLOB *data)
 {
-	char *log = debug_get_ringbuf();
-	size_t logsize = debug_get_ringbuf_size();
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_ringbuf_log req = {};
+	struct messaging_ringbuf_log reply = {};
 	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	char *log = NULL;
 
 	if (num_fds != 0) {
 		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
-		return;
+		goto out;
 	}
+
+	ndr_err = messaging_req_ringbuf_log_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid req-ringbuf-log message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	log = debug_get_ringbuf();
 
 	if (log == NULL) {
 		log = discard_const_p(char, "*disabled*\n");
-		logsize = strlen(log) + 1;
 	}
 
-	blob.data = (uint8_t *)log;
-	blob.length = logsize;
+	ndr_err = messaging_ringbuf_log_push(frame, &reply, log, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Failed to encode ringbuf-log reply: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
 
 	imessaging_send(msg, src, MSG_RINGBUF_LOG, &blob);
+out:
+	TALLOC_FREE(frame);
 }
 
 /****************************************************************************

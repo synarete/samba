@@ -346,6 +346,78 @@ enum ndr_err_code messaging_reload_tls_certificates_pull(
 	return NDR_ERR_SUCCESS;
 }
 
+enum ndr_err_code messaging_req_ringbuf_log_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_req_ringbuf_log *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_RINGBUF_LOG_VERSION_CURRENT;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_req_ringbuf_log);
+}
+
+enum ndr_err_code messaging_req_ringbuf_log_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_req_ringbuf_log *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_req_ringbuf_log);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_RINGBUF_LOG_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_ringbuf_log_push(TALLOC_CTX *mem_ctx,
+					     struct messaging_ringbuf_log *msg,
+					     const char *log,
+					     DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_RINGBUF_LOG_VERSION_CURRENT;
+	msg->log = log;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_ringbuf_log);
+}
+
+enum ndr_err_code messaging_ringbuf_log_pull(TALLOC_CTX *mem_ctx,
+					     const DATA_BLOB *blob,
+					     struct messaging_ringbuf_log *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(blob,
+				       mem_ctx,
+				       msg,
+				       (ndr_pull_flags_fn_t)
+					       ndr_pull_messaging_ringbuf_log);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_RINGBUF_LOG_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_req_pool_usage_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_req_pool_usage *msg,

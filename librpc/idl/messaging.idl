@@ -317,6 +317,23 @@ interface messaging
 		[skip] messaging_reload_tls_certificates_version_values version;
 	} messaging_reload_tls_certificates;
 
+	/* MSG_REQ_RINGBUF_LOG / MSG_RINGBUF_LOG */
+	typedef [public, v1_enum] enum {
+		MESSAGING_RINGBUF_LOG_VERSION_0 = 0x00000000
+	} messaging_ringbuf_log_version_values;
+
+	const uint32 MESSAGING_RINGBUF_LOG_VERSION_CURRENT =
+		MESSAGING_RINGBUF_LOG_VERSION_0;
+
+	typedef [public] struct {
+		[skip] messaging_ringbuf_log_version_values version;
+	} messaging_req_ringbuf_log;
+
+	typedef [public] struct {
+		[skip] messaging_ringbuf_log_version_values version;
+		utf8string log;
+	} messaging_ringbuf_log;
+
 	/* MSG_REQ_DMALLOC_MARK / MSG_REQ_DMALLOC_LOG_CHANGED */
 	typedef [public, v1_enum] enum {
 		MESSAGING_REQ_DMALLOC_VERSION_0 = 0x00000000

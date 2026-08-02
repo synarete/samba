@@ -162,16 +162,34 @@ static void debug_ringbuf_log(struct messaging_context *msg_ctx,
 			      struct server_id src,
 			      DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_ringbuf_log req = {};
+	struct messaging_ringbuf_log reply = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 	char *log = debug_get_ringbuf();
-	size_t logsize = debug_get_ringbuf_size();
+
+	ndr_err = messaging_req_ringbuf_log_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid req-ringbuf-log message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
 
 	if (log == NULL) {
 		log = discard_const_p(char, "*disabled*\n");
-		logsize = strlen(log) + 1;
 	}
 
-	messaging_send_buf(msg_ctx, src, MSG_RINGBUF_LOG, (uint8_t *)log,
-			   logsize);
+	ndr_err = messaging_ringbuf_log_push(frame, &reply, log, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Failed to encode ringbuf-log reply: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	messaging_send(msg_ctx, src, MSG_RINGBUF_LOG, &blob);
+out:
+	TALLOC_FREE(frame);
 }
 
 void debug_register_msgs(struct messaging_context *msg_ctx)
