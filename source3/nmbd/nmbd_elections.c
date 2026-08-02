@@ -23,6 +23,7 @@
 #include "includes.h"
 #include "nmbd/nmbd.h"
 #include "lib/util/string_wrappers.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /* Election parameters. */
 extern time_t StartupTime;
@@ -380,7 +381,17 @@ void nmbd_message_election(struct messaging_context *msg,
 			   struct server_id server_id,
 			   DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_force_election m = {};
+	enum ndr_err_code ndr_err;
 	struct subnet_record *subrec;
+
+	ndr_err = messaging_force_election_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid force-election message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
 
 	for (subrec = FIRST_SUBNET; subrec; subrec = NEXT_SUBNET_EXCLUDING_UNICAST(subrec)) {
 		struct work_record *work;
@@ -392,4 +403,6 @@ void nmbd_message_election(struct messaging_context *msg,
 			}
 		}
 	}
+out:
+	TALLOC_FREE(frame);
 }

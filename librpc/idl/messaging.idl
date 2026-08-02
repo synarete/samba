@@ -346,6 +346,18 @@ interface messaging
 		[skip] messaging_daemon_ready_fd_version_values version;
 	} messaging_daemon_ready_fd;
 
+	/* MSG_FORCE_ELECTION */
+	typedef [public, v1_enum] enum {
+		MESSAGING_FORCE_ELECTION_VERSION_0 = 0x00000000
+	} messaging_force_election_version_values;
+
+	const uint32 MESSAGING_FORCE_ELECTION_VERSION_CURRENT =
+		MESSAGING_FORCE_ELECTION_VERSION_0;
+
+	typedef [public] struct {
+		messaging_force_election_version_values version;
+	} messaging_force_election;
+
 	/* MSG_REQ_DMALLOC_MARK / MSG_REQ_DMALLOC_LOG_CHANGED */
 	typedef [public, v1_enum] enum {
 		MESSAGING_REQ_DMALLOC_VERSION_0 = 0x00000000

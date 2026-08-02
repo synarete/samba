@@ -509,12 +509,28 @@ static bool do_election(struct tevent_context *ev_ctx,
 			const struct server_id pid,
 			const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_force_election msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> force-election\n");
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_FORCE_ELECTION, NULL, 0);
+	frame = talloc_stackframe();
+	ndr_err = messaging_force_election_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_FORCE_ELECTION, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 /* Ping a samba daemon process */

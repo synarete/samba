@@ -137,6 +137,16 @@ enum ndr_err_code messaging_daemon_ready_fd_pull(
 	const DATA_BLOB *blob,
 	struct messaging_daemon_ready_fd *msg);
 
+enum ndr_err_code messaging_force_election_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_force_election *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_force_election_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_force_election *msg);
+
 enum ndr_err_code messaging_req_pool_usage_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_req_pool_usage *msg,
