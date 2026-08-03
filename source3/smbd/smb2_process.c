@@ -1553,18 +1553,18 @@ static void msg_kill_client_ip(struct messaging_context *msg_ctx,
 	struct smbd_server_connection *sconn = talloc_get_type_abort(
 		private_data, struct smbd_server_connection);
 	TALLOC_CTX *frame = talloc_stackframe();
-	struct messaging_kill_client_ip m = {};
+	struct messaging_kill_client_ip msg = {};
 	enum ndr_err_code ndr_err;
 	char *client_ip;
 
-	ndr_err = messaging_kill_client_ip_pull(frame, data, &m);
+	ndr_err = messaging_kill_client_ip_pull(frame, data, &msg);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_WARNING("Invalid kill-client-ip message: %s\n",
 			    ndr_errstr(ndr_err));
 		goto out;
 	}
 
-	DBG_DEBUG("Got kill request for client IP %s\n", m.ip);
+	DBG_DEBUG("Got kill request for client IP %s\n", msg.ip);
 
 	client_ip = tsocket_address_inet_addr_string(sconn->remote_address,
 						     frame);
@@ -1572,10 +1572,10 @@ static void msg_kill_client_ip(struct messaging_context *msg_ctx,
 		goto out;
 	}
 
-	if (strequal(m.ip, client_ip)) {
+	if (strequal(msg.ip, client_ip)) {
 		DBG_WARNING("Got kill client message for %s - "
 			    "exiting immediately\n",
-			    m.ip);
+			    msg.ip);
 		TALLOC_FREE(frame);
 		exit_server_cleanly("Forced disconnect for client");
 	}
@@ -1592,28 +1592,36 @@ static void msg_kill_client_with_server_ip(struct messaging_context *msg_ctx,
 {
 	struct smbd_server_connection *sconn = talloc_get_type_abort(
 		private_data, struct smbd_server_connection);
-	const char *ip = (char *) data->data;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_ip_dropped msg = {};
+	enum ndr_err_code ndr_err;
 	char *server_ip = NULL;
-	TALLOC_CTX *ctx = NULL;
 
-	DBG_NOTICE("Got kill request for source IP %s\n", ip);
-	ctx = talloc_stackframe();
-
-	server_ip = tsocket_address_inet_addr_string(sconn->local_address, ctx);
-	if (server_ip == NULL) {
-		goto out_free;
+	ndr_err = messaging_smb_ip_dropped_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid smb-ip-dropped message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
 	}
 
-	if (strequal(ip, server_ip)) {
-		DBG_NOTICE(
-			"Got ip dropped message for %s - exiting immediately\n",
-			ip);
-		TALLOC_FREE(ctx);
+	DBG_NOTICE("Got kill request for source IP %s\n", msg.ip);
+
+	server_ip = tsocket_address_inet_addr_string(sconn->local_address,
+						     frame);
+	if (server_ip == NULL) {
+		goto out;
+	}
+
+	if (strequal(msg.ip, server_ip)) {
+		DBG_NOTICE("Got ip dropped message for %s - exiting "
+			   "immediately\n",
+			   msg.ip);
+		TALLOC_FREE(frame);
 		exit_server_cleanly("Forced disconnect for client");
 	}
 
-out_free:
-	TALLOC_FREE(ctx);
+out:
+	TALLOC_FREE(frame);
 }
 
 /*

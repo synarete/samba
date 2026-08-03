@@ -1317,22 +1317,32 @@ static void winbindd_addr_changed(struct tevent_req *req)
 	}
 	if (type == ADDRCHANGE_DEL) {
 		char addrstr[INET6_ADDRSTRLEN];
+		TALLOC_CTX *frame = talloc_stackframe();
+		struct messaging_winbind_ip_dropped msg = {};
 		DATA_BLOB blob;
+		enum ndr_err_code ndr_err;
 
 		print_sockaddr(addrstr, sizeof(addrstr), &addr);
 
 		DEBUG(3, ("winbindd: kernel (AF_NETLINK) dropped ip %s\n",
 			  addrstr));
 
-		blob = data_blob_const(addrstr, strlen(addrstr)+1);
-
-		status = messaging_send(state->msg_ctx,
-					messaging_server_id(state->msg_ctx),
-					MSG_WINBIND_IP_DROPPED, &blob);
-		if (!NT_STATUS_IS_OK(status)) {
-			DEBUG(10, ("messaging_send failed: %s - ignoring\n",
-				   nt_errstr(status)));
+		msg.ip = addrstr;
+		ndr_err = messaging_winbind_ip_dropped_push(frame,
+							    &msg,
+							    &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			status = messaging_send(state->msg_ctx,
+						messaging_server_id(
+							state->msg_ctx),
+						MSG_WINBIND_IP_DROPPED,
+						&blob);
+			if (!NT_STATUS_IS_OK(status)) {
+				DEBUG(10, ("messaging_send failed: %s - ignoring\n",
+					   nt_errstr(status)));
+			}
 		}
+		TALLOC_FREE(frame);
 	}
 	req = addrchange_send(state, state->ev, state->ctx);
 	if (req == NULL) {

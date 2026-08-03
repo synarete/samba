@@ -88,6 +88,7 @@
 #include "lib/gencache.h"
 #include "lib/util/string_wrappers.h"
 #include "lib/global_contexts.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "librpc/gen_ndr/ndr_winbind_c.h"
 #include "libsmb/smbsock_connect.h"
 #include "source3/libsmb/namequery.h"
@@ -3645,24 +3646,25 @@ void winbind_msg_ip_dropped(struct messaging_context *msg_ctx,
 			    struct server_id server_id,
 			    DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_ip_dropped m = {};
+	enum ndr_err_code ndr_err;
 	struct winbindd_domain *domain;
-	char *freeit = NULL;
-	char *addr;
+	const char *addr;
 
-	if ((data == NULL)
-	    || (data->data == NULL)
-	    || (data->length == 0)
-	    || (data->data[data->length-1] != '\0')) {
-		DEBUG(1, ("invalid msg_ip_dropped message: not a valid "
-			  "string\n"));
-		return;
+	ndr_err = messaging_winbind_ip_dropped_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-ip-dropped message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
 	}
 
-	addr = (char *)data->data;
+	addr = m.ip;
 	DEBUG(10, ("IP %s dropped\n", addr));
 
 	if (!is_ipaddress(addr)) {
-		char *slash;
+		const char *slash;
+		char *stripped;
 		/*
 		 * Some code sends us ip addresses with the /netmask
 		 * suffix
@@ -3671,14 +3673,14 @@ void winbind_msg_ip_dropped(struct messaging_context *msg_ctx,
 		if (slash == NULL) {
 			DEBUG(1, ("invalid msg_ip_dropped message: %s\n",
 				  addr));
-			return;
+			goto out;
 		}
-		freeit = talloc_strndup(talloc_tos(), addr, slash-addr);
-		if (freeit == NULL) {
+		stripped = talloc_strndup(frame, addr, slash - addr);
+		if (stripped == NULL) {
 			DEBUG(1, ("talloc failed\n"));
-			return;
+			goto out;
 		}
-		addr = freeit;
+		addr = stripped;
 		DEBUG(10, ("Stripped /netmask to IP %s\n", addr));
 	}
 
@@ -3696,7 +3698,8 @@ void winbind_msg_ip_dropped(struct messaging_context *msg_ctx,
 			smbXcli_conn_disconnect(domain->conn.cli->conn, NT_STATUS_OK);
 		}
 	}
-	TALLOC_FREE(freeit);
+out:
+	TALLOC_FREE(frame);
 }
 
 void winbind_msg_disconnect_dc(struct messaging_context *msg_ctx,

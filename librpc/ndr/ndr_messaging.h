@@ -147,6 +147,26 @@ enum ndr_err_code messaging_force_election_pull(
 	const DATA_BLOB *blob,
 	struct messaging_force_election *msg);
 
+enum ndr_err_code messaging_smb_ip_dropped_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_ip_dropped *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_ip_dropped_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_ip_dropped *msg);
+
+enum ndr_err_code messaging_winbind_ip_dropped_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_ip_dropped *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_winbind_ip_dropped_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_ip_dropped *msg);
+
 enum ndr_err_code messaging_kill_client_ip_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_kill_client_ip *msg,
