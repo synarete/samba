@@ -1552,24 +1552,36 @@ static void msg_kill_client_ip(struct messaging_context *msg_ctx,
 {
 	struct smbd_server_connection *sconn = talloc_get_type_abort(
 		private_data, struct smbd_server_connection);
-	const char *ip = (char *) data->data;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_kill_client_ip m = {};
+	enum ndr_err_code ndr_err;
 	char *client_ip;
 
-	DBG_DEBUG("Got kill request for client IP %s\n", ip);
-
-	client_ip = tsocket_address_inet_addr_string(sconn->remote_address,
-						     talloc_tos());
-	if (client_ip == NULL) {
-		return;
+	ndr_err = messaging_kill_client_ip_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid kill-client-ip message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
 	}
 
-	if (strequal(ip, client_ip)) {
+	DBG_DEBUG("Got kill request for client IP %s\n", m.ip);
+
+	client_ip = tsocket_address_inet_addr_string(sconn->remote_address,
+						     frame);
+	if (client_ip == NULL) {
+		goto out;
+	}
+
+	if (strequal(m.ip, client_ip)) {
 		DBG_WARNING("Got kill client message for %s - "
-			    "exiting immediately\n", ip);
+			    "exiting immediately\n",
+			    m.ip);
+		TALLOC_FREE(frame);
 		exit_server_cleanly("Forced disconnect for client");
 	}
 
-	TALLOC_FREE(client_ip);
+out:
+	TALLOC_FREE(frame);
 }
 
 static void msg_kill_client_with_server_ip(struct messaging_context *msg_ctx,

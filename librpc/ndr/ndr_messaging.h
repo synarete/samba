@@ -147,6 +147,34 @@ enum ndr_err_code messaging_force_election_pull(
 	const DATA_BLOB *blob,
 	struct messaging_force_election *msg);
 
+enum ndr_err_code messaging_kill_client_ip_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_kill_client_ip *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_kill_client_ip_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_kill_client_ip *msg);
+
+enum ndr_err_code messaging_force_tdis_push(TALLOC_CTX *mem_ctx,
+					    struct messaging_force_tdis *msg,
+					    DATA_BLOB *blob);
+
+enum ndr_err_code messaging_force_tdis_pull(TALLOC_CTX *mem_ctx,
+					    const DATA_BLOB *blob,
+					    struct messaging_force_tdis *msg);
+
+enum ndr_err_code messaging_force_tdis_denied_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_force_tdis_denied *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_force_tdis_denied_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_force_tdis_denied *msg);
+
 enum ndr_err_code messaging_req_pool_usage_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_req_pool_usage *msg,

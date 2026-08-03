@@ -490,6 +490,112 @@ enum ndr_err_code messaging_force_election_pull(
 	return NDR_ERR_SUCCESS;
 }
 
+enum ndr_err_code messaging_kill_client_ip_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_kill_client_ip *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_KILL_CLIENT_IP_VERSION_CURRENT;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_kill_client_ip);
+}
+
+enum ndr_err_code messaging_kill_client_ip_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_kill_client_ip *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_kill_client_ip);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_KILL_CLIENT_IP_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_force_tdis_push(TALLOC_CTX *mem_ctx,
+					    struct messaging_force_tdis *msg,
+					    DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_FORCE_TDIS_VERSION_CURRENT;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_force_tdis);
+}
+
+enum ndr_err_code messaging_force_tdis_pull(TALLOC_CTX *mem_ctx,
+					    const DATA_BLOB *blob,
+					    struct messaging_force_tdis *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(blob,
+				       mem_ctx,
+				       msg,
+				       (ndr_pull_flags_fn_t)
+					       ndr_pull_messaging_force_tdis);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_FORCE_TDIS_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_force_tdis_denied_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_force_tdis_denied *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_FORCE_TDIS_VERSION_CURRENT;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_force_tdis_denied);
+}
+
+enum ndr_err_code messaging_force_tdis_denied_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_force_tdis_denied *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_force_tdis_denied);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_FORCE_TDIS_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_req_pool_usage_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_req_pool_usage *msg,
