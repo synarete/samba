@@ -1463,8 +1463,13 @@ static bool do_winbind_online(struct tevent_context *ev_ctx,
 			      const struct server_id pid,
 			      const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_winbind_online msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	TDB_CONTEXT *tdb;
 	char *db_path;
+	bool ok = false;
 
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol winbindd online\n");
@@ -1491,7 +1496,18 @@ static bool do_winbind_online(struct tevent_context *ev_ctx,
 	tdb_delete_bystring(tdb, "WINBINDD_OFFLINE");
 	tdb_close(tdb);
 
-	return send_message(msg_ctx, pid, MSG_WINBIND_ONLINE, NULL, 0);
+	frame = talloc_stackframe();
+	msg.domain_name = "";
+	ndr_err = messaging_winbind_online_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_WINBIND_ONLINE, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 static bool do_winbind_offline(struct tevent_context *ev_ctx,
@@ -1499,6 +1515,10 @@ static bool do_winbind_offline(struct tevent_context *ev_ctx,
 			       const struct server_id pid,
 			       const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_winbind_offline msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	TDB_CONTEXT *tdb;
 	bool ret = False;
 	int retry = 0;
@@ -1531,6 +1551,13 @@ static bool do_winbind_offline(struct tevent_context *ev_ctx,
 	}
 	TALLOC_FREE(db_path);
 
+	frame = talloc_stackframe();
+	msg.domain_name = "";
+	ndr_err = messaging_winbind_offline_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
 	/* There's a potential race condition that if a child
 	   winbindd detects a domain is online at the same time
 	   we're trying to tell it to go offline that it might
@@ -1546,8 +1573,11 @@ static bool do_winbind_offline(struct tevent_context *ev_ctx,
 
 		tdb_store_bystring(tdb, "WINBINDD_OFFLINE", d, TDB_INSERT);
 
-		ret = send_message(msg_ctx, pid, MSG_WINBIND_OFFLINE,
-				   NULL, 0);
+		ret = send_message(msg_ctx,
+				   pid,
+				   MSG_WINBIND_OFFLINE,
+				   blob.data,
+				   blob.length);
 
 		/* Check that the entry "WINBINDD_OFFLINE" still exists. */
 		d = tdb_fetch_bystring( tdb, "WINBINDD_OFFLINE" );
@@ -1560,7 +1590,9 @@ static bool do_winbind_offline(struct tevent_context *ev_ctx,
 		DEBUG(10,("do_winbind_offline: offline state not set - retrying.\n"));
 	}
 
+out:
 	tdb_close(tdb);
+	TALLOC_FREE(frame);
 	return ret;
 }
 

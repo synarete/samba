@@ -596,6 +596,78 @@ enum ndr_err_code messaging_force_tdis_denied_pull(
 	return NDR_ERR_SUCCESS;
 }
 
+enum ndr_err_code messaging_winbind_online_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_online *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_WINBIND_ONLINE_OFFLINE_VERSION_CURRENT;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_winbind_online);
+}
+
+enum ndr_err_code messaging_winbind_online_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_online *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_winbind_online);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_WINBIND_ONLINE_OFFLINE_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_winbind_offline_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_offline *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_WINBIND_ONLINE_OFFLINE_VERSION_CURRENT;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_winbind_offline);
+}
+
+enum ndr_err_code messaging_winbind_offline_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_offline *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_winbind_offline);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_WINBIND_ONLINE_OFFLINE_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_smb_ip_dropped_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_ip_dropped *msg,

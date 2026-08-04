@@ -377,6 +377,24 @@ interface messaging
 		utf8string sharename;
 	} messaging_force_tdis_denied;
 
+	/* MSG_WINBIND_ONLINE / MSG_WINBIND_OFFLINE */
+	typedef [public, v1_enum] enum {
+		MESSAGING_WINBIND_ONLINE_OFFLINE_VERSION_0 = 0x00000000
+	} messaging_winbind_online_offline_version_values;
+
+	const uint32 MESSAGING_WINBIND_ONLINE_OFFLINE_VERSION_CURRENT =
+		MESSAGING_WINBIND_ONLINE_OFFLINE_VERSION_0;
+
+	typedef [public] struct {
+		messaging_winbind_online_offline_version_values version;
+		utf8string domain_name;
+	} messaging_winbind_online;
+
+	typedef [public] struct {
+		messaging_winbind_online_offline_version_values version;
+		utf8string domain_name;
+	} messaging_winbind_offline;
+
 	/* MSG_SMB_IP_DROPPED / MSG_WINBIND_IP_DROPPED */
 	typedef [public, v1_enum] enum {
 		MESSAGING_IP_DROPPED_VERSION_0 = 0x00000000

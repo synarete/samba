@@ -1021,15 +1021,19 @@ out:
 struct winbind_msg_on_offline_state {
 	struct messaging_context *msg_ctx;
 	uint32_t msg_type;
+	const char *domain_name;
 };
 
 static bool winbind_msg_on_offline_fn(struct winbindd_child *child,
 				      void *private_data)
 {
 	struct winbind_msg_on_offline_state *state = private_data;
+	TALLOC_CTX *frame = talloc_stackframe();
+	enum ndr_err_code ndr_err;
+	DATA_BLOB blob;
 
 	if (child->domain->internal) {
-		return true;
+		goto out;
 	}
 
 	/*
@@ -1040,12 +1044,31 @@ static bool winbind_msg_on_offline_fn(struct winbindd_child *child,
 	DBG_DEBUG("sending message to pid %u for domain %s.\n",
 		  (unsigned int)child->pid, child->domain->name);
 
-	messaging_send_buf(state->msg_ctx,
-			   pid_to_procid(child->pid),
-			   state->msg_type,
-			   (const uint8_t *)child->domain->name,
-			   strlen(child->domain->name)+1);
+	if (state->msg_type == MSG_WINBIND_OFFLINE) {
+		struct messaging_winbind_offline msg = {
+			.domain_name = child->domain->name,
+		};
+		ndr_err = messaging_winbind_offline_push(frame, &msg, &blob);
+	} else {
+		struct messaging_winbind_online msg = {
+			.domain_name = child->domain->name,
+		};
+		ndr_err = messaging_winbind_online_push(frame, &msg, &blob);
+	}
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING(
+			"Failed to push winbind online/offline message: %s\n",
+			ndr_errstr(ndr_err));
+		goto out;
+	}
 
+	messaging_send(state->msg_ctx,
+		       pid_to_procid(child->pid),
+		       state->msg_type,
+		       &blob);
+
+out:
+	TALLOC_FREE(frame);
 	return true;
 }
 
@@ -1055,6 +1078,9 @@ void winbind_msg_offline(struct messaging_context *msg_ctx,
 			 struct server_id server_id,
 			 DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_offline msg = {};
+	enum ndr_err_code ndr_err;
 	struct winbind_msg_on_offline_state state = {
 		.msg_ctx = msg_ctx,
 		.msg_type = MSG_WINBIND_OFFLINE,
@@ -1065,13 +1091,20 @@ void winbind_msg_offline(struct messaging_context *msg_ctx,
 
 	if (!lp_winbind_offline_logon()) {
 		DEBUG(10,("winbind_msg_offline: rejecting offline message.\n"));
-		return;
+		goto out;
+	}
+
+	ndr_err = messaging_winbind_offline_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-offline message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
 	}
 
 	/* Set our global state as offline. */
 	if (!set_global_winbindd_state_offline()) {
 		DEBUG(10,("winbind_msg_offline: offline request failed.\n"));
-		return;
+		goto out;
 	}
 
 	/* Set all our domains as offline. */
@@ -1084,6 +1117,8 @@ void winbind_msg_offline(struct messaging_context *msg_ctx,
 	}
 
 	forall_domain_children(winbind_msg_on_offline_fn, &state);
+out:
+	TALLOC_FREE(frame);
 }
 
 /* Set our domains as online and forward the online message to our children. */
@@ -1094,6 +1129,9 @@ void winbind_msg_online(struct messaging_context *msg_ctx,
 			struct server_id server_id,
 			DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_online msg = {};
+	enum ndr_err_code ndr_err;
 	struct winbind_msg_on_offline_state state = {
 		.msg_ctx = msg_ctx,
 		.msg_type = MSG_WINBIND_ONLINE,
@@ -1103,7 +1141,14 @@ void winbind_msg_online(struct messaging_context *msg_ctx,
 
 	if (!lp_winbind_offline_logon()) {
 		DEBUG(10,("winbind_msg_online: rejecting online message.\n"));
-		return;
+		goto out;
+	}
+
+	ndr_err = messaging_winbind_online_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-online message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
 	}
 
 	/* Set our global state as online. */
@@ -1114,6 +1159,8 @@ void winbind_msg_online(struct messaging_context *msg_ctx,
 
 	/* Tell all our child domains to go online online. */
 	forall_domain_children(winbind_msg_on_offline_fn, &state);
+out:
+	TALLOC_FREE(frame);
 }
 
 static const char *collect_onlinestatus(TALLOC_CTX *mem_ctx)
@@ -1456,20 +1503,27 @@ static void child_msg_offline(struct messaging_context *msg,
 			      struct server_id server_id,
 			      DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_offline wmsg = {};
+	enum ndr_err_code ndr_err;
 	struct winbindd_domain *domain;
 	struct winbindd_domain *primary_domain = NULL;
-	const char *domainname = (const char *)data->data;
-
-	if (data->data == NULL || data->length == 0) {
-		return;
-	}
-
-	DEBUG(5,("child_msg_offline received for domain %s.\n", domainname));
+	const char *domainname;
 
 	if (!lp_winbind_offline_logon()) {
 		DEBUG(10,("child_msg_offline: rejecting offline message.\n"));
-		return;
+		goto out;
 	}
+
+	ndr_err = messaging_winbind_offline_pull(frame, data, &wmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-offline message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	domainname = wmsg.domain_name;
+	DEBUG(5,("child_msg_offline received for domain %s.\n", domainname));
 
 	primary_domain = find_our_domain();
 
@@ -1489,6 +1543,8 @@ static void child_msg_offline(struct messaging_context *msg,
 			}
 		}
 	}
+out:
+	TALLOC_FREE(frame);
 }
 
 /* Deal with a request to go online. */
@@ -1499,20 +1555,27 @@ static void child_msg_online(struct messaging_context *msg,
 			     struct server_id server_id,
 			     DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_online wmsg = {};
+	enum ndr_err_code ndr_err;
 	struct winbindd_domain *domain;
 	struct winbindd_domain *primary_domain = NULL;
-	const char *domainname = (const char *)data->data;
-
-	if (data->data == NULL || data->length == 0) {
-		return;
-	}
-
-	DEBUG(5,("child_msg_online received for domain %s.\n", domainname));
+	const char *domainname;
 
 	if (!lp_winbind_offline_logon()) {
 		DEBUG(10,("child_msg_online: rejecting online message.\n"));
-		return;
+		goto out;
 	}
+
+	ndr_err = messaging_winbind_online_pull(frame, data, &wmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-online message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	domainname = wmsg.domain_name;
+	DEBUG(5,("child_msg_online received for domain %s.\n", domainname));
 
 	primary_domain = find_our_domain();
 
@@ -1542,6 +1605,8 @@ static void child_msg_online(struct messaging_context *msg,
 			}
 		}
 	}
+out:
+	TALLOC_FREE(frame);
 }
 
 struct winbindd_reinit_after_fork_state {

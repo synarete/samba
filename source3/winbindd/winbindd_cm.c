@@ -197,11 +197,23 @@ void set_domain_offline(struct winbindd_domain *domain)
 		pid_t idmap_pid = idmap_child_pid();
 
 		if (idmap_pid != 0) {
-			messaging_send_buf(global_messaging_context(),
-					   pid_to_procid(idmap_pid),
-					   MSG_WINBIND_OFFLINE,
-					   (const uint8_t *)domain->name,
-					   strlen(domain->name)+1);
+			TALLOC_CTX *frame = talloc_stackframe();
+			struct messaging_winbind_offline msg = {
+				.domain_name = domain->name,
+			};
+			DATA_BLOB blob;
+			enum ndr_err_code ndr_err;
+
+			ndr_err = messaging_winbind_offline_push(frame,
+								 &msg,
+								 &blob);
+			if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+				messaging_send(global_messaging_context(),
+					       pid_to_procid(idmap_pid),
+					       MSG_WINBIND_OFFLINE,
+					       &blob);
+			}
+			TALLOC_FREE(frame);
 		}
 	}
 
@@ -273,11 +285,23 @@ static void set_domain_online(struct winbindd_domain *domain)
 		pid_t idmap_pid = idmap_child_pid();
 
 		if (idmap_pid != 0) {
-			messaging_send_buf(global_messaging_context(),
-					   pid_to_procid(idmap_pid),
-					   MSG_WINBIND_ONLINE,
-					   (const uint8_t *)domain->name,
-					   strlen(domain->name)+1);
+			TALLOC_CTX *frame = talloc_stackframe();
+			struct messaging_winbind_online msg = {
+				.domain_name = domain->name,
+			};
+			DATA_BLOB blob;
+			enum ndr_err_code ndr_err;
+
+			ndr_err = messaging_winbind_online_push(frame,
+								&msg,
+								&blob);
+			if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+				messaging_send(global_messaging_context(),
+					       pid_to_procid(idmap_pid),
+					       MSG_WINBIND_ONLINE,
+					       &blob);
+			}
+			TALLOC_FREE(frame);
 		}
 	}
 
