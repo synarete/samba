@@ -118,13 +118,24 @@ void winbind_msg_domain_offline(struct messaging_context *msg_ctx,
 				struct server_id server_id,
 				DATA_BLOB *data)
 {
-	const char *domain_name = (const char *)data->data;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_domain_offline wmsg = {};
+	enum ndr_err_code ndr_err;
+	const char *domain_name;
 	struct winbindd_domain *domain;
 
+	ndr_err = messaging_winbind_domain_offline_pull(frame, data, &wmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-domain-offline message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	domain_name = wmsg.domain_name;
 	domain = find_domain_from_name_noinit(domain_name);
 	if (domain == NULL) {
 		DBG_DEBUG("Domain %s not found!\n", domain_name);
-		return;
+		goto out;
 	}
 
 	DBG_DEBUG("Domain %s was %s, change to offline now.\n",
@@ -132,6 +143,8 @@ void winbind_msg_domain_offline(struct messaging_context *msg_ctx,
 		  domain->online ? "online" : "offline");
 
 	domain->online = false;
+out:
+	TALLOC_FREE(frame);
 }
 
 void winbind_msg_domain_online(struct messaging_context *msg_ctx,
@@ -140,12 +153,23 @@ void winbind_msg_domain_online(struct messaging_context *msg_ctx,
 				struct server_id server_id,
 				DATA_BLOB *data)
 {
-	const char *domain_name = (const char *)data->data;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_domain_online wmsg = {};
+	enum ndr_err_code ndr_err;
+	const char *domain_name;
 	struct winbindd_domain *domain;
 
+	ndr_err = messaging_winbind_domain_online_pull(frame, data, &wmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-domain-online message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	domain_name = wmsg.domain_name;
 	domain = find_domain_from_name_noinit(domain_name);
 	if (domain == NULL) {
-		return;
+		goto out;
 	}
 
 	SMB_ASSERT(wb_child_domain() == NULL);
@@ -155,6 +179,8 @@ void winbind_msg_domain_online(struct messaging_context *msg_ctx,
 		  domain->online ? "online" : "offline");
 
 	domain->online = true;
+out:
+	TALLOC_FREE(frame);
 }
 
 /****************************************************************
@@ -184,11 +210,23 @@ void set_domain_offline(struct winbindd_domain *domain)
 
 	/* Send a message to the parent that the domain is offline. */
 	if (parent_pid > 1 && !domain->internal) {
-		messaging_send_buf(global_messaging_context(),
-				   pid_to_procid(parent_pid),
-				   MSG_WINBIND_DOMAIN_OFFLINE,
-				   (uint8_t *)domain->name,
-				   strlen(domain->name) + 1);
+		TALLOC_CTX *frame = talloc_stackframe();
+		struct messaging_winbind_domain_offline dmsg = {
+			.domain_name = domain->name,
+		};
+		DATA_BLOB blob;
+		enum ndr_err_code ndr_err;
+
+		ndr_err = messaging_winbind_domain_offline_push(frame,
+								&dmsg,
+								&blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			messaging_send(global_messaging_context(),
+				       pid_to_procid(parent_pid),
+				       MSG_WINBIND_DOMAIN_OFFLINE,
+				       &blob);
+		}
+		TALLOC_FREE(frame);
 	}
 
 	/* Send an offline message to the idmap child when our
@@ -271,11 +309,23 @@ static void set_domain_online(struct winbindd_domain *domain)
 
 	/* Send a message to the parent that the domain is online. */
 	if (parent_pid > 1 && !domain->internal) {
-		messaging_send_buf(global_messaging_context(),
-				   pid_to_procid(parent_pid),
-				   MSG_WINBIND_DOMAIN_ONLINE,
-				   (uint8_t *)domain->name,
-				   strlen(domain->name) + 1);
+		TALLOC_CTX *frame = talloc_stackframe();
+		struct messaging_winbind_domain_online dmsg = {
+			.domain_name = domain->name,
+		};
+		DATA_BLOB blob;
+		enum ndr_err_code ndr_err;
+
+		ndr_err = messaging_winbind_domain_online_push(frame,
+							       &dmsg,
+							       &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			messaging_send(global_messaging_context(),
+				       pid_to_procid(parent_pid),
+				       MSG_WINBIND_DOMAIN_ONLINE,
+				       &blob);
+		}
+		TALLOC_FREE(frame);
 	}
 
 	/* Send an online message to the idmap child when our

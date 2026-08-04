@@ -167,6 +167,26 @@ enum ndr_err_code messaging_winbind_offline_pull(
 	const DATA_BLOB *blob,
 	struct messaging_winbind_offline *msg);
 
+enum ndr_err_code messaging_winbind_domain_online_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_domain_online *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_winbind_domain_online_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_domain_online *msg);
+
+enum ndr_err_code messaging_winbind_domain_offline_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_domain_offline *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_winbind_domain_offline_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_domain_offline *msg);
+
 enum ndr_err_code messaging_smb_ip_dropped_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_ip_dropped *msg,

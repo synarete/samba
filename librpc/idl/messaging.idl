@@ -395,6 +395,17 @@ interface messaging
 		utf8string domain_name;
 	} messaging_winbind_offline;
 
+	/* MSG_WINBIND_DOMAIN_ONLINE / MSG_WINBIND_DOMAIN_OFFLINE */
+	typedef [public] struct {
+		messaging_winbind_online_offline_version_values version;
+		utf8string domain_name;
+	} messaging_winbind_domain_online;
+
+	typedef [public] struct {
+		messaging_winbind_online_offline_version_values version;
+		utf8string domain_name;
+	} messaging_winbind_domain_offline;
+
 	/* MSG_SMB_IP_DROPPED / MSG_WINBIND_IP_DROPPED */
 	typedef [public, v1_enum] enum {
 		MESSAGING_IP_DROPPED_VERSION_0 = 0x00000000
