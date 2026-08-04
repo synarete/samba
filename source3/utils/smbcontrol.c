@@ -1704,11 +1704,26 @@ static void winbind_validate_cache_cb(struct messaging_context *msg,
 				      struct server_id pid,
 				      DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_validate_cache_reply reply = {};
 	struct server_id_buf src_string;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_winbind_validate_cache_reply_pull(frame,
+							      data,
+							      &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-validate-cache reply: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
 	printf("Winbindd cache is %svalid. (answer from pid %s)\n",
-	       (*(data->data) == 0 ? "" : "NOT "),
+	       (reply.retval == 0 ? "" : "NOT "),
 	       server_id_str_buf(pid, &src_string));
 	num_replies++;
+out:
+	TALLOC_FREE(frame);
 }
 
 static bool do_winbind_validate_cache(struct tevent_context *ev_ctx,
@@ -1716,9 +1731,11 @@ static bool do_winbind_validate_cache(struct tevent_context *ev_ctx,
 				      const struct server_id pid,
 				      const int argc, const char **argv)
 {
-	struct server_id myid;
-
-	myid = messaging_server_id(msg_ctx);
+	TALLOC_CTX *frame = NULL;
+	struct messaging_winbind_validate_cache_req msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
 
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol winbindd validate-cache\n");
@@ -1728,9 +1745,22 @@ static bool do_winbind_validate_cache(struct tevent_context *ev_ctx,
 	messaging_register(msg_ctx, NULL, MSG_WINBIND_VALIDATE_CACHE,
 			   winbind_validate_cache_cb);
 
-	if (!send_message(msg_ctx, pid, MSG_WINBIND_VALIDATE_CACHE, &myid,
-			  sizeof(myid))) {
-		return False;
+	frame = talloc_stackframe();
+	msg.reply_to = messaging_server_id(msg_ctx);
+	ndr_err = messaging_winbind_validate_cache_req_push(frame,
+							    &msg,
+							    &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	if (!send_message(msg_ctx,
+			  pid,
+			  MSG_WINBIND_VALIDATE_CACHE,
+			  blob.data,
+			  blob.length))
+	{
+		goto out;
 	}
 
 	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
@@ -1739,9 +1769,11 @@ static bool do_winbind_validate_cache(struct tevent_context *ev_ctx,
 		printf("No replies received\n");
 	}
 
+	ok = num_replies;
+out:
 	messaging_deregister(msg_ctx, MSG_WINBIND_VALIDATE_CACHE, NULL);
-
-	return num_replies;
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 static bool do_reload_certs(struct tevent_context *ev_ctx,

@@ -207,6 +207,26 @@ enum ndr_err_code messaging_winbind_disconnect_dc_pull(
 	const DATA_BLOB *blob,
 	struct messaging_winbind_disconnect_dc *msg);
 
+enum ndr_err_code messaging_winbind_validate_cache_req_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_validate_cache_req *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_winbind_validate_cache_req_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_validate_cache_req *msg);
+
+enum ndr_err_code messaging_winbind_validate_cache_reply_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_validate_cache_reply *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_winbind_validate_cache_reply_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_validate_cache_reply *msg);
+
 enum ndr_err_code messaging_smb_ip_dropped_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_ip_dropped *msg,

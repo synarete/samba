@@ -819,6 +819,82 @@ enum ndr_err_code messaging_winbind_disconnect_dc_pull(
 	return NDR_ERR_SUCCESS;
 }
 
+enum ndr_err_code messaging_winbind_validate_cache_req_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_validate_cache_req *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_WINBIND_VALIDATE_CACHE_VERSION_CURRENT;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)
+			ndr_push_messaging_winbind_validate_cache_req);
+}
+
+enum ndr_err_code messaging_winbind_validate_cache_req_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_validate_cache_req *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)
+			ndr_pull_messaging_winbind_validate_cache_req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_WINBIND_VALIDATE_CACHE_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_winbind_validate_cache_reply_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_validate_cache_reply *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_WINBIND_VALIDATE_CACHE_VERSION_CURRENT;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)
+			ndr_push_messaging_winbind_validate_cache_reply);
+}
+
+enum ndr_err_code messaging_winbind_validate_cache_reply_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_validate_cache_reply *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)
+			ndr_pull_messaging_winbind_validate_cache_reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_WINBIND_VALIDATE_CACHE_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_smb_ip_dropped_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_ip_dropped *msg,

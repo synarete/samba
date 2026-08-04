@@ -236,12 +236,23 @@ static void winbind_msg_validate_cache(struct messaging_context *msg_ctx,
 				       struct server_id server_id,
 				       DATA_BLOB *data)
 {
-	uint8_t ret;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_validate_cache_req req = {};
+	struct messaging_winbind_validate_cache_reply reply = {};
+	DATA_BLOB reply_blob;
+	enum ndr_err_code ndr_err;
 	pid_t child_pid;
 	NTSTATUS status;
 
 	DEBUG(10, ("winbindd_msg_validate_cache: got validate-cache "
 		   "message.\n"));
+
+	ndr_err = messaging_winbind_validate_cache_req_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-validate-cache request: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
 
 	/*
 	 * call the validation code from a child:
@@ -253,14 +264,14 @@ static void winbind_msg_validate_cache(struct messaging_context *msg_ctx,
 	if (child_pid == -1) {
 		DEBUG(1, ("winbind_msg_validate_cache: Could not fork: %s\n",
 			  strerror(errno)));
-		return;
+		goto out;
 	}
 
 	if (child_pid != 0) {
 		/* parent */
 		DEBUG(5, ("winbind_msg_validate_cache: child created with "
 			  "pid %d.\n", (int)child_pid));
-		return;
+		goto out;
 	}
 
 	/* child */
@@ -277,11 +288,27 @@ static void winbind_msg_validate_cache(struct messaging_context *msg_ctx,
 
 	process_set_title("wb: check cache", "validate cache child");
 
-	ret = (uint8_t)winbindd_validate_cache_nobackup();
-	DEBUG(10, ("winbindd_msg_validata_cache: got return value %d\n", ret));
-	messaging_send_buf(msg_ctx, server_id, MSG_WINBIND_VALIDATE_CACHE, &ret,
-			   (size_t)1);
+	reply.retval = (uint8_t)winbindd_validate_cache_nobackup();
+	DEBUG(10, ("winbindd_msg_validata_cache: got return value %d\n",
+		   reply.retval));
+
+	ndr_err = messaging_winbind_validate_cache_reply_push(frame,
+							      &reply,
+							      &reply_blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Failed to encode validate-cache reply: %s\n",
+			    ndr_errstr(ndr_err));
+		_exit(0);
+	}
+
+	messaging_send_buf(msg_ctx,
+			   req.reply_to,
+			   MSG_WINBIND_VALIDATE_CACHE,
+			   reply_blob.data,
+			   reply_blob.length);
 	_exit(0);
+out:
+	TALLOC_FREE(frame);
 }
 
 static struct winbindd_bool_dispatch_table {
