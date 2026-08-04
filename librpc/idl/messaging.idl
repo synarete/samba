@@ -406,6 +406,30 @@ interface messaging
 		utf8string domain_name;
 	} messaging_winbind_domain_offline;
 
+	/* MSG_WINBIND_RELOAD_TRUSTED_DOMAINS */
+	typedef [public, v1_enum] enum {
+		MESSAGING_WINBIND_RELOAD_TRUSTED_DOMAINS_VERSION_0 = 0x00000000
+	} messaging_winbind_reload_trusted_domains_version_values;
+
+	const uint32 MESSAGING_WINBIND_RELOAD_TRUSTED_DOMAINS_VERSION_CURRENT =
+		MESSAGING_WINBIND_RELOAD_TRUSTED_DOMAINS_VERSION_0;
+
+	typedef [public] struct {
+		messaging_winbind_reload_trusted_domains_version_values version;
+	} messaging_winbind_reload_trusted_domains;
+
+	/* MSG_WINBIND_DISCONNECT_DC */
+	typedef [public, v1_enum] enum {
+		MESSAGING_WINBIND_DISCONNECT_DC_VERSION_0 = 0x00000000
+	} messaging_winbind_disconnect_dc_version_values;
+
+	const uint32 MESSAGING_WINBIND_DISCONNECT_DC_VERSION_CURRENT =
+		MESSAGING_WINBIND_DISCONNECT_DC_VERSION_0;
+
+	typedef [public] struct {
+		messaging_winbind_disconnect_dc_version_values version;
+	} messaging_winbind_disconnect_dc;
+
 	/* MSG_SMB_IP_DROPPED / MSG_WINBIND_IP_DROPPED */
 	typedef [public, v1_enum] enum {
 		MESSAGING_IP_DROPPED_VERSION_0 = 0x00000000

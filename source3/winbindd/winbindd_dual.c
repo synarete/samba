@@ -945,13 +945,25 @@ void winbind_disconnect_dc_parent(struct messaging_context *msg_ctx,
 				  struct server_id server_id,
 				  DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_disconnect_dc msg = {};
+	enum ndr_err_code ndr_err;
 	struct winbind_msg_relay_state state = {
 		.msg_ctx = msg_ctx, .msg_type = msg_type, .data = data
 	};
 
+	ndr_err = messaging_winbind_disconnect_dc_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-disconnect-dc message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
 	DBG_DEBUG("Got disconnect_dc message\n");
 
 	forall_children(winbind_msg_relay_fn, &state);
+out:
+	TALLOC_FREE(frame);
 }
 
 static bool winbindd_child_msg_filter(struct messaging_rec *rec,

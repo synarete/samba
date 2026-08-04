@@ -39,6 +39,7 @@
 #include "lib/global_contexts.h"
 #include "librpc/gen_ndr/ndr_winbind_c.h"
 #include "../libcli/lsarpc/util_lsarpc.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_WINBIND
@@ -883,11 +884,24 @@ static void wb_imsg_new_trusted_domain(struct imessaging_context *msg,
 				       int *fds,
 				       DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_reload_trusted_domains wmsg = {};
+	enum ndr_err_code ndr_err;
 	bool ok;
 
 	if (num_fds != 0) {
 		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
-		return;
+		goto out;
+	}
+
+	ndr_err = messaging_winbind_reload_trusted_domains_pull(frame,
+								data,
+								&wmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-reload-trusted-domains "
+			    "message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
 	}
 
 	DBG_NOTICE("Rescanning trusted domains\n");
@@ -896,6 +910,8 @@ static void wb_imsg_new_trusted_domain(struct imessaging_context *msg,
 	if (!ok) {
 		DBG_ERR("Failed to reload trusted domains\n");
 	}
+out:
+	TALLOC_FREE(frame);
 }
 
 /*

@@ -3782,7 +3782,17 @@ void winbind_msg_disconnect_dc(struct messaging_context *msg_ctx,
 			       struct server_id server_id,
 			       DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_disconnect_dc msg = {};
+	enum ndr_err_code ndr_err;
 	struct winbindd_domain *domain;
+
+	ndr_err = messaging_winbind_disconnect_dc_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-disconnect-dc message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
 
 	for (domain = domain_list(); domain; domain = domain->next) {
 		if (domain->internal) {
@@ -3790,4 +3800,6 @@ void winbind_msg_disconnect_dc(struct messaging_context *msg_ctx,
 		}
 		invalidate_cm_connection(domain);
 	}
+out:
+	TALLOC_FREE(frame);
 }

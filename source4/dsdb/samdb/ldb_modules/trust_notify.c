@@ -22,6 +22,7 @@
 #include "ldb_module.h"
 #include "dsdb/samdb/ldb_modules/util.h"
 #include "lib/messaging/irpc.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 struct trust_notify_private {
 	bool notify_winbind;
@@ -59,10 +60,19 @@ static void trust_notify_winbind_server(struct ldb_module *module)
 				     &num_server_ids,
 				     &server_ids);
 	if (NT_STATUS_IS_OK(status) && num_server_ids >= 1) {
-		imessaging_send(imsg_ctx,
-				server_ids[0],
-				MSG_WINBIND_RELOAD_TRUSTED_DOMAINS,
-				NULL);
+		struct messaging_winbind_reload_trusted_domains msg = {};
+		DATA_BLOB blob;
+		enum ndr_err_code ndr_err;
+
+		ndr_err = messaging_winbind_reload_trusted_domains_push(frame,
+									&msg,
+									&blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			imessaging_send(imsg_ctx,
+					server_ids[0],
+					MSG_WINBIND_RELOAD_TRUSTED_DOMAINS,
+					&blob);
+		}
 	}
 	TALLOC_FREE(frame);
 }

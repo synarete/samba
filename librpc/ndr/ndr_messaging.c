@@ -742,6 +742,83 @@ enum ndr_err_code messaging_winbind_domain_offline_pull(
 	return NDR_ERR_SUCCESS;
 }
 
+enum ndr_err_code messaging_winbind_reload_trusted_domains_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_reload_trusted_domains *msg,
+	DATA_BLOB *blob)
+{
+	msg->version =
+		MESSAGING_WINBIND_RELOAD_TRUSTED_DOMAINS_VERSION_CURRENT;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)
+			ndr_push_messaging_winbind_reload_trusted_domains);
+}
+
+enum ndr_err_code messaging_winbind_reload_trusted_domains_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_reload_trusted_domains *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)
+			ndr_pull_messaging_winbind_reload_trusted_domains);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version !=
+	    MESSAGING_WINBIND_RELOAD_TRUSTED_DOMAINS_VERSION_CURRENT)
+	{
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_winbind_disconnect_dc_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_disconnect_dc *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_WINBIND_DISCONNECT_DC_VERSION_CURRENT;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_winbind_disconnect_dc);
+}
+
+enum ndr_err_code messaging_winbind_disconnect_dc_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_disconnect_dc *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_winbind_disconnect_dc);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_WINBIND_DISCONNECT_DC_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_smb_ip_dropped_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_ip_dropped *msg,
