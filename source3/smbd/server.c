@@ -444,13 +444,33 @@ static void smb_tell_num_children(struct messaging_context *ctx, void *data,
 				  uint32_t msg_type, struct server_id srv_id,
 				  DATA_BLOB *msg_data)
 {
-	uint8_t buf[sizeof(uint32_t)];
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_tell_num_children req = {};
+	struct messaging_smb_num_children reply = {};
+	enum ndr_err_code ndr_err;
+	DATA_BLOB blob;
 
-	if (am_parent) {
-		SIVAL(buf, 0, am_parent->num_children);
-		messaging_send_buf(ctx, srv_id, MSG_SMB_NUM_CHILDREN,
-				   buf, sizeof(buf));
+	ndr_err = messaging_smb_tell_num_children_pull(frame, msg_data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid tell-num-children message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
 	}
+
+	if (!am_parent) {
+		goto out;
+	}
+
+	reply.num_children = am_parent->num_children;
+	ndr_err = messaging_smb_num_children_push(frame, &reply, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	messaging_send_buf(
+		ctx, srv_id, MSG_SMB_NUM_CHILDREN, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
 }
 
 static void notifyd_stopped(struct tevent_req *req);

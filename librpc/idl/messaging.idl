@@ -483,6 +483,23 @@ interface messaging
 		utf8string dump;
 	} messaging_winbind_dump_domain_list_reply;
 
+	/* MSG_SMB_TELL_NUM_CHILDREN / MSG_SMB_NUM_CHILDREN */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_NUM_CHILDREN_VERSION_0 = 0x00000000
+	} messaging_smb_num_children_version_values;
+
+	const uint32 MESSAGING_SMB_NUM_CHILDREN_VERSION_CURRENT =
+		MESSAGING_SMB_NUM_CHILDREN_VERSION_0;
+
+	typedef [public] struct {
+		messaging_smb_num_children_version_values version;
+	} messaging_smb_tell_num_children;
+
+	typedef [public] struct {
+		messaging_smb_num_children_version_values version;
+		uint32 num_children;
+	} messaging_smb_num_children;
+
 	/* MSG_SMB_NOTIFY_CLEANUP / MSG_SMB_NOTIFY_STARTED / MSG_SMB_NOTIFY_GET_DB */
 	typedef [public, v1_enum] enum {
 		MESSAGING_SMB_NOTIFY_VERSION_0 = 0x00000000

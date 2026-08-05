@@ -267,6 +267,26 @@ enum ndr_err_code messaging_winbind_dump_domain_list_reply_pull(
 	const DATA_BLOB *blob,
 	struct messaging_winbind_dump_domain_list_reply *msg);
 
+enum ndr_err_code messaging_smb_tell_num_children_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_tell_num_children *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_tell_num_children_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_tell_num_children *msg);
+
+enum ndr_err_code messaging_smb_num_children_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_num_children *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_num_children_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_num_children *msg);
+
 enum ndr_err_code messaging_smb_notify_cleanup_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_notify_cleanup *msg,

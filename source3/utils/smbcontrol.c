@@ -1360,21 +1360,26 @@ out:
 	return ok;
 }
 
-static void print_uint32_cb(struct messaging_context *msg, void *private_data,
-			    uint32_t msg_type, struct server_id pid,
-			    DATA_BLOB *data)
+static void print_num_children_cb(struct messaging_context *msg,
+				  void *private_data,
+				  uint32_t msg_type,
+				  struct server_id pid,
+				  DATA_BLOB *data)
 {
-	uint32_t num_children;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_num_children reply = {};
+	enum ndr_err_code ndr_err;
 
-	if (data->length != sizeof(uint32_t)) {
-		printf("Invalid response: %d bytes long\n",
-		       (int)data->length);
-		goto done;
+	ndr_err = messaging_smb_num_children_pull(frame, data, &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		printf("Invalid response: %s\n", ndr_errstr(ndr_err));
+		goto out;
 	}
-	num_children = IVAL(data->data, 0);
-	printf("%u children\n", (unsigned)num_children);
-done:
+
+	printf("%u children\n", (unsigned)reply.num_children);
 	num_replies++;
+out:
+	TALLOC_FREE(frame);
 }
 
 static bool do_num_children(struct tevent_context *ev_ctx,
@@ -1382,18 +1387,36 @@ static bool do_num_children(struct tevent_context *ev_ctx,
 			    const struct server_id pid,
 			    const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_tell_num_children msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> num-children\n");
 		return False;
 	}
 
-	messaging_register(msg_ctx, NULL, MSG_SMB_NUM_CHILDREN,
-			   print_uint32_cb);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_NUM_CHILDREN,
+			   print_num_children_cb);
 
-	/* Send a message and register our interest in a reply */
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_tell_num_children_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
 
-	if (!send_message(msg_ctx, pid, MSG_SMB_TELL_NUM_CHILDREN, NULL, 0))
-		return false;
+	ok = send_message(msg_ctx,
+			  pid,
+			  MSG_SMB_TELL_NUM_CHILDREN,
+			  blob.data,
+			  blob.length);
+	if (!ok) {
+		goto out;
+	}
 
 	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
 
@@ -1402,9 +1425,11 @@ static bool do_num_children(struct tevent_context *ev_ctx,
 	if (num_replies == 0)
 		printf("No replies received\n");
 
+	ok = (num_replies > 0);
+out:
 	messaging_deregister(msg_ctx, MSG_SMB_NUM_CHILDREN, NULL);
-
-	return num_replies;
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 static bool do_msg_cleanup(struct tevent_context *ev_ctx,
