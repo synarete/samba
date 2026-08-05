@@ -267,6 +267,36 @@ enum ndr_err_code messaging_winbind_dump_domain_list_reply_pull(
 	const DATA_BLOB *blob,
 	struct messaging_winbind_dump_domain_list_reply *msg);
 
+enum ndr_err_code messaging_smb_notify_cleanup_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_cleanup *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_cleanup_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_cleanup *msg);
+
+enum ndr_err_code messaging_smb_notify_started_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_started *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_started_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_started *msg);
+
+enum ndr_err_code messaging_smb_notify_get_db_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_get_db *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_get_db_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_get_db *msg);
+
 enum ndr_err_code messaging_smb_ip_dropped_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_ip_dropped *msg,

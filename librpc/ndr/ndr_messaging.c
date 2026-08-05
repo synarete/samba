@@ -1049,6 +1049,114 @@ enum ndr_err_code messaging_winbind_dump_domain_list_reply_pull(
 	return NDR_ERR_SUCCESS;
 }
 
+enum ndr_err_code messaging_smb_notify_cleanup_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_cleanup *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_SMB_NOTIFY_VERSION_CURRENT;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_notify_cleanup);
+}
+
+enum ndr_err_code messaging_smb_notify_cleanup_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_cleanup *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_notify_cleanup);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_notify_started_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_started *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_SMB_NOTIFY_VERSION_CURRENT;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_notify_started);
+}
+
+enum ndr_err_code messaging_smb_notify_started_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_started *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_notify_started);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_notify_get_db_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_get_db *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_SMB_NOTIFY_VERSION_CURRENT;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_notify_get_db);
+}
+
+enum ndr_err_code messaging_smb_notify_get_db_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_get_db *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_notify_get_db);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_smb_ip_dropped_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_ip_dropped *msg,

@@ -579,8 +579,26 @@ static bool smbd_notifyd_init(struct messaging_context *msg, bool interactive,
 	/* Block those signals that we are not handling */
 	BlockSignals(True, SIGUSR1);
 
-	messaging_send(msg, pid_to_procid(getppid()), MSG_SMB_NOTIFY_STARTED,
-		       NULL);
+	{
+		struct messaging_smb_notify_started nmsg = {};
+		DATA_BLOB blob;
+		NTSTATUS _status;
+
+		_status = NT_STATUS_OK;
+		if (NDR_ERR_CODE_IS_SUCCESS(messaging_smb_notify_started_push(
+			    msg, &nmsg, &blob)))
+		{
+			_status = messaging_send(msg,
+						 pid_to_procid(getppid()),
+						 MSG_SMB_NOTIFY_STARTED,
+						 &blob);
+			data_blob_free(&blob);
+		}
+		if (!NT_STATUS_IS_OK(_status)) {
+			DBG_WARNING("messaging_send returned %s\n",
+				    nt_errstr(_status));
+		}
+	}
 
 	ok = tevent_req_poll(req, ev);
 	if (!ok) {
@@ -926,13 +944,23 @@ static void cleanupd_started(struct tevent_req *req)
 		return;
 	}
 
-	status = messaging_send(parent->msg_ctx,
-				parent->cleanupd,
-				MSG_SMB_NOTIFY_CLEANUP,
-				NULL);
-	if (!NT_STATUS_IS_OK(status)) {
-		DBG_ERR("messaging_send returned %s\n",
-			nt_errstr(status));
+	{
+		struct messaging_smb_notify_cleanup nmsg = {};
+		DATA_BLOB blob;
+
+		if (NDR_ERR_CODE_IS_SUCCESS(messaging_smb_notify_cleanup_push(
+			    parent->msg_ctx, &nmsg, &blob)))
+		{
+			status = messaging_send(parent->msg_ctx,
+						parent->cleanupd,
+						MSG_SMB_NOTIFY_CLEANUP,
+						&blob);
+			data_blob_free(&blob);
+			if (!NT_STATUS_IS_OK(status)) {
+				DBG_ERR("messaging_send returned %s\n",
+					nt_errstr(status));
+			}
+		}
 	}
 }
 
@@ -1216,13 +1244,21 @@ static void remove_child_pid(struct smbd_parent_context *parent,
 	}
 
 	if (!server_id_is_disconnected(&parent->cleanupd)) {
-		status = messaging_send(parent->msg_ctx,
-					parent->cleanupd,
-					MSG_SMB_NOTIFY_CLEANUP,
-					NULL);
-		if (!NT_STATUS_IS_OK(status)) {
-			DBG_ERR("messaging_send returned %s\n",
-				nt_errstr(status));
+		struct messaging_smb_notify_cleanup nmsg = {};
+		DATA_BLOB blob;
+
+		if (NDR_ERR_CODE_IS_SUCCESS(messaging_smb_notify_cleanup_push(
+			    parent->msg_ctx, &nmsg, &blob)))
+		{
+			status = messaging_send(parent->msg_ctx,
+						parent->cleanupd,
+						MSG_SMB_NOTIFY_CLEANUP,
+						&blob);
+			data_blob_free(&blob);
+			if (!NT_STATUS_IS_OK(status)) {
+				DBG_ERR("messaging_send returned %s\n",
+					nt_errstr(status));
+			}
 		}
 	}
 }

@@ -280,9 +280,18 @@ static void smbd_cleanupd_process_exited(struct messaging_context *msg,
 	int ret;
 	struct cleanupdb_traverse_state cleanup_state;
 	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_cleanup nmsg = {};
+	enum ndr_err_code ndr_err;
 	struct cleanup_child *child = NULL;
 	bool unclean = false;
 	NTSTATUS status;
+
+	ndr_err = messaging_smb_notify_cleanup_pull(frame, data, &nmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid notify-cleanup message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
 
 	cleanup_state = (struct cleanupdb_traverse_state) {
 		.mem_ctx = frame
@@ -298,13 +307,11 @@ static void smbd_cleanupd_process_exited(struct messaging_context *msg,
 	ret = cleanupdb_traverse_read(cleanupdb_traverse_fn, &cleanup_state);
 	if (ret < 0) {
 		DBG_ERR("cleanupdb_traverse_read failed\n");
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	if (ret == 0) {
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	for (child = cleanup_state.children;
@@ -341,6 +348,7 @@ static void smbd_cleanupd_process_exited(struct messaging_context *msg,
 		}
 	}
 
+out:
 	TALLOC_FREE(frame);
 }
 

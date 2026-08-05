@@ -483,6 +483,26 @@ interface messaging
 		utf8string dump;
 	} messaging_winbind_dump_domain_list_reply;
 
+	/* MSG_SMB_NOTIFY_CLEANUP / MSG_SMB_NOTIFY_STARTED / MSG_SMB_NOTIFY_GET_DB */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_NOTIFY_VERSION_0 = 0x00000000
+	} messaging_smb_notify_version_values;
+
+	const uint32 MESSAGING_SMB_NOTIFY_VERSION_CURRENT =
+		MESSAGING_SMB_NOTIFY_VERSION_0;
+
+	typedef [public] struct {
+		messaging_smb_notify_version_values version;
+	} messaging_smb_notify_cleanup;
+
+	typedef [public] struct {
+		messaging_smb_notify_version_values version;
+	} messaging_smb_notify_started;
+
+	typedef [public] struct {
+		messaging_smb_notify_version_values version;
+	} messaging_smb_notify_get_db;
+
 	/* MSG_SMB_IP_DROPPED / MSG_WINBIND_IP_DROPPED */
 	typedef [public, v1_enum] enum {
 		MESSAGING_IP_DROPPED_VERSION_0 = 0x00000000

@@ -1998,11 +1998,28 @@ static bool do_notify_cleanup(struct tevent_context *ev_ctx,
 			      const struct server_id pid,
 			      const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_notify_cleanup msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol smbd notify-cleanup\n");
 		return false;
 	}
-	return send_message(msg_ctx, pid, MSG_SMB_NOTIFY_CLEANUP, NULL, 0);
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_notify_cleanup_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_SMB_NOTIFY_CLEANUP, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 /* A list of message type supported */

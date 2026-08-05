@@ -39,6 +39,7 @@
 #include "server_id_db_util.h"
 #include "lib/util/iov_buf.h"
 #include "messages_util.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #ifdef CLUSTER_SUPPORT
 #include "ctdb_protocol.h"
@@ -923,6 +924,9 @@ static void notifyd_get_db(struct messaging_context *msg_ctx,
 {
 	struct notifyd_state *state = talloc_get_type_abort(
 		private_data, struct notifyd_state);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_get_db req = {};
+	enum ndr_err_code ndr_err;
 	struct server_id_buf id1, id2;
 	NTSTATUS status;
 	uint64_t rec_index = UINT64_MAX;
@@ -930,6 +934,14 @@ static void notifyd_get_db(struct messaging_context *msg_ctx,
 	size_t dbsize;
 	uint8_t *buf;
 	struct iovec iov[2];
+
+	ndr_err = messaging_smb_notify_get_db_pull(frame, data, &req);
+	TALLOC_FREE(frame);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid notify-get-db message: %s\n",
+			    ndr_errstr(ndr_err));
+		return;
+	}
 
 	dbsize = dbwrap_marshall(state->entries, NULL, 0);
 
@@ -1508,8 +1520,25 @@ static int notifyd_snoop_broadcast(struct tevent_context *ev,
 		return 0;
 	}
 
-	status = messaging_send_buf(state->msg_ctx, src, MSG_SMB_NOTIFY_GET_DB,
-				    NULL, 0);
+	{
+		struct messaging_smb_notify_get_db nmsg = {};
+		DATA_BLOB blob;
+		enum ndr_err_code ndr_err;
+
+		ndr_err = messaging_smb_notify_get_db_push(state->msg_ctx,
+							   &nmsg,
+							   &blob);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			TALLOC_FREE(p);
+			return 0;
+		}
+		status = messaging_send_buf(state->msg_ctx,
+					    src,
+					    MSG_SMB_NOTIFY_GET_DB,
+					    blob.data,
+					    blob.length);
+		data_blob_free(&blob);
+	}
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("messaging_send_buf failed: %s\n",
 			  nt_errstr(status));

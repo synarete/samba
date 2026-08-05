@@ -26,6 +26,7 @@
 #include "librpc/gen_ndr/ndr_file_id.h"
 #include "libcli/security/privileges.h"
 #include "libcli/security/security.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 struct notify_change_event {
 	struct timespec when;
@@ -544,6 +545,18 @@ void smbd_notifyd_restarted(struct messaging_context *msg,
 {
 	struct smbd_server_connection *sconn = talloc_get_type_abort(
 		private_data, struct smbd_server_connection);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_started nmsg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_notify_started_pull(frame, data, &nmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid notify-started message: %s\n",
+			    ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return;
+	}
+	TALLOC_FREE(frame);
 
 	TALLOC_FREE(sconn->notify_ctx);
 
