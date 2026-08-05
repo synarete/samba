@@ -297,6 +297,14 @@ enum ndr_err_code messaging_smb_notify_get_db_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_notify_get_db *msg);
 
+enum ndr_err_code messaging_smb_sleep_push(TALLOC_CTX *mem_ctx,
+					   struct messaging_smb_sleep *msg,
+					   DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_sleep_pull(TALLOC_CTX *mem_ctx,
+					   const DATA_BLOB *blob,
+					   struct messaging_smb_sleep *msg);
+
 enum ndr_err_code messaging_smb_ip_dropped_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_ip_dropped *msg,

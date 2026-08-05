@@ -232,23 +232,28 @@ static void msg_sleep(struct messaging_context *msg,
 		      struct server_id src,
 		      DATA_BLOB *data)
 {
-	unsigned int seconds;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_sleep nmsg = {};
+	enum ndr_err_code ndr_err;
 	struct server_id_buf tmp;
 
-	if (data->length != sizeof(seconds)) {
-		DBG_ERR("Process %s sent bogus sleep request\n",
-			server_id_str_buf(src, &tmp));
-		return;
+	ndr_err = messaging_smb_sleep_pull(frame, data, &nmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("Process %s sent bogus sleep request: %s\n",
+			server_id_str_buf(src, &tmp),
+			ndr_errstr(ndr_err));
+		goto out;
 	}
 
-	seconds = *(unsigned int *)data->data;
 	DBG_ERR("Process %s request a sleep of %u seconds\n",
 		server_id_str_buf(src, &tmp),
-		seconds);
-	sleep(seconds);
+		nmsg.seconds);
+	sleep(nmsg.seconds);
 	DBG_ERR("Restarting after %u second sleep requested by process %s\n",
-		seconds,
+		nmsg.seconds,
 		server_id_str_buf(src, &tmp));
+out:
+	TALLOC_FREE(frame);
 }
 #endif /* DEVELOPER */
 

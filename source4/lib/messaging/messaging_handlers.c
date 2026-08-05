@@ -27,6 +27,8 @@
 #include "lib/util/server_id.h"
 #include "messaging/messaging.h"
 #include "messaging/messaging_internal.h"
+#include "librpc/gen_ndr/ndr_messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "replace.h"
 
 #if defined(DEVELOPER) || defined(ENABLE_SELFTEST)
@@ -92,8 +94,9 @@ static void do_sleep(struct imessaging_context *msg,
 		     int *fds,
 		     DATA_BLOB *data)
 {
-	unsigned int seconds;
-	unsigned int *seconds_p = NULL;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_sleep nmsg = {};
+	enum ndr_err_code ndr_err;
 	struct server_id_buf tmp;
 
 	if (num_fds != 0) {
@@ -101,22 +104,24 @@ static void do_sleep(struct imessaging_context *msg,
 		return;
 	}
 
-	if (data->length != sizeof(seconds)) {
-		DBG_ERR("Process %s sent bogus sleep request\n",
-			server_id_str_buf(src, &tmp));
-		return;
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_sleep_pull(frame, data, &nmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("Process %s sent bogus sleep request: %s\n",
+			server_id_str_buf(src, &tmp),
+			ndr_errstr(ndr_err));
+		goto out;
 	}
 
-	SMB_ASSERT(check_alignment(data->data, unsigned int));
-	seconds_p = discard_align_p(unsigned int, data->data);
-	seconds = *seconds_p;
 	DBG_ERR("Process %s requested a sleep of %u seconds\n",
 		server_id_str_buf(src, &tmp),
-		seconds);
-	sleep(seconds);
+		nmsg.seconds);
+	sleep(nmsg.seconds);
 	DBG_ERR("Restarting after %u second sleep requested by process %s\n",
-		seconds,
+		nmsg.seconds,
 		server_id_str_buf(src, &tmp));
+out:
+	TALLOC_FREE(frame);
 }
 
 /*
