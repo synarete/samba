@@ -1596,21 +1596,68 @@ out:
 	return ret;
 }
 
+static void winbind_onlinestatus_cb(struct messaging_context *msg,
+				    void *private_data,
+				    uint32_t msg_type,
+				    struct server_id pid,
+				    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_onlinestatus_reply reply = {};
+	enum ndr_err_code ndr_err;
+	struct server_id_buf pidstr;
+
+	ndr_err = messaging_winbind_onlinestatus_reply_pull(frame,
+							    data,
+							    &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr,
+			"Invalid onlinestatus reply from PID %s: %s\n",
+			server_id_str_buf(pid, &pidstr),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	printf("PID %s: %s", server_id_str_buf(pid, &pidstr), reply.status);
+	num_replies++;
+out:
+	TALLOC_FREE(frame);
+}
+
 static bool do_winbind_onlinestatus(struct tevent_context *ev_ctx,
 				    struct messaging_context *msg_ctx,
 				    const struct server_id pid,
 				    const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_winbind_onlinestatus_req msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol winbindd onlinestatus\n");
 		return False;
 	}
 
-	messaging_register(msg_ctx, NULL, MSG_WINBIND_ONLINESTATUS,
-			   print_pid_string_cb);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_WINBIND_ONLINESTATUS,
+			   winbind_onlinestatus_cb);
 
-	if (!send_message(msg_ctx, pid, MSG_WINBIND_ONLINESTATUS, NULL, 0)) {
-		return False;
+	frame = talloc_stackframe();
+	ndr_err = messaging_winbind_onlinestatus_req_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	if (!send_message(msg_ctx,
+			  pid,
+			  MSG_WINBIND_ONLINESTATUS,
+			  blob.data,
+			  blob.length))
+	{
+		goto out;
 	}
 
 	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
@@ -1620,9 +1667,39 @@ static bool do_winbind_onlinestatus(struct tevent_context *ev_ctx,
 	if (num_replies == 0)
 		printf("No replies received\n");
 
+	ok = num_replies;
+out:
 	messaging_deregister(msg_ctx, MSG_WINBIND_ONLINESTATUS, NULL);
+	TALLOC_FREE(frame);
+	return ok;
+}
 
-	return num_replies;
+static void winbind_dump_domain_list_cb(struct messaging_context *msg,
+					void *private_data,
+					uint32_t msg_type,
+					struct server_id pid,
+					DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_winbind_dump_domain_list_reply reply = {};
+	enum ndr_err_code ndr_err;
+	struct server_id_buf pidstr;
+
+	ndr_err = messaging_winbind_dump_domain_list_reply_pull(frame,
+								data,
+								&reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr,
+			"Invalid dump-domain-list reply from PID %s: %s\n",
+			server_id_str_buf(pid, &pidstr),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	printf("PID %s: %s", server_id_str_buf(pid, &pidstr), reply.dump);
+	num_replies++;
+out:
+	TALLOC_FREE(frame);
 }
 
 static bool do_winbind_dump_domain_list(struct tevent_context *ev_ctx,
@@ -1630,8 +1707,11 @@ static bool do_winbind_dump_domain_list(struct tevent_context *ev_ctx,
 					const struct server_id pid,
 					const int argc, const char **argv)
 {
-	const char *domain = NULL;
-	int domain_len = 0;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_winbind_dump_domain_list_req msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
 
 	if (argc < 1 || argc > 2) {
 		fprintf(stderr, "Usage: smbcontrol <dest> dump-domain-list "
@@ -1640,17 +1720,29 @@ static bool do_winbind_dump_domain_list(struct tevent_context *ev_ctx,
 	}
 
 	if (argc == 2) {
-		domain = argv[1];
-		domain_len = strlen(argv[1]) + 1;
+		msg.domain = argv[1];
 	}
 
-	messaging_register(msg_ctx, NULL, MSG_WINBIND_DUMP_DOMAIN_LIST,
-			   print_pid_string_cb);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_WINBIND_DUMP_DOMAIN_LIST,
+			   winbind_dump_domain_list_cb);
 
-	if (!send_message(msg_ctx, pid, MSG_WINBIND_DUMP_DOMAIN_LIST,
-			  domain, domain_len))
+	frame = talloc_stackframe();
+	ndr_err = messaging_winbind_dump_domain_list_req_push(frame,
+							      &msg,
+							      &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	if (!send_message(msg_ctx,
+			  pid,
+			  MSG_WINBIND_DUMP_DOMAIN_LIST,
+			  blob.data,
+			  blob.length))
 	{
-		return false;
+		goto out;
 	}
 
 	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
@@ -1661,9 +1753,11 @@ static bool do_winbind_dump_domain_list(struct tevent_context *ev_ctx,
 		printf("No replies received\n");
 	}
 
+	ok = num_replies;
+out:
 	messaging_deregister(msg_ctx, MSG_WINBIND_DUMP_DOMAIN_LIST, NULL);
-
-	return num_replies;
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 static bool do_msg_disconnect_dc(struct tevent_context *ev_ctx,

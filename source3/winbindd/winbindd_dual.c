@@ -1206,6 +1206,10 @@ void winbind_msg_onlinestatus(struct messaging_context *msg_ctx,
 			      DATA_BLOB *data)
 {
 	TALLOC_CTX *mem_ctx;
+	struct messaging_winbind_onlinestatus_req req = {};
+	struct messaging_winbind_onlinestatus_reply reply = {};
+	DATA_BLOB reply_blob;
+	enum ndr_err_code ndr_err;
 	const char *message;
 
 	DEBUG(5,("winbind_msg_onlinestatus received.\n"));
@@ -1215,15 +1219,35 @@ void winbind_msg_onlinestatus(struct messaging_context *msg_ctx,
 		return;
 	}
 
-	message = collect_onlinestatus(mem_ctx);
-	if (message == NULL) {
-		TALLOC_FREE(mem_ctx);
-		return;
+	ndr_err = messaging_winbind_onlinestatus_req_pull(mem_ctx, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-onlinestatus request: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
 	}
 
-	messaging_send_buf(msg_ctx, server_id, MSG_WINBIND_ONLINESTATUS,
-			   (const uint8_t *)message, strlen(message) + 1);
+	message = collect_onlinestatus(mem_ctx);
+	if (message == NULL) {
+		goto out;
+	}
 
+	reply.status = message;
+	ndr_err = messaging_winbind_onlinestatus_reply_push(mem_ctx,
+							    &reply,
+							    &reply_blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING(
+			"Failed to encode winbind-onlinestatus reply: %s\n",
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	messaging_send_buf(msg_ctx,
+			   server_id,
+			   MSG_WINBIND_ONLINESTATUS,
+			   reply_blob.data,
+			   reply_blob.length);
+out:
 	TALLOC_FREE(mem_ctx);
 }
 
@@ -1234,8 +1258,11 @@ void winbind_msg_dump_domain_list(struct messaging_context *msg_ctx,
 				  DATA_BLOB *data)
 {
 	TALLOC_CTX *mem_ctx;
+	struct messaging_winbind_dump_domain_list_req req = {};
+	struct messaging_winbind_dump_domain_list_reply reply = {};
+	DATA_BLOB reply_blob;
+	enum ndr_err_code ndr_err;
 	const char *message = NULL;
-	const char *domain = NULL;
 	char *s = NULL;
 	NTSTATUS status;
 	struct winbindd_domain *dom = NULL;
@@ -1247,55 +1274,71 @@ void winbind_msg_dump_domain_list(struct messaging_context *msg_ctx,
 		return;
 	}
 
-	if (data->length > 0) {
-		domain = (const char *)data->data;
+	ndr_err = messaging_winbind_dump_domain_list_req_pull(mem_ctx,
+							      data,
+							      &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid winbind-dump-domain-list request: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
 	}
 
-	if (domain) {
+	if (req.domain != NULL && req.domain[0] != '\0') {
 
 		DEBUG(5,("winbind_msg_dump_domain_list for domain: %s\n",
-			domain));
+			req.domain));
 
-		message = NDR_PRINT_STRUCT_STRING(mem_ctx, winbindd_domain,
-						  find_domain_from_name_noinit(domain));
+		message = NDR_PRINT_STRUCT_STRING(mem_ctx,
+						  winbindd_domain,
+						  find_domain_from_name_noinit(
+							  req.domain));
 		if (!message) {
-			TALLOC_FREE(mem_ctx);
-			return;
+			goto out;
 		}
 
-		messaging_send_buf(msg_ctx, server_id,
-				   MSG_WINBIND_DUMP_DOMAIN_LIST,
-				   (const uint8_t *)message, strlen(message) + 1);
+		s = talloc_asprintf(mem_ctx, "%s", message);
+	} else {
+		DEBUG(5,("winbind_msg_dump_domain_list all domains\n"));
 
-		TALLOC_FREE(mem_ctx);
+		for (dom = domain_list(); dom; dom = dom->next) {
+			message = NDR_PRINT_STRUCT_STRING(mem_ctx,
+							  winbindd_domain,
+							  dom);
+			if (!message) {
+				goto out;
+			}
 
-		return;
-	}
-
-	DEBUG(5,("winbind_msg_dump_domain_list all domains\n"));
-
-	for (dom = domain_list(); dom; dom=dom->next) {
-		message = NDR_PRINT_STRUCT_STRING(mem_ctx, winbindd_domain, dom);
-		if (!message) {
-			TALLOC_FREE(mem_ctx);
-			return;
-		}
-
-		s = talloc_asprintf_append(s, "%s\n", message);
-		if (!s) {
-			TALLOC_FREE(mem_ctx);
-			return;
+			s = talloc_asprintf_append(s, "%s\n", message);
+			if (!s) {
+				goto out;
+			}
 		}
 	}
 
-	status = messaging_send_buf(msg_ctx, server_id,
+	if (s == NULL) {
+		goto out;
+	}
+
+	reply.dump = s;
+	ndr_err = messaging_winbind_dump_domain_list_reply_push(mem_ctx,
+								&reply,
+								&reply_blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Failed to encode dump-domain-list reply: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    server_id,
 				    MSG_WINBIND_DUMP_DOMAIN_LIST,
-				    (uint8_t *)s, strlen(s) + 1);
+				    reply_blob.data,
+				    reply_blob.length);
 	if (!NT_STATUS_IS_OK(status)) {
 		DEBUG(0,("failed to send message: %s\n",
 		nt_errstr(status)));
 	}
-
+out:
 	TALLOC_FREE(mem_ctx);
 }
 

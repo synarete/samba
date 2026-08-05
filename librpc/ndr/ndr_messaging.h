@@ -227,6 +227,46 @@ enum ndr_err_code messaging_winbind_validate_cache_reply_pull(
 	const DATA_BLOB *blob,
 	struct messaging_winbind_validate_cache_reply *msg);
 
+enum ndr_err_code messaging_winbind_onlinestatus_req_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_onlinestatus_req *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_winbind_onlinestatus_req_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_onlinestatus_req *msg);
+
+enum ndr_err_code messaging_winbind_onlinestatus_reply_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_onlinestatus_reply *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_winbind_onlinestatus_reply_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_onlinestatus_reply *msg);
+
+enum ndr_err_code messaging_winbind_dump_domain_list_req_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_dump_domain_list_req *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_winbind_dump_domain_list_req_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_dump_domain_list_req *msg);
+
+enum ndr_err_code messaging_winbind_dump_domain_list_reply_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_winbind_dump_domain_list_reply *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_winbind_dump_domain_list_reply_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_winbind_dump_domain_list_reply *msg);
+
 enum ndr_err_code messaging_smb_ip_dropped_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_ip_dropped *msg,
