@@ -195,30 +195,38 @@ static void msg_inject_fault(struct messaging_context *msg,
 			     struct server_id src,
 			     DATA_BLOB *data)
 {
-	int sig;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_inject_fault nmsg = {};
+	enum ndr_err_code ndr_err;
 	struct server_id_buf tmp;
 
-	if (data->length != sizeof(sig)) {
-		DEBUG(0, ("Process %s sent bogus signal injection request\n",
-			  server_id_str_buf(src, &tmp)));
-		return;
+	ndr_err = messaging_smb_inject_fault_pull(frame, data, &nmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("Process %s sent bogus signal injection request: %s\n",
+			  server_id_str_buf(src, &tmp),
+			  ndr_errstr(ndr_err)));
+		goto out;
 	}
 
-	sig = *(int *)data->data;
-	if (sig == -1) {
+	if (nmsg.fault_code == -1) {
 		exit_server("internal error injected");
-		return;
+		goto out;
 	}
 
 #ifdef HAVE_STRSIGNAL
 	DEBUG(0, ("Process %s requested injection of signal %d (%s)\n",
-		  server_id_str_buf(src, &tmp), sig, strsignal(sig)));
+		  server_id_str_buf(src, &tmp),
+		  nmsg.fault_code,
+		  strsignal(nmsg.fault_code)));
 #else
 	DEBUG(0, ("Process %s requested injection of signal %d\n",
-		  server_id_str_buf(src, &tmp), sig));
+		  server_id_str_buf(src, &tmp),
+		  nmsg.fault_code));
 #endif
 
-	kill(getpid(), sig);
+	kill(getpid(), nmsg.fault_code);
+out:
+	TALLOC_FREE(frame);
 }
 #endif /* DEVELOPER */
 

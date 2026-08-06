@@ -23,7 +23,6 @@
 */
 
 #include "includes.h"
-#include "lib/util/alignment.h"
 #include "lib/util/server_id.h"
 #include "messaging/messaging.h"
 #include "messaging/messaging_internal.h"
@@ -44,8 +43,9 @@ static void do_inject_fault(struct imessaging_context *msg,
 			    int *fds,
 			    DATA_BLOB *data)
 {
-	int sig;
-	int *sig_p = NULL;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_inject_fault nmsg = {};
+	enum ndr_err_code ndr_err;
 	struct server_id_buf tmp;
 
 	if (num_fds != 0) {
@@ -53,34 +53,37 @@ static void do_inject_fault(struct imessaging_context *msg,
 		return;
 	}
 
-	if (data->length != sizeof(sig)) {
-		DBG_ERR("Process %s sent bogus signal injection request\n",
-			server_id_str_buf(src, &tmp));
-		return;
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_inject_fault_pull(frame, data, &nmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("Process %s sent bogus signal injection request: %s\n",
+			server_id_str_buf(src, &tmp),
+			ndr_errstr(ndr_err));
+		goto out;
 	}
 
-	SMB_ASSERT(check_alignment(data->data, int));
-	sig_p = discard_align_p(int, data->data);
-	sig = *sig_p;
-	if (sig == -1) {
+	if (nmsg.fault_code == -1) {
 		DBG_ERR("Process %s requested an iternal failure, "
 			"calling exit(1)\n",
 			server_id_str_buf(src, &tmp));
+		TALLOC_FREE(frame);
 		exit(1);
 	}
 
 #if HAVE_STRSIGNAL
 	DBG_ERR("Process %s requested injection of signal %d (%s)\n",
 		server_id_str_buf(src, &tmp),
-		sig,
-		strsignal(sig));
+		nmsg.fault_code,
+		strsignal(nmsg.fault_code));
 #else
 	DBG_ERR("Process %s requested injection of signal %d\n",
 		server_id_str_buf(src, &tmp),
-		sig);
+		nmsg.fault_code);
 #endif
 
-	kill(getpid(), sig);
+	kill(getpid(), nmsg.fault_code);
+out:
+	TALLOC_FREE(frame);
 }
 
 /*

@@ -439,26 +439,42 @@ static bool do_inject_fault(struct tevent_context *ev_ctx,
 	return False;
 #else /* DEVELOPER || ENABLE_SELFTEST */
 	{
-		int sig = 0;
+		TALLOC_CTX *frame = NULL;
+		struct messaging_smb_inject_fault msg = {};
+		DATA_BLOB blob;
+		enum ndr_err_code ndr_err;
+		bool ok = false;
 
 		if (strcmp(argv[1], "bus") == 0) {
-			sig = SIGBUS;
+			msg.fault_code = SIGBUS;
 		} else if (strcmp(argv[1], "hup") == 0) {
-			sig = SIGHUP;
+			msg.fault_code = SIGHUP;
 		} else if (strcmp(argv[1], "term") == 0) {
-			sig = SIGTERM;
+			msg.fault_code = SIGTERM;
 		} else if (strcmp(argv[1], "segv") == 0) {
-			sig = SIGSEGV;
+			msg.fault_code = SIGSEGV;
 		} else if (strcmp(argv[1], "internal") == 0) {
 			/* Force an internal error, ie. an unclean exit. */
-			sig = -1;
+			msg.fault_code = -1;
 		} else {
 			fprintf(stderr, "Unknown signal name '%s'\n", argv[1]);
 			return False;
 		}
 
-		return send_message(msg_ctx, pid, MSG_SMB_INJECT_FAULT,
-				    &sig, sizeof(int));
+		frame = talloc_stackframe();
+		ndr_err = messaging_smb_inject_fault_push(frame, &msg, &blob);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			goto out;
+		}
+
+		ok = send_message(msg_ctx,
+				  pid,
+				  MSG_SMB_INJECT_FAULT,
+				  blob.data,
+				  blob.length);
+out:
+		TALLOC_FREE(frame);
+		return ok;
 	}
 #endif /* DEVELOPER || ENABLE_SELFTEST */
 }

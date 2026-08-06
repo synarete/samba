@@ -495,6 +495,19 @@ interface messaging
 		messaging_printer_pcap_version_values version;
 	} messaging_printer_pcap;
 
+	/* MSG_SMB_INJECT_FAULT */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_INJECT_FAULT_VERSION_0 = 0x00000000
+	} messaging_smb_inject_fault_version_values;
+
+	const uint32 MESSAGING_SMB_INJECT_FAULT_VERSION_CURRENT =
+		MESSAGING_SMB_INJECT_FAULT_VERSION_0;
+
+	typedef [public] struct {
+		messaging_smb_inject_fault_version_values version;
+		int32 fault_code;
+	} messaging_smb_inject_fault;
+
 	/* MSG_SMB_TELL_NUM_CHILDREN / MSG_SMB_NUM_CHILDREN */
 	typedef [public, v1_enum] enum {
 		MESSAGING_SMB_NUM_CHILDREN_VERSION_0 = 0x00000000
