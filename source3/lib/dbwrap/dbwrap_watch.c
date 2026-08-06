@@ -20,6 +20,7 @@
 #include "includes.h"
 #include "system/filesys.h"
 #include "lib/util/server_id.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "dbwrap/dbwrap.h"
 #include "dbwrap_watch.h"
 #include "dbwrap_open.h"
@@ -548,8 +549,11 @@ static void dbwrap_watched_record_prepare_wakeup(
 static void dbwrap_watched_trigger_wakeup(struct messaging_context *msg_ctx,
 					  struct dbwrap_watcher *watcher)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_dbwrap_modified msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	struct server_id_buf tmp;
-	uint8_t instance_buf[8];
 	NTSTATUS status;
 
 	if (watcher->instance == 0) {
@@ -561,19 +565,27 @@ static void dbwrap_watched_trigger_wakeup(struct messaging_context *msg_ctx,
 		  server_id_str_buf(watcher->pid, &tmp),
 		  watcher->instance);
 
-	SBVAL(instance_buf, 0, watcher->instance);
+	frame = talloc_stackframe();
+	msg.instance = watcher->instance;
+	ndr_err = messaging_dbwrap_modified_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("messaging_dbwrap_modified_push failed: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
 
-	status = messaging_send_buf(
-		msg_ctx,
-		watcher->pid,
-		MSG_DBWRAP_MODIFIED,
-		instance_buf,
-		sizeof(instance_buf));
+	status = messaging_send_buf(msg_ctx,
+				    watcher->pid,
+				    MSG_DBWRAP_MODIFIED,
+				    blob.data,
+				    blob.length);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_WARNING("messaging_send_buf to %s failed: %s - ignoring...\n",
 			    server_id_str_buf(watcher->pid, &tmp),
 			    nt_errstr(status));
 	}
+out:
+	TALLOC_FREE(frame);
 }
 
 static NTSTATUS dbwrap_watched_record_storev(
@@ -1250,7 +1262,10 @@ static bool dbwrap_watched_msg_filter(struct messaging_rec *rec,
 {
 	struct dbwrap_watched_watch_state *state = talloc_get_type_abort(
 		private_data, struct dbwrap_watched_watch_state);
-	uint64_t instance;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_dbwrap_modified msg = {};
+	enum ndr_err_code ndr_err;
+	bool match = false;
 
 	if (rec->msg_type != MSG_DBWRAP_MODIFIED) {
 		return false;
@@ -1259,23 +1274,25 @@ static bool dbwrap_watched_msg_filter(struct messaging_rec *rec,
 		return false;
 	}
 
-	if (rec->buf.length != sizeof(instance)) {
-		DBG_DEBUG("Got size %zu, expected %zu\n",
-			  rec->buf.length,
-			  sizeof(instance));
-		return false;
+	frame = talloc_stackframe();
+	ndr_err = messaging_dbwrap_modified_pull(frame, &rec->buf, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_dbwrap_modified_pull failed: %s\n",
+			  ndr_errstr(ndr_err));
+		goto out;
 	}
 
-	instance = BVAL(rec->buf.data, 0);
-
-	if (instance != state->watcher.instance) {
-		DBG_DEBUG("Got instance %"PRIu64", expected %"PRIu64"\n",
-			  instance,
+	if (msg.instance != state->watcher.instance) {
+		DBG_DEBUG("Got instance %" PRIu64 ", expected %" PRIu64 "\n",
+			  msg.instance,
 			  state->watcher.instance);
-		return false;
+		goto out;
 	}
 
-	return true;
+	match = true;
+out:
+	TALLOC_FREE(frame);
+	return match;
 }
 
 static void dbwrap_watched_watch_done(struct tevent_req *subreq)
