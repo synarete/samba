@@ -1049,6 +1049,42 @@ enum ndr_err_code messaging_winbind_dump_domain_list_reply_pull(
 	return NDR_ERR_SUCCESS;
 }
 
+enum ndr_err_code messaging_printer_pcap_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_printer_pcap *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_PRINTER_PCAP_VERSION_CURRENT;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_printer_pcap);
+}
+
+enum ndr_err_code messaging_printer_pcap_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_printer_pcap *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_printer_pcap);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_PRINTER_PCAP_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_smb_tell_num_children_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_tell_num_children *msg,

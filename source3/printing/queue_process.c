@@ -143,6 +143,11 @@ static void delete_and_reload_printers_full(struct tevent_context *ev,
 static void reload_pcap_change_notify(struct tevent_context *ev,
 			       struct messaging_context *msg_ctx)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_printer_pcap msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+
 	/*
 	 * Reload the printers first in the background process so that
 	 * newly added printers get default values created in the registry.
@@ -152,7 +157,16 @@ static void reload_pcap_change_notify(struct tevent_context *ev,
 	 */
 	delete_and_reload_printers_full(ev, msg_ctx);
 
-	messaging_send_all(msg_ctx, MSG_PRINTER_PCAP, NULL, 0);
+	ndr_err = messaging_printer_pcap_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Failed to push printer_pcap message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	messaging_send_all(msg_ctx, MSG_PRINTER_PCAP, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
 }
 
 struct bq_state {

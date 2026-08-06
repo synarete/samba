@@ -483,6 +483,18 @@ interface messaging
 		utf8string dump;
 	} messaging_winbind_dump_domain_list_reply;
 
+	/* MSG_PRINTER_PCAP */
+	typedef [public, v1_enum] enum {
+		MESSAGING_PRINTER_PCAP_VERSION_0 = 0x00000000
+	} messaging_printer_pcap_version_values;
+
+	const uint32 MESSAGING_PRINTER_PCAP_VERSION_CURRENT =
+		MESSAGING_PRINTER_PCAP_VERSION_0;
+
+	typedef [public] struct {
+		messaging_printer_pcap_version_values version;
+	} messaging_printer_pcap;
+
 	/* MSG_SMB_TELL_NUM_CHILDREN / MSG_SMB_NUM_CHILDREN */
 	typedef [public, v1_enum] enum {
 		MESSAGING_SMB_NUM_CHILDREN_VERSION_0 = 0x00000000
