@@ -1085,6 +1085,42 @@ enum ndr_err_code messaging_dbwrap_modified_pull(
 	return NDR_ERR_SUCCESS;
 }
 
+enum ndr_err_code messaging_smb_scavenger_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_scavenger *msg,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_SMB_SCAVENGER_VERSION_CURRENT;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_smb_scavenger);
+}
+
+enum ndr_err_code messaging_smb_scavenger_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_scavenger *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_scavenger);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_SCAVENGER_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_smb_inject_fault_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_inject_fault *msg,
