@@ -598,65 +598,55 @@ static void notifyd_sys_callback(struct sys_notify_context *ctx,
 		MSG_SMB_NOTIFY_TRIGGER, iov, ARRAY_SIZE(iov), NULL, 0);
 }
 
-static bool notifyd_parse_rec_change(uint8_t *buf, size_t bufsize,
-				     struct notify_rec_change_msg **pmsg,
-				     size_t *pathlen)
-{
-	struct notify_rec_change_msg *msg;
-
-	if (bufsize < offsetof(struct notify_rec_change_msg, path) + 1) {
-		DBG_WARNING("message too short, ignoring: %zu\n", bufsize);
-		return false;
-	}
-
-	*pmsg = msg = (struct notify_rec_change_msg *)buf;
-	*pathlen = bufsize - offsetof(struct notify_rec_change_msg, path);
-
-	DBG_DEBUG("Got rec_change_msg filter=%"PRIu32", "
-		  "subdir_filter=%"PRIu32", private_data=%p, path=%.*s\n",
-		  msg->instance.filter,
-		  msg->instance.subdir_filter,
-		  msg->instance.private_data,
-		  (int)(*pathlen),
-		  msg->path);
-
-	return true;
-}
-
 static void notifyd_rec_change(struct messaging_context *msg_ctx,
 			       void *private_data, uint32_t msg_type,
 			       struct server_id src, DATA_BLOB *data)
 {
 	struct notifyd_state *state = talloc_get_type_abort(
 		private_data, struct notifyd_state);
-	struct server_id_buf idbuf;
-	struct notify_rec_change_msg *msg;
-	size_t pathlen;
-	bool ok;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_rec_change msg = {};
 	struct notify_instance instance;
+	enum ndr_err_code ndr_err;
+	bool ok;
+	struct server_id_buf idbuf;
 
 	DBG_DEBUG("Got %zu bytes from %s\n", data->length,
 		  server_id_str_buf(src, &idbuf));
 
-	ok = notifyd_parse_rec_change(data->data, data->length,
-				      &msg, &pathlen);
-	if (!ok) {
-		return;
+	ndr_err = messaging_smb_notify_rec_change_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING(
+			"messaging_smb_notify_rec_change_pull failed: %s\n",
+			ndr_errstr(ndr_err));
+		goto done;
 	}
 
-	memcpy(&instance, &msg->instance, sizeof(instance)); /* avoid SIGBUS */
+	if (DEBUGLEVEL >= 10) {
+		DBG_DEBUG("received notify_rec_change from %s\n",
+			  server_id_str_buf(src, &idbuf));
+		NDR_PRINT_DEBUG(messaging_smb_notify_rec_change, &msg);
+	}
 
-	ok = notifyd_apply_rec_change(
-		&src, msg->path, pathlen, &instance,
-		state->entries, state->sys_notify_watch, state->sys_notify_ctx,
-		state->msg_ctx);
+	instance.filter = msg.filter;
+	instance.subdir_filter = msg.subdir_filter;
+	instance.private_data = (void *)(uintptr_t)msg.private_data;
+
+	ok = notifyd_apply_rec_change(&src,
+				      msg.path,
+				      strlen(msg.path) + 1,
+				      &instance,
+				      state->entries,
+				      state->sys_notify_watch,
+				      state->sys_notify_ctx,
+				      state->msg_ctx);
 	if (!ok) {
 		DBG_DEBUG("notifyd_apply_rec_change failed, ignoring\n");
-		return;
+		goto done;
 	}
 
 	if ((state->log == NULL) || (state->ctdbd_conn == NULL)) {
-		return;
+		goto done;
 	}
 
 #ifdef CLUSTER_SUPPORT
@@ -672,7 +662,7 @@ static void notifyd_rec_change(struct messaging_context *msg_ctx,
 			     log->num_recs+1);
 	if (tmp == NULL) {
 		DBG_WARNING("talloc_realloc failed, ignoring\n");
-		return;
+		goto done;
 	}
 	log->recs = tmp;
 
@@ -682,7 +672,7 @@ static void notifyd_rec_change(struct messaging_context *msg_ctx,
 
 	if (log->recs[log->num_recs] == NULL) {
 		DBG_WARNING("messaging_rec_create failed, ignoring\n");
-		return;
+		goto done;
 	}
 
 	log->num_recs += 1;
@@ -697,6 +687,8 @@ static void notifyd_rec_change(struct messaging_context *msg_ctx,
 
 	}
 #endif
+done:
+	TALLOC_FREE(frame);
 }
 
 struct notifyd_trigger_state {
@@ -887,35 +879,49 @@ static void notifyd_send_delete(struct messaging_context *msg_ctx,
 				TDB_DATA key,
 				struct notifyd_instance *instance)
 {
-	struct notify_rec_change_msg msg = {
-		.instance.private_data = instance->instance.private_data
-	};
-	uint8_t nul = 0;
-	struct iovec iov[3];
+	TALLOC_CTX *frame = talloc_stackframe();
+	char *path = talloc_strndup(frame, (char *)key.dptr, key.dsize);
+	struct messaging_smb_notify_rec_change msg;
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
 
 	/*
 	 * Send a rec_change to ourselves to delete a dead entry
 	 */
 
-	iov[0] = (struct iovec) {
-		.iov_base = &msg,
-		.iov_len = offsetof(struct notify_rec_change_msg, path) };
-	iov[1] = (struct iovec) { .iov_base = key.dptr, .iov_len = key.dsize };
-	iov[2] = (struct iovec) { .iov_base = &nul, .iov_len = sizeof(nul) };
+	if (path == NULL) {
+		DBG_WARNING("talloc_strndup failed\n");
+		goto done;
+	}
 
-	status = messaging_send_iov(msg_ctx,
+	msg = (struct messaging_smb_notify_rec_change){
+		.private_data = (uint64_t)(uintptr_t)
+					instance->instance.private_data,
+		.path = path,
+	};
+
+	ndr_err = messaging_smb_notify_rec_change_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING(
+			"messaging_smb_notify_rec_change_push failed: %s\n",
+			ndr_errstr(ndr_err));
+		goto done;
+	}
+
+	status = messaging_send_buf(msg_ctx,
 				    instance->client,
 				    MSG_SMB_NOTIFY_REC_CHANGE,
-				    iov,
-				    ARRAY_SIZE(iov),
-				    NULL,
-				    0);
+				    blob.data,
+				    blob.length);
 
 	if (!NT_STATUS_IS_OK(status)) {
-		DBG_WARNING("messaging_send_iov failed: %s\n",
+		DBG_WARNING("messaging_send_buf failed: %s\n",
 			    nt_errstr(status));
 	}
+
+done:
+	TALLOC_FREE(frame);
 }
 
 static void notifyd_get_db(struct messaging_context *msg_ctx,
@@ -1409,26 +1415,37 @@ static void notifyd_apply_reclog(struct notifyd_peer *peer,
 
 	for (i=0; i<log->num_recs; i++) {
 		struct messaging_rec *r = log->recs[i];
-		struct notify_rec_change_msg *chg;
-		size_t pathlen;
+		TALLOC_CTX *frame = talloc_stackframe();
+		struct messaging_smb_notify_rec_change rec_msg;
+		enum ndr_err_code rec_ndr_err;
 		bool ok;
 		struct notify_instance instance;
 
-		ok = notifyd_parse_rec_change(r->buf.data, r->buf.length,
-					      &chg, &pathlen);
-		if (!ok) {
-			DBG_INFO("notifyd_parse_rec_change failed\n");
+		rec_ndr_err = messaging_smb_notify_rec_change_pull(frame,
+								   &r->buf,
+								   &rec_msg);
+		if (!NDR_ERR_CODE_IS_SUCCESS(rec_ndr_err)) {
+			DBG_INFO("messaging_smb_notify_rec_change_pull "
+				 "failed: %s\n",
+				 ndr_errstr(rec_ndr_err));
+			TALLOC_FREE(frame);
 			goto fail;
 		}
 
-		/* avoid SIGBUS */
-		memcpy(&instance, &chg->instance, sizeof(instance));
+		instance.filter = rec_msg.filter;
+		instance.subdir_filter = rec_msg.subdir_filter;
+		instance.private_data = (void *)(uintptr_t)
+						rec_msg.private_data;
 
-		ok = notifyd_apply_rec_change(&r->src, chg->path, pathlen,
-					      &instance, peer->db,
+		ok = notifyd_apply_rec_change(&r->src,
+					      rec_msg.path,
+					      strlen(rec_msg.path) + 1,
+					      &instance,
+					      peer->db,
 					      state->sys_notify_watch,
 					      state->sys_notify_ctx,
 					      state->msg_ctx);
+		TALLOC_FREE(frame);
 		if (!ok) {
 			DBG_INFO("notifyd_apply_rec_change failed\n");
 			goto fail;

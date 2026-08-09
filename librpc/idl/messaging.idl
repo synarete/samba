@@ -570,6 +570,22 @@ interface messaging
 		uint32 num_children;
 	} messaging_smb_num_children;
 
+	/* MSG_SMB_NOTIFY_REC_CHANGE */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_NOTIFY_REC_CHANGE_VERSION_0 = 0x00000000
+	} messaging_smb_notify_rec_change_version_values;
+
+	const uint32 MESSAGING_SMB_NOTIFY_REC_CHANGE_VERSION_CURRENT =
+		MESSAGING_SMB_NOTIFY_REC_CHANGE_VERSION_0;
+
+	typedef [public] struct {
+		messaging_smb_notify_rec_change_version_values version;
+		uint32 filter;
+		uint32 subdir_filter;
+		hyper private_data;
+		[string,charset(UTF8)] char *path;
+	} messaging_smb_notify_rec_change;
+
 	/* MSG_SMB_NOTIFY_CLEANUP / MSG_SMB_NOTIFY_STARTED / MSG_SMB_NOTIFY_GET_DB */
 	typedef [public, v1_enum] enum {
 		MESSAGING_SMB_NOTIFY_VERSION_0 = 0x00000000

@@ -17,6 +17,7 @@
 #include "fcn_wait.h"
 #include "notifyd.h"
 #include "lib/util/tevent_ntstatus.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 struct fcn_event {
 	struct fcn_event *prev, *next;
@@ -51,15 +52,15 @@ struct tevent_req *fcn_wait_send(
 {
 	struct tevent_req *req = NULL;
 	struct fcn_wait_state *state = NULL;
-	struct notify_rec_change_msg msg = {
-		.instance.filter = filter,
-		.instance.subdir_filter = subdir_filter,
-	};
-	struct iovec iov[2];
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_rec_change msg;
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
 
 	req = tevent_req_create(mem_ctx, &state, struct fcn_wait_state);
 	if (req == NULL) {
+		TALLOC_FREE(frame);
 		return NULL;
 	}
 	state->ev = ev;
@@ -70,29 +71,35 @@ struct tevent_req *fcn_wait_send(
 	state->recv_subreq = messaging_filtered_read_send(
 		state, ev, msg_ctx, fcn_wait_filter, req);
 	if (tevent_req_nomem(state->recv_subreq, req)) {
+		TALLOC_FREE(frame);
 		return tevent_req_post(req, ev);
 	}
 	tevent_req_set_callback(state->recv_subreq, fcn_wait_done, req);
 	tevent_req_set_cleanup_fn(req, fcn_wait_cleanup);
 
-	clock_gettime_mono(&msg.instance.creation_time);
-	msg.instance.private_data = state;
+	msg = (struct messaging_smb_notify_rec_change){
+		.filter = filter,
+		.subdir_filter = subdir_filter,
+		.private_data = (uint64_t)(uintptr_t)state,
+		.path = discard_const_p(char, path)};
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
-	iov[1].iov_base = discard_const_p(char, path);
-	iov[1].iov_len = strlen(path)+1;
+	ndr_err = messaging_smb_notify_rec_change_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_smb_notify_rec_change_push failed: %s\n",
+			  ndr_errstr(ndr_err));
+		tevent_req_nterror(req, NT_STATUS_NO_MEMORY);
+		TALLOC_FREE(frame);
+		return tevent_req_post(req, ev);
+	}
 
-	status = messaging_send_iov(
-		msg_ctx,			/* msg_ctx */
-		notifyd,			/* dst */
-		MSG_SMB_NOTIFY_REC_CHANGE,	/* mst_type */
-		iov,				/* iov */
-		ARRAY_SIZE(iov),		/* iovlen */
-		NULL,				/* fds */
-		0);				/* num_fds */
+	status = messaging_send_buf(msg_ctx,		       /* msg_ctx */
+				    notifyd,		       /* dst */
+				    MSG_SMB_NOTIFY_REC_CHANGE, /* mst_type */
+				    blob.data,		       /* buf */
+				    blob.length);	       /* len */
+	TALLOC_FREE(frame);
 	if (tevent_req_nterror(req, status)) {
-		DBG_DEBUG("messaging_send_iov failed: %s\n",
+		DBG_DEBUG("messaging_send_buf failed: %s\n",
 			  nt_errstr(status));
 		return tevent_req_post(req, ev);
 	}
@@ -105,31 +112,34 @@ static bool fcn_wait_cancel(struct tevent_req *req)
 {
 	struct fcn_wait_state *state = tevent_req_data(
 		req, struct fcn_wait_state);
-	struct notify_rec_change_msg msg = {
-		.instance.filter = 0, /* filter==0 is a delete msg */
-		.instance.subdir_filter = 0,
-	};
-	struct iovec iov[2];
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_rec_change msg;
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
 
-	clock_gettime_mono(&msg.instance.creation_time);
-	msg.instance.private_data = state;
+	msg = (struct messaging_smb_notify_rec_change){
+		.filter = 0, /* filter==0 is a delete msg */
+		.subdir_filter = 0,
+		.private_data = (uint64_t)(uintptr_t)state,
+		.path = discard_const_p(char, state->path)};
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
-	iov[1].iov_base = discard_const_p(char, state->path);
-	iov[1].iov_len = strlen(state->path)+1;
+	ndr_err = messaging_smb_notify_rec_change_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_smb_notify_rec_change_push failed: %s\n",
+			  ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return false;
+	}
 
-	status = messaging_send_iov(
-		state->msg_ctx,			/* msg_ctx */
-		state->notifyd,			/* dst */
-		MSG_SMB_NOTIFY_REC_CHANGE,	/* mst_type */
-		iov,				/* iov */
-		ARRAY_SIZE(iov),		/* iovlen */
-		NULL,				/* fds */
-		0);				/* num_fds */
+	status = messaging_send_buf(state->msg_ctx,	       /* msg_ctx */
+				    state->notifyd,	       /* dst */
+				    MSG_SMB_NOTIFY_REC_CHANGE, /* mst_type */
+				    blob.data,		       /* buf */
+				    blob.length);	       /* len */
+	TALLOC_FREE(frame);
 	if (!NT_STATUS_IS_OK(status)) {
-		DBG_DEBUG("messaging_send_iov failed: %s\n",
+		DBG_DEBUG("messaging_send_buf failed: %s\n",
 			  nt_errstr(status));
 		return false;
 	}

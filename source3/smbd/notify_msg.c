@@ -20,6 +20,7 @@
 #include "includes.h"
 #include "librpc/gen_ndr/notify.h"
 #include "librpc/gen_ndr/messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "lib/dbwrap/dbwrap.h"
 #include "lib/dbwrap/dbwrap_rbt.h"
 #include "lib/util/server_id.h"
@@ -142,9 +143,15 @@ NTSTATUS notify_add(struct notify_context *ctx,
 		    const char *path, uint32_t filter, uint32_t subdir_filter,
 		    void *private_data)
 {
-	struct notify_rec_change_msg msg = {};
-	struct iovec iov[2];
-	size_t pathlen;
+	struct messaging_smb_notify_rec_change msg = {
+		.filter = filter,
+		.subdir_filter = subdir_filter,
+		.private_data = (uint64_t)(uintptr_t)private_data,
+		.path = discard_const_p(char, path),
+	};
+	TALLOC_CTX *frame = NULL;
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
 
 	if (ctx == NULL) {
@@ -158,54 +165,69 @@ NTSTATUS notify_add(struct notify_context *ctx,
 		  subdir_filter,
 		  private_data);
 
-	pathlen = strlen(path)+1;
-
-	clock_gettime_mono(&msg.instance.creation_time);
-	msg.instance.filter = filter;
-	msg.instance.subdir_filter = subdir_filter;
-	msg.instance.private_data = private_data;
-
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
-	iov[1].iov_base = discard_const_p(char, path);
-	iov[1].iov_len = pathlen;
-
-	status =  messaging_send_iov(
-		ctx->msg_ctx, ctx->notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
-		iov, ARRAY_SIZE(iov), NULL, 0);
-
-	if (!NT_STATUS_IS_OK(status)) {
-		DBG_DEBUG("messaging_send_iov returned %s\n",
-			  nt_errstr(status));
-		return status;
+	if (DEBUGLEVEL >= 10) {
+		DBG_DEBUG("sending notify_rec_change to notifyd\n");
+		NDR_PRINT_DEBUG(messaging_smb_notify_rec_change, &msg);
 	}
 
-	return NT_STATUS_OK;
+	frame = talloc_stackframe();
+
+	ndr_err = messaging_smb_notify_rec_change_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_smb_notify_rec_change_push failed: %s\n",
+			  ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_buf(ctx->msg_ctx,
+				    ctx->notifyd,
+				    MSG_SMB_NOTIFY_REC_CHANGE,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
+
+	if (!NT_STATUS_IS_OK(status)) {
+		DBG_DEBUG("messaging_send_buf returned %s\n",
+			  nt_errstr(status));
+	}
+
+	return status;
 }
 
 NTSTATUS notify_remove(struct notify_context *ctx, void *private_data,
 		       char *path)
 {
-	struct notify_rec_change_msg msg = {};
-	struct iovec iov[2];
-	NTSTATUS status;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_rec_change msg = {
+		.private_data = (uint64_t)(uintptr_t)private_data,
+		.path = path,
+	};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status = NT_STATUS_OK;
 
 	/* see if change notify is enabled at all */
 	if (ctx == NULL) {
+		TALLOC_FREE(frame);
 		return NT_STATUS_NOT_IMPLEMENTED;
 	}
 
-	msg.instance.private_data = private_data;
+	ndr_err = messaging_smb_notify_rec_change_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_smb_notify_rec_change_push failed: %s\n",
+			  ndr_errstr(ndr_err));
+		goto done;
+	}
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
-	iov[1].iov_base = path;
-	iov[1].iov_len = strlen(path)+1;
+	status = messaging_send_buf(ctx->msg_ctx,
+				    ctx->notifyd,
+				    MSG_SMB_NOTIFY_REC_CHANGE,
+				    blob.data,
+				    blob.length);
 
-	status = messaging_send_iov(
-		ctx->msg_ctx, ctx->notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
-		iov, ARRAY_SIZE(iov), NULL, 0);
-
+done:
+	TALLOC_FREE(frame);
 	return status;
 }
 

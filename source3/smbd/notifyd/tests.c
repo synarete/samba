@@ -66,42 +66,70 @@ int main(int argc, const char *argv[])
 	}
 
 	for (i=0; i<50000; i++) {
-		struct notify_rec_change_msg msg = {
-			.instance.filter = UINT32_MAX,
-			.instance.subdir_filter = UINT32_MAX
-		};
+		TALLOC_CTX *loop_frame = talloc_stackframe();
+		struct messaging_smb_notify_rec_change msg;
 		char path[64];
-		size_t len;
-		struct iovec iov[2];
+		DATA_BLOB msg_blob;
+		enum ndr_err_code send_ndr_err;
 		NTSTATUS status;
 
-		len = snprintf(path, sizeof(path), "/tmp%u", i);
+		snprintf(path, sizeof(path), "/tmp%u", i);
 
-		iov[0].iov_base = &msg;
-		iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
-		iov[1].iov_base = path;
-		iov[1].iov_len = len+1;
+		msg = (struct messaging_smb_notify_rec_change){
+			.filter = UINT32_MAX,
+			.subdir_filter = UINT32_MAX,
+			.path = path};
 
-		status = messaging_send_iov(
-			msg_ctx, notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
-			iov, ARRAY_SIZE(iov), NULL, 0);
+		send_ndr_err = messaging_smb_notify_rec_change_push(loop_frame,
+								    &msg,
+								    &msg_blob);
+		if (!NDR_ERR_CODE_IS_SUCCESS(send_ndr_err)) {
+			fprintf(stderr,
+				"messaging_smb_notify_rec_change_push "
+				"returned %s\n",
+				ndr_errstr(send_ndr_err));
+			exit(1);
+		}
+
+		status = messaging_send_buf(msg_ctx,
+					    notifyd,
+					    MSG_SMB_NOTIFY_REC_CHANGE,
+					    msg_blob.data,
+					    msg_blob.length);
 		if (!NT_STATUS_IS_OK(status)) {
-			fprintf(stderr, "messaging_send_iov returned %s\n",
+			fprintf(stderr,
+				"messaging_send_buf returned %s\n",
 				nt_errstr(status));
 			exit(1);
 		}
 
-		msg.instance.filter = 0;
-		msg.instance.subdir_filter = 0;
+		msg.filter = 0;
+		msg.subdir_filter = 0;
 
-		status = messaging_send_iov(
-			msg_ctx, notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
-			iov, ARRAY_SIZE(iov), NULL, 0);
+		send_ndr_err = messaging_smb_notify_rec_change_push(loop_frame,
+								    &msg,
+								    &msg_blob);
+		if (!NDR_ERR_CODE_IS_SUCCESS(send_ndr_err)) {
+			fprintf(stderr,
+				"messaging_smb_notify_rec_change_push "
+				"returned %s\n",
+				ndr_errstr(send_ndr_err));
+			exit(1);
+		}
+
+		status = messaging_send_buf(msg_ctx,
+					    notifyd,
+					    MSG_SMB_NOTIFY_REC_CHANGE,
+					    msg_blob.data,
+					    msg_blob.length);
 		if (!NT_STATUS_IS_OK(status)) {
-			fprintf(stderr, "messaging_send_iov returned %s\n",
+			fprintf(stderr,
+				"messaging_send_buf returned %s\n",
 				nt_errstr(status));
 			exit(1);
 		}
+
+		TALLOC_FREE(loop_frame);
 	}
 
 	req = messaging_read_send(ev, ev, msg_ctx, MSG_PONG);
