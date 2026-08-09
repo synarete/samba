@@ -31,6 +31,7 @@
 #include "../libcli/security/security.h"
 #include "../librpc/gen_ndr/ndr_security.h"
 #include "../librpc/gen_ndr/ndr_open_files.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "../librpc/gen_ndr/idmap.h"
 #include "../librpc/gen_ndr/ioctl.h"
 #include "passdb/lookup_sid.h"
@@ -5548,7 +5549,8 @@ void msg_file_was_renamed(struct messaging_context *msg_ctx,
 			  struct server_id src,
 			  DATA_BLOB *data)
 {
-	struct file_rename_message *msg = NULL;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_file_rename msg = {};
 	enum ndr_err_code ndr_err;
 	files_struct *fsp;
 	struct smb_filename *smb_fname = NULL;
@@ -5556,19 +5558,9 @@ void msg_file_was_renamed(struct messaging_context *msg_ctx,
 		talloc_get_type_abort(private_data,
 		struct smbd_server_connection);
 
-	msg = talloc(talloc_tos(), struct file_rename_message);
-	if (msg == NULL) {
-		DBG_WARNING("talloc failed\n");
-		return;
-	}
-
-	ndr_err = ndr_pull_struct_blob_all(
-		data,
-		msg,
-		msg,
-		(ndr_pull_flags_fn_t)ndr_pull_file_rename_message);
+	ndr_err = messaging_smb_file_rename_pull(frame, data, &msg);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		DBG_DEBUG("ndr_pull_file_rename_message failed: %s\n",
+		DBG_DEBUG("messaging_smb_file_rename_pull failed: %s\n",
 			  ndr_errstr(ndr_err));
 		goto out;
 	}
@@ -5576,17 +5568,17 @@ void msg_file_was_renamed(struct messaging_context *msg_ctx,
 		struct server_id_buf buf;
 		DBG_DEBUG("Got rename message from %s\n",
 			  server_id_str_buf(src, &buf));
-		NDR_PRINT_DEBUG(file_rename_message, msg);
+		NDR_PRINT_DEBUG(messaging_smb_file_rename, &msg);
 	}
 
 	/* stream_name must always be NULL if there is no stream. */
-	if ((msg->stream_name != NULL) && (msg->stream_name[0] == '\0')) {
-		msg->stream_name = NULL;
+	if ((msg.stream_name != NULL) && (msg.stream_name[0] == '\0')) {
+		msg.stream_name = NULL;
 	}
 
-	smb_fname = synthetic_smb_fname(msg,
-					msg->base_name,
-					msg->stream_name,
+	smb_fname = synthetic_smb_fname(frame,
+					msg.base_name,
+					msg.stream_name,
 					NULL,
 					0,
 					0);
@@ -5595,13 +5587,13 @@ void msg_file_was_renamed(struct messaging_context *msg_ctx,
 		goto out;
 	}
 
-	fsp = file_find_dif(sconn, msg->id, msg->share_file_id);
+	fsp = file_find_dif(sconn, msg.id, msg.share_file_id);
 	if (fsp == NULL) {
 		DBG_DEBUG("fsp not found\n");
 		goto out;
 	}
 
-	if (strcmp(fsp->conn->connectpath, msg->servicepath) == 0) {
+	if (strcmp(fsp->conn->connectpath, msg.servicepath) == 0) {
 		SMB_STRUCT_STAT fsp_orig_sbuf;
 		bool ok;
 
@@ -5642,13 +5634,13 @@ void msg_file_was_renamed(struct messaging_context *msg_ctx,
 		DBG_DEBUG("share mismatch (sharepath %s not sharepath %s) "
 			  "%s from %s -> %s\n",
 			  fsp->conn->connectpath,
-			  msg->servicepath,
+			  msg.servicepath,
 			  fsp_fnum_dbg(fsp),
 			  fsp_str_dbg(fsp),
 			  smb_fname_str_dbg(smb_fname));
 	}
- out:
-	TALLOC_FREE(msg);
+out:
+	TALLOC_FREE(frame);
 }
 
 /*

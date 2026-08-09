@@ -287,6 +287,16 @@ enum ndr_err_code messaging_smb_scavenger_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_scavenger *msg);
 
+enum ndr_err_code messaging_smb_file_rename_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_file_rename *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_file_rename_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_file_rename *msg);
+
 enum ndr_err_code messaging_smb_inject_fault_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_inject_fault *msg,

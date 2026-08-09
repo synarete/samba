@@ -523,6 +523,23 @@ interface messaging
 		uint32 name_hash;
 	} messaging_smb_scavenger;
 
+	/* MSG_SMB_FILE_RENAME */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_FILE_RENAME_VERSION_0 = 0x00000000
+	} messaging_smb_file_rename_version_values;
+
+	const uint32 MESSAGING_SMB_FILE_RENAME_VERSION_CURRENT =
+		MESSAGING_SMB_FILE_RENAME_VERSION_0;
+
+	typedef [public] struct {
+		messaging_smb_file_rename_version_values version;
+		file_id id;
+		hyper share_file_id;
+		[string,charset(UTF8)] char *servicepath;
+		[string,charset(UTF8)] char *base_name;
+		[string,charset(UTF8)] char *stream_name;
+	} messaging_smb_file_rename;
+
 	/* MSG_SMB_INJECT_FAULT */
 	typedef [public, v1_enum] enum {
 		MESSAGING_SMB_INJECT_FAULT_VERSION_0 = 0x00000000

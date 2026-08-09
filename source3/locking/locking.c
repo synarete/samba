@@ -51,6 +51,7 @@
 #include "messages.h"
 #include "util_tdb.h"
 #include "../librpc/gen_ndr/ndr_open_files.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "librpc/gen_ndr/ndr_file_id.h"
 #include "librpc/gen_ndr/ndr_leases_db.h"
 #include "locking/leases_db.h"
@@ -456,7 +457,7 @@ struct rename_share_filename_state {
 	struct server_id self;
 	uint32_t orig_name_hash;
 	uint32_t new_name_hash;
-	struct file_rename_message msg;
+	struct messaging_smb_file_rename msg;
 };
 
 static bool rename_lease_fn(struct share_mode_entry *e,
@@ -498,6 +499,7 @@ static bool rename_share_filename_fn(
 	void *private_data)
 {
 	struct rename_share_filename_state *state = private_data;
+	TALLOC_CTX *frame = NULL;
 	DATA_BLOB blob;
 	enum ndr_err_code ndr_err;
 	bool ok;
@@ -519,27 +521,27 @@ static bool rename_share_filename_fn(
 
 	state->msg.share_file_id = e->share_file_id;
 
-	ndr_err = ndr_push_struct_blob(
-		&blob,
-		talloc_tos(),
-		&state->msg,
-		(ndr_push_flags_fn_t)ndr_push_file_rename_message);
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_file_rename_push(frame, &state->msg, &blob);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		DBG_DEBUG("ndr_push_file_rename_message failed: %s\n",
+		DBG_DEBUG("messaging_smb_file_rename_push failed: %s\n",
 			  ndr_errstr(ndr_err));
-		return false;
+		goto done;
 	}
 	if (DEBUGLEVEL >= 10) {
 		struct server_id_buf tmp;
 		DBG_DEBUG("sending rename message to %s\n",
 			  server_id_str_buf(e->pid, &tmp));
-		NDR_PRINT_DEBUG(file_rename_message, &state->msg);
+		NDR_PRINT_DEBUG(messaging_smb_file_rename, &state->msg);
 	}
 
-	messaging_send(state->msg_ctx, e->pid, MSG_SMB_FILE_RENAME, &blob);
-
-	TALLOC_FREE(blob.data);
-
+	messaging_send_buf(state->msg_ctx,
+			   e->pid,
+			   MSG_SMB_FILE_RENAME,
+			   blob.data,
+			   blob.length);
+done:
+	TALLOC_FREE(frame);
 	return false;
 }
 
@@ -557,7 +559,7 @@ bool rename_share_filename(struct messaging_context *msg_ctx,
 		.orig_name_hash = orig_name_hash,
 		.new_name_hash = new_name_hash,
 		.msg.id = id,
-		.msg.servicepath = servicepath,
+		.msg.servicepath = discard_const_p(char, servicepath),
 		.msg.base_name = smb_fname_dst->base_name,
 		.msg.stream_name = smb_fname_dst->stream_name,
 	};
