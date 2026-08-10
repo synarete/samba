@@ -86,40 +86,6 @@ struct notify_instance {
 	void *private_data;
 };
 
-/* MSG_SMB_NOTIFY_REC_CHANGE payload */
-struct notify_rec_change_msg {
-	struct notify_instance instance;
-	char path[];
-};
-
-/*
- * The second message from smbd to notifyd is sent whenever an smbd makes a
- * file system change. It tells notifyd to inform all interested parties about
- * that change. This is the message that needs to be really fast in smbd
- * because it is called a lot.
- */
-
-/* MSG_SMB_NOTIFY_TRIGGER payload */
-struct notify_trigger_msg {
-	struct timespec when;
-	uint32_t action;
-	uint32_t filter;
-	char path[];
-};
-
-/*
- * In response to a MSG_SMB_NOTIFY_TRIGGER message notifyd walks its database
- * and sends out the following message to all interested clients
- */
-
-/* MSG_PVFS_NOTIFY payload */
-struct notify_event_msg {
-	struct timespec when;
-	void *private_data;
-	uint32_t action;
-	char path[];
-};
-
 struct sys_notify_context;
 struct ctdbd_connection;
 

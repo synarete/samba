@@ -21,7 +21,7 @@
 
 struct fcn_event {
 	struct fcn_event *prev, *next;
-	struct notify_event_msg msg;
+	struct messaging_pvfs_notify msg;
 };
 
 struct fcn_wait_state {
@@ -163,43 +163,37 @@ static bool fcn_wait_filter(struct messaging_rec *rec, void *private_data)
 {
 	struct tevent_req *req = talloc_get_type_abort(
 		private_data, struct tevent_req);
-	struct fcn_wait_state *state = tevent_req_data(
-		req, struct fcn_wait_state);
-	struct notify_event_msg msg = { .action = 0 };
+	struct fcn_wait_state *state = tevent_req_data(req,
+						       struct fcn_wait_state);
 	struct fcn_event *evt = NULL;
+	enum ndr_err_code ndr_err;
 
 	if (rec->msg_type != MSG_PVFS_NOTIFY) {
 		DBG_DEBUG("Ignoring msg %"PRIu32"\n", rec->msg_type);
 		return false;
 	}
 
-	/*
-	 * We need at least the trailing '\0' for the path
-	 */
-	if (rec->buf.length < (offsetof(struct notify_event_msg, path) + 1)) {
-		DBG_DEBUG("Ignoring short (%zu) msg\n", rec->buf.length);
-		return false;
-	}
-	if (rec->buf.data[rec->buf.length-1] != '\0') {
-		DBG_DEBUG("Expected 0-terminated path\n");
-		return false;
-	}
-
-	memcpy(&msg, rec->buf.data, sizeof(msg));
-
-	if (msg.private_data != state) {
-		DBG_DEBUG("Got private_data=%p, expected %p\n",
-			  msg.private_data,
-			  state);
-		return false;
-	}
-
-	evt = talloc_memdup(state, rec->buf.data, rec->buf.length);
+	evt = talloc_zero(state, struct fcn_event);
 	if (evt == NULL) {
-		DBG_DEBUG("talloc_memdup failed\n");
+		DBG_DEBUG("talloc_zero failed\n");
 		return false;
 	}
-	talloc_set_name_const(evt, "struct fcn_event");
+
+	ndr_err = messaging_pvfs_notify_pull(evt, &rec->buf, &evt->msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_pvfs_notify_pull failed: %s\n",
+			  ndr_errstr(ndr_err));
+		TALLOC_FREE(evt);
+		return false;
+	}
+
+	if ((void *)(uintptr_t)evt->msg.private_data != state) {
+		DBG_DEBUG("Got private_data=%p, expected %p\n",
+			  (void *)(uintptr_t)evt->msg.private_data,
+			  state);
+		TALLOC_FREE(evt);
+		return false;
+	}
 
 	/*
 	 * TODO: Sort by timestamp
@@ -263,7 +257,8 @@ NTSTATUS fcn_wait_recv(
 		}
 	}
 	if (when != NULL) {
-		*when = evt->msg.when;
+		when->tv_sec = evt->msg.when_sec;
+		when->tv_nsec = evt->msg.when_nsec;
 	}
 	if (action != NULL) {
 		*action = evt->msg.action;

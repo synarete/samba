@@ -26,6 +26,7 @@
 #include "lib/param/loadparm.h"
 #include "source3/param/loadparm.h"
 #include "source4/torture/smbtorture.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 struct fcn_test_state {
 	struct tevent_req *fcn_req;
@@ -48,12 +49,16 @@ static struct tevent_req *fcn_test_send(
 {
 	struct tevent_req *req = NULL;
 	struct fcn_test_state *state = NULL;
-	struct notify_trigger_msg msg;
-	struct iovec iov[2];
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct timespec when = timespec_current();
+	struct messaging_smb_notify_trigger msg;
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
 
 	req = tevent_req_create(mem_ctx, &state, struct fcn_test_state);
 	if (req == NULL) {
+		TALLOC_FREE(frame);
 		return NULL;
 	}
 
@@ -66,32 +71,32 @@ static struct tevent_req *fcn_test_send(
 		fcn_filter,
 		fcn_subdir_filter);
 	if (tevent_req_nomem(state->fcn_req, req)) {
+		TALLOC_FREE(frame);
 		return tevent_req_post(req, ev);
 	}
 	tevent_req_set_callback(state->fcn_req, fcn_test_done, req);
 
-	msg = (struct notify_trigger_msg) {
-		.when = timespec_current(),
+	msg = (struct messaging_smb_notify_trigger){
+		.when_sec = when.tv_sec,
+		.when_nsec = when.tv_nsec,
 		.action = trigger_action,
 		.filter = trigger_filter,
-	};
-	iov[0] = (struct iovec) {
-		.iov_base = &msg,
-		.iov_len = offsetof(struct notify_trigger_msg, path),
-	};
-	iov[1] = (struct iovec) {
-		.iov_base = discard_const_p(char, trigger_path),
-		.iov_len = strlen(trigger_path)+1,
+		.path = discard_const_p(char, trigger_path),
 	};
 
-	status = messaging_send_iov(
-		msg_ctx,
-		notifyd,
-		MSG_SMB_NOTIFY_TRIGGER,
-		iov,
-		ARRAY_SIZE(iov),
-		NULL,
-		0);
+	ndr_err = messaging_smb_notify_trigger_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		tevent_req_nterror(req, NT_STATUS_NO_MEMORY);
+		return tevent_req_post(req, ev);
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    notifyd,
+				    MSG_SMB_NOTIFY_TRIGGER,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
 	if (tevent_req_nterror(req, status)) {
 		return tevent_req_post(req, ev);
 	}

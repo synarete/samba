@@ -31,21 +31,22 @@ static void net_notify_got_event(struct messaging_context *msg,
 				 struct server_id server_id,
 				 DATA_BLOB *data)
 {
-	struct notify_event_msg *event_msg;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_pvfs_notify event_msg = {};
+	enum ndr_err_code ndr_err;
 
-	if (data->length < offsetof(struct notify_event_msg, path) + 1) {
-		d_fprintf(stderr, "message too short\n");
+	ndr_err = messaging_pvfs_notify_pull(frame, data, &event_msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		d_fprintf(stderr,
+			  "messaging_pvfs_notify_pull failed: %s\n",
+			  ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
 		return;
 	}
-	if (data->data[data->length-1] != 0) {
-		d_fprintf(stderr, "path not 0-terminated\n");
-		return;
-	}
 
-	event_msg = (struct notify_event_msg *)data->data;
+	d_printf("%u %s\n", (unsigned)event_msg.action, event_msg.path);
 
-	d_printf("%u %s\n", (unsigned)event_msg->action,
-		 event_msg->path);
+	TALLOC_FREE(frame);
 }
 
 static int net_notify_listen(struct net_context *c, int argc,
@@ -131,53 +132,63 @@ done:
 static int net_notify_trigger(struct net_context *c, int argc,
 			      const char **argv)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
 	struct messaging_context *msg_ctx = c->msg_ctx;
 	struct server_id_db *names_db = messaging_names_db(msg_ctx);
 	struct server_id notifyd;
 	struct server_id_buf idbuf;
-	struct notify_trigger_msg msg;
-	struct iovec iov[2];
+	struct messaging_smb_notify_trigger msg;
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
 	bool ok;
+	int ret = -1;
 
 	if (argc != 3) {
 		d_printf("Usage: net notify trigger <path> <action> "
 			 "<filter>\n");
-		return -1;
+		goto done;
 	}
 
 	ok = server_id_db_lookup_one(names_db, "notify-daemon", &notifyd);
 	if (!ok) {
 		fprintf(stderr, "no notify daemon found\n");
-		return -1;
+		goto done;
 	}
 
 	printf("notify daemon: %s\n", server_id_str_buf(notifyd, &idbuf));
 
-	msg = (struct notify_trigger_msg) {
-		.action = atoi(argv[1]), .filter = atoi(argv[2])
+	msg = (struct messaging_smb_notify_trigger){
+		.action = atoi(argv[1]),
+		.filter = atoi(argv[2]),
+		.path = discard_const_p(char, argv[0]),
 	};
 
-	iov[0] = (struct iovec) {
-		.iov_base = &msg,
-		.iov_len = offsetof(struct notify_trigger_msg, path)
-	};
-	iov[1] = (struct iovec) {
-		.iov_base = discard_const_p(char, argv[0]),
-		.iov_len = strlen(argv[0])+1
-	};
-
-	status = messaging_send_iov(
-		c->msg_ctx, notifyd, MSG_SMB_NOTIFY_TRIGGER,
-		iov, ARRAY_SIZE(iov), NULL, 0);
-	if (!NT_STATUS_IS_OK(status)) {
-		d_printf("Sending rec_change to %s returned %s\n",
-			 server_id_str_buf(notifyd, &idbuf),
-			 nt_errstr(status));
-		return -1;
+	ndr_err = messaging_smb_notify_trigger_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		d_fprintf(stderr,
+			  "messaging_smb_notify_trigger_push failed: %s\n",
+			  ndr_errstr(ndr_err));
+		goto done;
 	}
 
-	return 0;
+	status = messaging_send_buf(c->msg_ctx,
+				    notifyd,
+				    MSG_SMB_NOTIFY_TRIGGER,
+				    blob.data,
+				    blob.length);
+	if (!NT_STATUS_IS_OK(status)) {
+		d_fprintf(stderr,
+			  "Sending trigger to %s returned %s\n",
+			  server_id_str_buf(notifyd, &idbuf),
+			  nt_errstr(status));
+		goto done;
+	}
+
+	ret = 0;
+done:
+	TALLOC_FREE(frame);
+	return ret;
 }
 
 int net_notify(struct net_context *c, int argc, const char **argv)

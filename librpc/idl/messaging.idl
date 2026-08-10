@@ -570,21 +570,39 @@ interface messaging
 		uint32 num_children;
 	} messaging_smb_num_children;
 
-	/* MSG_SMB_NOTIFY_REC_CHANGE */
+	/* MSG_SMB_NOTIFY_REC_CHANGE / MSG_SMB_NOTIFY_TRIGGER / MSG_PVFS_NOTIFY */
 	typedef [public, v1_enum] enum {
-		MESSAGING_SMB_NOTIFY_REC_CHANGE_VERSION_0 = 0x00000000
-	} messaging_smb_notify_rec_change_version_values;
+		MESSAGING_NOTIFYD_VERSION_0 = 0x00000000
+	} messaging_notifyd_version_values;
 
-	const uint32 MESSAGING_SMB_NOTIFY_REC_CHANGE_VERSION_CURRENT =
-		MESSAGING_SMB_NOTIFY_REC_CHANGE_VERSION_0;
+	const uint32 MESSAGING_NOTIFYD_VERSION_CURRENT =
+		MESSAGING_NOTIFYD_VERSION_0;
 
 	typedef [public] struct {
-		messaging_smb_notify_rec_change_version_values version;
+		messaging_notifyd_version_values version;
 		uint32 filter;
 		uint32 subdir_filter;
 		hyper private_data;
 		[string,charset(UTF8)] char *path;
 	} messaging_smb_notify_rec_change;
+
+	typedef [public] struct {
+		messaging_notifyd_version_values version;
+		hyper when_sec;
+		uint32 when_nsec;
+		uint32 action;
+		uint32 filter;
+		[string,charset(UTF8)] char *path;
+	} messaging_smb_notify_trigger;
+
+	typedef [public] struct {
+		messaging_notifyd_version_values version;
+		hyper when_sec;
+		uint32 when_nsec;
+		hyper private_data;
+		uint32 action;
+		[string,charset(UTF8)] char *path;
+	} messaging_pvfs_notify;
 
 	/* MSG_SMB_NOTIFY_CLEANUP / MSG_SMB_NOTIFY_STARTED / MSG_SMB_NOTIFY_GET_DB */
 	typedef [public, v1_enum] enum {

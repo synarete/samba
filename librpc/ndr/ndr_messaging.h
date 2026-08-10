@@ -367,6 +367,25 @@ enum ndr_err_code messaging_smb_notify_get_db_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_notify_get_db *msg);
 
+enum ndr_err_code messaging_pvfs_notify_push(TALLOC_CTX *mem_ctx,
+					     struct messaging_pvfs_notify *msg,
+					     DATA_BLOB *blob);
+
+enum ndr_err_code messaging_pvfs_notify_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_pvfs_notify *msg);
+
+enum ndr_err_code messaging_smb_notify_trigger_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_trigger *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_trigger_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_trigger *msg);
+
 enum ndr_err_code messaging_smb_notify_rec_change_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_notify_rec_change *msg,

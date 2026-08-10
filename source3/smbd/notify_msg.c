@@ -112,23 +112,23 @@ static void notify_handler(struct messaging_context *msg, void *private_data,
 {
 	struct notify_context *ctx = talloc_get_type_abort(
 		private_data, struct notify_context);
-	struct notify_event_msg *event_msg;
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_pvfs_notify event_msg = {};
 	struct notify_event event;
+	struct timespec when;
+	enum ndr_err_code ndr_err;
 
-	if (data->length < offsetof(struct notify_event_msg, path) + 1) {
-		DBG_WARNING("message too short: %zu\n", data->length);
+	ndr_err = messaging_pvfs_notify_pull(frame, data, &event_msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("messaging_pvfs_notify_pull failed: %s\n",
+			    ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
 		return;
 	}
-	if (data->data[data->length-1] != 0) {
-		DBG_WARNING("path not 0-terminated\n");
-		return;
-	}
 
-	event_msg = (struct notify_event_msg *)data->data;
-
-	event.action = event_msg->action;
-	event.path = event_msg->path;
-	event.private_data = event_msg->private_data;
+	event.action = event_msg.action;
+	event.path = event_msg.path;
+	event.private_data = (void *)(uintptr_t)event_msg.private_data;
 
 	DBG_DEBUG("Got notify_event action=%"PRIu32", private_data=%p, "
 		   "path=%s\n",
@@ -136,7 +136,12 @@ static void notify_handler(struct messaging_context *msg, void *private_data,
 		  event.private_data,
 		  event.path);
 
-	ctx->callback(ctx->sconn, event.private_data, event_msg->when, &event);
+	when.tv_sec = event_msg.when_sec;
+	when.tv_nsec = event_msg.when_nsec;
+
+	ctx->callback(ctx->sconn, event.private_data, when, &event);
+
+	TALLOC_FREE(frame);
 }
 
 NTSTATUS notify_add(struct notify_context *ctx,
@@ -235,9 +240,12 @@ void notify_trigger(struct notify_context *ctx,
 		    uint32_t action, uint32_t filter,
 		    const char *dir, const char *name)
 {
-	struct notify_trigger_msg msg;
-	struct iovec iov[4];
-	char slash = '/';
+	TALLOC_CTX *frame = NULL;
+	struct timespec when;
+	char *path = NULL;
+	struct messaging_smb_notify_trigger msg;
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	DBG_DEBUG("notify_trigger called action=0x%"PRIx32", "
 		  "filter=0x%"PRIx32", dir=%s, name=%s\n",
@@ -250,20 +258,40 @@ void notify_trigger(struct notify_context *ctx,
 		return;
 	}
 
-	msg.when = timespec_current();
-	msg.action = action;
-	msg.filter = filter;
+	frame = talloc_stackframe();
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_trigger_msg, path);
-	iov[1].iov_base = discard_const_p(char, dir);
-	iov[1].iov_len = strlen(dir);
-	iov[2].iov_base = &slash;
-	iov[2].iov_len = 1;
-	iov[3].iov_base = discard_const_p(char, name);
-	iov[3].iov_len = strlen(name)+1;
+	when = timespec_current();
+	path = talloc_asprintf(frame, "%s/%s", dir, name);
+	if (path == NULL) {
+		DBG_WARNING("talloc_asprintf failed\n");
+		goto done;
+	}
 
-	messaging_send_iov(
-		ctx->msg_ctx, ctx->notifyd, MSG_SMB_NOTIFY_TRIGGER,
-		iov, ARRAY_SIZE(iov), NULL, 0);
+	msg = (struct messaging_smb_notify_trigger){
+		.when_sec = when.tv_sec,
+		.when_nsec = when.tv_nsec,
+		.action = action,
+		.filter = filter,
+		.path = path,
+	};
+
+	if (DEBUGLEVEL >= 10) {
+		DBG_DEBUG("sending notify_trigger to notifyd\n");
+		NDR_PRINT_DEBUG(messaging_smb_notify_trigger, &msg);
+	}
+
+	ndr_err = messaging_smb_notify_trigger_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("messaging_smb_notify_trigger_push failed: %s\n",
+			    ndr_errstr(ndr_err));
+		goto done;
+	}
+
+	messaging_send_buf(ctx->msg_ctx,
+			   ctx->notifyd,
+			   MSG_SMB_NOTIFY_TRIGGER,
+			   blob.data,
+			   blob.length);
+done:
+	TALLOC_FREE(frame);
 }
