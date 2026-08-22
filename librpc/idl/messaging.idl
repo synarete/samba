@@ -19,7 +19,9 @@ interface messaging
 		MSG_DEBUG			= 0x0001,
 		MSG_DEBUG_V1			= 0x1001,
 		MSG_PING			= 0x0002,
+		MSG_PING_V1			= 0x1002,
 		MSG_PONG			= 0x0003,
+		MSG_PONG_V1			= 0x1003,
 		MSG_PROFILE			= 0x0004,
 		MSG_PROFILE_V1			= 0x1004,
 		MSG_REQ_DEBUGLEVEL		= 0x0005,
@@ -200,6 +202,23 @@ interface messaging
 		 */
 		MSG_TMP_BASE                    = 0xF000
 	} messaging_type;
+
+	/* MSG_PING / MSG_PONG */
+	typedef [public, v1_enum] enum {
+		MESSAGING_PING_VERSION_1 = 0x00000001
+	} messaging_ping_version_values;
+
+	const uint32 MESSAGING_PING_VERSION_CURRENT =
+		MESSAGING_PING_VERSION_1;
+
+	typedef [public] struct {
+		messaging_ping_version_values version;
+		utf8string payload;
+	} messaging_ping_v1;
+
+	typedef [public] struct {
+		messaging_ping_version_values version;
+	} messaging_pong_v1;
 
 	/* MSG_DEBUG */
 	typedef [public, v1_enum] enum {

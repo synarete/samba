@@ -21,6 +21,7 @@
 #include "notifyd.h"
 #include "messages.h"
 #include "lib/util/server_id_db.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 int main(int argc, const char *argv[])
 {
@@ -30,6 +31,9 @@ int main(int argc, const char *argv[])
 	struct server_id_db *names;
 	struct server_id notifyd;
 	struct tevent_req *req;
+	struct messaging_ping_v1 ping = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 	unsigned i;
 	bool ok;
 
@@ -100,12 +104,19 @@ int main(int argc, const char *argv[])
 		}
 	}
 
-	req = messaging_read_send(ev, ev, msg_ctx, MSG_PONG);
+	req = messaging_read_send(ev, ev, msg_ctx, MSG_PONG_V1);
 	if (req == NULL) {
 		fprintf(stderr, "messaging_read_send failed\n");
 		exit(1);
 	}
-	messaging_send_buf(msg_ctx, notifyd, MSG_PING, NULL, 0);
+
+	ndr_err = messaging_ping_v1_push(frame, &ping, "", &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr, "messaging_ping_v1_push failed\n");
+		exit(1);
+	}
+	messaging_send_buf(
+		msg_ctx, notifyd, MSG_PING_V1, blob.data, blob.length);
 
 	ok = tevent_req_poll(req, ev);
 	if (!ok) {

@@ -21,6 +21,7 @@
 #include "torture/proto.h"
 #include "lib/util/tevent_unix.h"
 #include "messages.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 struct msg_count_state {
 	struct tevent_context *ev;
@@ -261,6 +262,9 @@ static struct tevent_req *msg_pingpong_send(TALLOC_CTX *mem_ctx,
 {
 	struct tevent_req *req, *subreq;
 	struct msg_pingpong_state *state;
+	struct messaging_ping_v1 ping = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
 
 	req = tevent_req_create(mem_ctx, &state, struct msg_pingpong_state);
@@ -277,14 +281,21 @@ static struct tevent_req *msg_pingpong_send(TALLOC_CTX *mem_ctx,
 		return tevent_req_post(req, ev);
 	}
 
-	status = messaging_send_buf(state->msg_ctx, dst, MSG_PING, NULL, 0);
+	ndr_err = messaging_ping_v1_push(state, &ping, "", &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		tevent_req_error(req, ENOMEM);
+		return tevent_req_post(req, ev);
+	}
+
+	status = messaging_send_buf(
+		state->msg_ctx, dst, MSG_PING_V1, blob.data, blob.length);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("messaging_send_buf failed: %s\n", nt_errstr(status));
 		tevent_req_error(req, map_errno_from_nt_status(status));
 		return tevent_req_post(req, ev);
 	}
 
-	subreq = messaging_read_send(state, ev, state->msg_ctx, MSG_PONG);
+	subreq = messaging_read_send(state, ev, state->msg_ctx, MSG_PONG_V1);
 	if (tevent_req_nomem(subreq, req)) {
 		return tevent_req_post(req, ev);
 	}
