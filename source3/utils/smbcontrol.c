@@ -516,22 +516,61 @@ static void pong_cb(struct messaging_context *msg,
 	num_replies++;
 }
 
+static void pong_cb_v1(struct messaging_context *msg,
+		       void *private_data,
+		       uint32_t msg_type,
+		       struct server_id pid,
+		       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_pong_v1 pong = {};
+	enum ndr_err_code ndr_err;
+	struct server_id_buf src_string;
+
+	ndr_err = messaging_pong_v1_pull(frame, data, &pong);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_PONG_V1 from pid %s: %s\n",
+			    server_id_str_buf(pid, &src_string),
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	printf("PONG from pid %s\n", server_id_str_buf(pid, &src_string));
+	num_replies++;
+out:
+	TALLOC_FREE(frame);
+}
+
 static bool do_ping(struct tevent_context *ev_ctx,
 		    struct messaging_context *msg_ctx,
 		    const struct server_id pid,
 		    const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_ping_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> ping\n");
 		return False;
 	}
 
 	/* Send a message and register our interest in a reply */
+	frame = talloc_stackframe();
+	ndr_err = messaging_ping_v1_push(frame, &msg, "", &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
 
-	if (!send_message(msg_ctx, pid, MSG_PING, NULL, 0))
-		return False;
+	ok = send_message(msg_ctx, pid, MSG_PING_V1, blob.data, blob.length);
+	if (!ok) {
+		goto out;
+	}
 
 	messaging_register(msg_ctx, NULL, MSG_PONG, pong_cb);
+	messaging_register(msg_ctx, NULL, MSG_PONG_V1, pong_cb_v1);
 
 	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
 
@@ -541,8 +580,10 @@ static bool do_ping(struct tevent_context *ev_ctx,
 		printf("No replies received\n");
 
 	messaging_deregister(msg_ctx, MSG_PONG, NULL);
-
-	return num_replies;
+	messaging_deregister(msg_ctx, MSG_PONG_V1, NULL);
+out:
+	TALLOC_FREE(frame);
+	return ok ? (num_replies > 0) : False;
 }
 
 /* Set profiling options */

@@ -65,6 +65,7 @@
 #include "ctdbd_conn.h"
 #include "ctdb_srvids.h"
 #include "source3/lib/tallocmsg.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #ifdef CLUSTER_SUPPORT
 #include "ctdb_protocol.h"
@@ -133,6 +134,39 @@ static void ping_message(struct messaging_context *msg_ctx,
 		  data->data ? (char *)data->data : ""));
 
 	messaging_send(msg_ctx, src, MSG_PONG, data);
+}
+
+static void ping_message_v1(struct messaging_context *msg_ctx,
+			    void *private_data,
+			    uint32_t msg_type,
+			    struct server_id src,
+			    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_ping_v1 ping = {};
+	struct messaging_pong_v1 pong = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	struct server_id_buf idbuf;
+
+	ndr_err = messaging_ping_v1_pull(frame, data, &ping);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(1, ("Invalid MSG_PING_V1 from PID %s: %s\n",
+			  server_id_str_buf(src, &idbuf),
+			  ndr_errstr(ndr_err)));
+		goto out;
+	}
+
+	DEBUG(1, ("INFO: Received PING message from PID %s\n",
+		  server_id_str_buf(src, &idbuf)));
+
+	ndr_err = messaging_pong_v1_push(frame, &pong, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+	messaging_send(msg_ctx, src, MSG_PONG_V1, &blob);
+out:
+	TALLOC_FREE(frame);
 }
 
 struct messaging_rec *messaging_rec_create(
@@ -731,6 +765,7 @@ static NTSTATUS messaging_init_internal(TALLOC_CTX *mem_ctx,
 	}
 
 	messaging_register(ctx, NULL, MSG_PING, ping_message);
+	messaging_register(ctx, NULL, MSG_PING_V1, ping_message_v1);
 
 	/* Register some debugging related messages */
 
