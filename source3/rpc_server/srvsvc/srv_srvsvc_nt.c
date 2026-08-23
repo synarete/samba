@@ -2141,11 +2141,23 @@ WERROR _srvsvc_NetShareSetInfo(struct pipes_struct *p,
 
 		ret = smbrun(command, NULL, NULL);
 		if (ret == 0) {
+			TALLOC_CTX *frame = talloc_stackframe();
+			struct messaging_smb_conf_updated smb_conf_msg = {};
+			DATA_BLOB blob;
+			enum ndr_err_code ndr_err;
+
 			reload_services(NULL, NULL, false);
 
 			/* Tell everyone we updated smb.conf. */
-			messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED,
-					   NULL, 0);
+			ndr_err = messaging_smb_conf_updated_push(
+				frame, &smb_conf_msg, &blob);
+			if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+				messaging_send_all(p->msg_ctx,
+						   MSG_SMB_CONF_UPDATED_V1,
+						   blob.data,
+						   blob.length);
+			}
+			TALLOC_FREE(frame);
 		}
 
 		if ( is_disk_op )
@@ -2357,7 +2369,20 @@ WERROR _srvsvc_NetShareAdd(struct pipes_struct *p,
 	ret = smbrun(command, NULL, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		TALLOC_CTX *frame = talloc_stackframe();
+		struct messaging_smb_conf_updated smb_conf_msg = {};
+		DATA_BLOB blob;
+		enum ndr_err_code ndr_err;
+		ndr_err = messaging_smb_conf_updated_push(frame,
+							  &smb_conf_msg,
+							  &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			messaging_send_all(p->msg_ctx,
+					   MSG_SMB_CONF_UPDATED_V1,
+					   blob.data,
+					   blob.length);
+		}
+		TALLOC_FREE(frame);
 	}
 
 	if ( is_disk_op )
@@ -2473,7 +2498,20 @@ WERROR _srvsvc_NetShareDel(struct pipes_struct *p,
 	ret = smbrun(command, NULL, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		TALLOC_CTX *frame = talloc_stackframe();
+		struct messaging_smb_conf_updated smb_conf_msg = {};
+		DATA_BLOB blob;
+		enum ndr_err_code ndr_err;
+		ndr_err = messaging_smb_conf_updated_push(frame,
+							  &smb_conf_msg,
+							  &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			messaging_send_all(p->msg_ctx,
+					   MSG_SMB_CONF_UPDATED_V1,
+					   blob.data,
+					   blob.length);
+		}
+		TALLOC_FREE(frame);
 	}
 
 	if ( is_disk_op )

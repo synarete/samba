@@ -154,6 +154,11 @@ static void msg_reload_nmbd_services(struct messaging_context *msg,
 				     uint32_t msg_type,
 				     struct server_id server_id,
 				     DATA_BLOB *data);
+static void msg_reload_nmbd_services_v1(struct messaging_context *msg,
+					void *private_data,
+					uint32_t msg_type,
+					struct server_id server_id,
+					DATA_BLOB *data);
 
 static void nmbd_sig_hup_handler(struct tevent_context *ev,
 				 struct tevent_signal *se,
@@ -162,12 +167,24 @@ static void nmbd_sig_hup_handler(struct tevent_context *ev,
 				 void *siginfo,
 				 void *private_data)
 {
-	struct messaging_context *msg = talloc_get_type_abort(
+	struct messaging_context *msg_ctx = talloc_get_type_abort(
 		private_data, struct messaging_context);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	DBG_WARNING("Got SIGHUP dumping debug info.\n");
-	msg_reload_nmbd_services(msg, NULL, MSG_SMB_CONF_UPDATED,
-				 messaging_server_id(msg), NULL);
+
+	ndr_err = messaging_smb_conf_updated_push(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		msg_reload_nmbd_services_v1(msg_ctx,
+					    NULL,
+					    MSG_SMB_CONF_UPDATED_V1,
+					    messaging_server_id(msg_ctx),
+					    &blob);
+	}
+	TALLOC_FREE(frame);
 }
 
 static bool nmbd_setup_sig_hup_handler(struct messaging_context *msg)
@@ -447,18 +464,45 @@ static bool reload_nmbd_services(bool test)
  * React on 'smbcontrol nmbd reload-config' in the same way as to SIGHUP
  **************************************************************************** */
 
-static void msg_reload_nmbd_services(struct messaging_context *msg,
+static void msg_reload_nmbd_services(struct messaging_context *msg_ctx,
 				     void *private_data,
 				     uint32_t msg_type,
 				     struct server_id server_id,
 				     DATA_BLOB *data)
 {
-	write_browse_list( 0, True );
+	write_browse_list(0, True);
 	dump_all_namelists();
-	reload_nmbd_services( True );
+	reload_nmbd_services(True);
 	reopen_logs();
 	reload_interfaces(0);
 	nmbd_init_my_netbios_names();
+}
+
+static void msg_reload_nmbd_services_v1(struct messaging_context *msg_ctx,
+					void *private_data,
+					uint32_t msg_type,
+					struct server_id server_id,
+					DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated smb_conf_msg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_conf_updated_pull(frame, data, &smb_conf_msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_CONF_UPDATED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	write_browse_list(0, True);
+	dump_all_namelists();
+	reload_nmbd_services(True);
+	reopen_logs();
+	reload_interfaces(0);
+	nmbd_init_my_netbios_names();
+out:
+	TALLOC_FREE(frame);
 }
 
 static void msg_nmbd_send_packet(struct messaging_context *msg,
@@ -1046,6 +1090,10 @@ static bool open_sockets(bool isdaemon, int port)
 	messaging_register(msg, NULL, MSG_SHUTDOWN_V1, nmbd_terminate_v1);
 	messaging_register(msg, NULL, MSG_SMB_CONF_UPDATED,
 			   msg_reload_nmbd_services);
+	messaging_register(msg,
+			   NULL,
+			   MSG_SMB_CONF_UPDATED_V1,
+			   msg_reload_nmbd_services_v1);
 	messaging_register(msg, NULL, MSG_SEND_PACKET,
 			   msg_nmbd_send_packet);
 

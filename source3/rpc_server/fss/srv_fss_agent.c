@@ -33,6 +33,7 @@
 #include "rpc_server/rpc_server.h"
 #include "srv_fss_private.h"
 #include "lib/global_contexts.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_RPC_SRV
@@ -1221,7 +1222,20 @@ uint32_t _fss_ExposeShadowCopySet(struct pipes_struct *p,
 	}
 	unbecome_root();
 
-	messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+	{
+		struct messaging_smb_conf_updated smb_conf_msg = {};
+		DATA_BLOB blob;
+		enum ndr_err_code ndr_err;
+		ndr_err = messaging_smb_conf_updated_push(frame,
+							  &smb_conf_msg,
+							  &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			messaging_send_all(p->msg_ctx,
+					   MSG_SMB_CONF_UPDATED_V1,
+					   blob.data,
+					   blob.length);
+		}
+	}
 	for (sc = sc_set->scs; sc; sc = sc->next) {
 		struct fss_sc_smap *sm;
 		for (sm = sc->smaps; sm; sm = sm->next)
@@ -1555,7 +1569,19 @@ static NTSTATUS sc_smap_unexpose(struct messaging_context *msg_ctx,
 			ret = NT_STATUS_UNSUCCESSFUL;
 			goto err_cancel;
 		}
-		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		{
+			struct messaging_smb_conf_updated smb_conf_msg = {};
+			DATA_BLOB blob;
+			enum ndr_err_code ndr_err;
+			ndr_err = messaging_smb_conf_updated_push(
+				frame, &smb_conf_msg, &blob);
+			if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+				messaging_send_all(msg_ctx,
+						   MSG_SMB_CONF_UPDATED_V1,
+						   blob.data,
+						   blob.length);
+			}
+		}
 	} else {
 		ret = NT_STATUS_OK;
 		goto err_cancel;
