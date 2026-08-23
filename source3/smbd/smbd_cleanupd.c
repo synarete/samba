@@ -27,6 +27,7 @@
 #include "locking/proto.h"
 #include "cleanupdb.h"
 #include "g_lock.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "lib/util/util_tdb.h"
 #include "smbd/globals.h"
 #include "librpc/gen_ndr/ndr_open_files.h"
@@ -47,11 +48,16 @@ struct smbd_cleanupd_state {
 	bool got_glock;
 	struct cleanup_rec *cleanup_list;
 };
-
 static void smbd_cleanupd_shutdown(struct messaging_context *msg,
-				   void *private_data, uint32_t msg_type,
+				   void *private_data,
+				   uint32_t msg_type,
 				   struct server_id server_id,
 				   DATA_BLOB *data);
+static void smbd_cleanupd_shutdown_v1(struct messaging_context *msg,
+				      void *private_data,
+				      uint32_t msg_type,
+				      struct server_id server_id,
+				      DATA_BLOB *data);
 static void smbd_cleanupd_process_exited(struct messaging_context *msg,
 					 void *private_data, uint32_t msg_type,
 					 struct server_id server_id,
@@ -83,6 +89,14 @@ struct tevent_req *smbd_cleanupd_send(TALLOC_CTX *mem_ctx,
 
 	status = messaging_register(msg, req, MSG_SHUTDOWN,
 				    smbd_cleanupd_shutdown);
+	if (tevent_req_nterror(req, status)) {
+		return tevent_req_post(req, ev);
+	}
+
+	status = messaging_register(msg,
+				    req,
+				    MSG_SHUTDOWN_V1,
+				    smbd_cleanupd_shutdown_v1);
 	if (tevent_req_nterror(req, status)) {
 		return tevent_req_post(req, ev);
 	}
@@ -199,7 +213,8 @@ static void smbd_cleanupd_got_glock(struct tevent_req *subreq)
 }
 
 static void smbd_cleanupd_shutdown(struct messaging_context *msg,
-				   void *private_data, uint32_t msg_type,
+				   void *private_data,
+				   uint32_t msg_type,
 				   struct server_id server_id,
 				   DATA_BLOB *data)
 {
@@ -222,6 +237,42 @@ static void smbd_cleanupd_shutdown(struct messaging_context *msg,
 	tevent_req_done(req);
 }
 
+static void smbd_cleanupd_shutdown_v1(struct messaging_context *msg,
+				      void *private_data,
+				      uint32_t msg_type,
+				      struct server_id server_id,
+				      DATA_BLOB *data)
+{
+	struct tevent_req *req = talloc_get_type_abort(private_data,
+						       struct tevent_req);
+	struct smbd_cleanupd_state *state = tevent_req_data(
+		req, struct smbd_cleanupd_state);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown m = {};
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_shutdown_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SHUTDOWN_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	if (!state->got_glock) {
+		tevent_req_done(req);
+		goto out;
+	}
+
+	status = g_lock_unlock(state->glock_ctx,
+			       string_term_tdb_data("cleanupd"));
+	if (tevent_req_nterror(req, status)) {
+		goto out;
+	}
+	tevent_req_done(req);
+out:
+	TALLOC_FREE(frame);
+}
 struct cleanup_child {
 	struct cleanup_child *prev, *next;
 	pid_t pid;

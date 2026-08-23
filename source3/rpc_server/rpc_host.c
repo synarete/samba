@@ -73,6 +73,7 @@
 #include "libcli/security/dom_sid.h"
 #include "libcli/security/security_token.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 extern bool override_logfile;
 
@@ -2099,6 +2100,10 @@ static void rpc_host_exit_worker(
 
 	for (i=0; i<num_workers; i++) {
 		struct rpc_work_process *w = &server->workers[i];
+		TALLOC_CTX *frame = NULL;
+		struct messaging_shutdown msg = {};
+		DATA_BLOB blob = data_blob_null;
+		enum ndr_err_code ndr_err;
 		NTSTATUS status;
 
 		if (w->exit_timer != te) {
@@ -2108,15 +2113,19 @@ static void rpc_host_exit_worker(
 
 		SMB_ASSERT(w->num_associations == 0);
 
-		status = messaging_send(
-			server->host->msg_ctx,
-			pid_to_procid(w->pid),
-			MSG_SHUTDOWN,
-			NULL);
-		if (!NT_STATUS_IS_OK(status)) {
-			DBG_DEBUG("Could not send SHUTDOWN msg: %s\n",
-				  nt_errstr(status));
+		frame = talloc_stackframe();
+		ndr_err = messaging_shutdown_push(frame, &msg, &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			status = messaging_send(server->host->msg_ctx,
+						pid_to_procid(w->pid),
+						MSG_SHUTDOWN_V1,
+						&blob);
+			if (!NT_STATUS_IS_OK(status)) {
+				DBG_DEBUG("Could not send SHUTDOWN msg: %s\n",
+					  nt_errstr(status));
+			}
 		}
+		TALLOC_FREE(frame);
 
 		w->available = false;
 		break;
@@ -2216,9 +2225,34 @@ static void rpc_host_msg_shutdown(
 	struct server_id server_id,
 	DATA_BLOB *data)
 {
-	struct tevent_req *req = talloc_get_type_abort(
-		private_data, struct tevent_req);
+	struct tevent_req *req = talloc_get_type_abort(private_data,
+						       struct tevent_req);
+
 	tevent_req_done(req);
+}
+
+static void rpc_host_msg_shutdown_v1(struct messaging_context *msg,
+				     void *private_data,
+				     uint32_t msg_type,
+				     struct server_id server_id,
+				     DATA_BLOB *data)
+{
+	struct tevent_req *req = talloc_get_type_abort(private_data,
+						       struct tevent_req);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_shutdown_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SHUTDOWN_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	tevent_req_done(req);
+out:
+	TALLOC_FREE(frame);
 }
 
 /*
@@ -2704,6 +2738,14 @@ static struct tevent_req *rpc_host_send(
 
 	status = messaging_register(
 		msg_ctx, req, MSG_SHUTDOWN, rpc_host_msg_shutdown);
+	if (tevent_req_nterror(req, status)) {
+		return tevent_req_post(req, ev);
+	}
+
+	status = messaging_register(msg_ctx,
+				    req,
+				    MSG_SHUTDOWN_V1,
+				    rpc_host_msg_shutdown_v1);
 	if (tevent_req_nterror(req, status)) {
 		return tevent_req_post(req, ev);
 	}

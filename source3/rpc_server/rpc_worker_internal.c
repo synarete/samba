@@ -37,6 +37,7 @@
 #include "libcli/security/security_token.h"
 #include "libcli/security/dom_sid.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /*
  * This is the generic code that becomes the
@@ -539,6 +540,11 @@ static void rpc_worker_shutdown(
 	uint32_t msg_type,
 	struct server_id server_id,
 	DATA_BLOB *data);
+static void rpc_worker_shutdown_v1(struct messaging_context *msg,
+				   void *private_data,
+				   uint32_t msg_type,
+				   struct server_id server_id,
+				   DATA_BLOB *data);
 
 static struct tevent_req *rpc_worker_send(
 	TALLOC_CTX *mem_ctx,
@@ -617,6 +623,16 @@ static struct tevent_req *rpc_worker_send(
 		tevent_req_error(req, map_errno_from_nt_status(status));
 		return tevent_req_post(req, ev);
 	}
+	status = messaging_register(w->msg_ctx,
+				    req,
+				    MSG_SHUTDOWN_V1,
+				    rpc_worker_shutdown_v1);
+	if (!NT_STATUS_IS_OK(status)) {
+		DBG_DEBUG("messaging_register failed: %s\n",
+			  nt_errstr(status));
+		tevent_req_error(req, map_errno_from_nt_status(status));
+		return tevent_req_post(req, ev);
+	}
 
 	state->finish_req = wait_for_read_send(state, ev, 0, false);
 	if (tevent_req_nomem(state->finish_req, req)) {
@@ -654,7 +670,32 @@ static void rpc_worker_shutdown(
 {
 	struct tevent_req *req = talloc_get_type_abort(
 		private_data, struct tevent_req);
+
 	tevent_req_done(req);
+}
+
+static void rpc_worker_shutdown_v1(struct messaging_context *msg,
+				   void *private_data,
+				   uint32_t msg_type,
+				   struct server_id server_id,
+				   DATA_BLOB *data)
+{
+	struct tevent_req *req = talloc_get_type_abort(private_data,
+						       struct tevent_req);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_shutdown_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SHUTDOWN_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	tevent_req_done(req);
+out:
+	TALLOC_FREE(frame);
 }
 
 static int rpc_worker_recv(struct tevent_req *req)
