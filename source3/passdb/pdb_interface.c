@@ -33,6 +33,7 @@
 #include "../lib/util/memcache.h"
 #include "nsswitch/winbind_client.h"
 #include "../libcli/security/security.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "../lib/util/util_pw.h"
 #include "passdb/pdb_secrets.h"
 #include "lib/util_sid_passdb.h"
@@ -632,6 +633,10 @@ NTSTATUS pdb_delete_user(TALLOC_CTX *mem_ctx, struct samu *sam_acct)
 	NTSTATUS status;
 	const struct dom_sid *user_sid;
 	char *msg_data;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_id_cache_delete msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	user_sid = pdb_get_user_sid(sam_acct);
 
@@ -661,10 +666,15 @@ NTSTATUS pdb_delete_user(TALLOC_CTX *mem_ctx, struct samu *sam_acct)
 		 * just return */
 		return status;
 	}
-	messaging_send_all(global_messaging_context(),
-			   ID_CACHE_DELETE,
-			   msg_data,
-			   strlen(msg_data) + 1);
+	frame = talloc_stackframe();
+	ndr_err = messaging_id_cache_delete_push(frame, &msg, msg_data, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send_all(global_messaging_context(),
+				   ID_CACHE_DELETE_V1,
+				   blob.data,
+				   blob.length);
+	}
+	TALLOC_FREE(frame);
 
 	TALLOC_FREE(msg_data);
 	return status;

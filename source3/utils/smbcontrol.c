@@ -233,38 +233,73 @@ static bool do_idmap(struct tevent_context *ev,
 		"\tcmd:"
 		"\tdelete \"UID <uid>\"|\"GID <gid>\"|<sid>\n"
 		"\t\tkill \"UID <uid>\"|\"GID <gid>\"|<sid>\n";
-	const char* arg = NULL;
-	int arglen = 0;
-	int msg_type;
+	const char *arg = NULL;
+	TALLOC_CTX *frame = NULL;
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
 
 	switch (argc) {
 	case 2:
 		break;
 	case 3:
 		arg = argv[2];
-		arglen = strlen(arg) + 1;
 		break;
 	default:
 		fprintf(stderr, "%s", usage);
 		return false;
 	}
 
+	frame = talloc_stackframe();
+
 	if (strcmp(argv[1], "delete") == 0) {
-		msg_type = ID_CACHE_DELETE;
-	}
-	else if (strcmp(argv[1], "kill") == 0) {
-		msg_type = ID_CACHE_KILL;
-	}
-	else if (strcmp(argv[1], "help") == 0) {
+		struct messaging_id_cache_delete msg = {};
+
+		if (arg == NULL) {
+			fprintf(stderr, "%s", usage);
+			goto out;
+		}
+		ndr_err = messaging_id_cache_delete_push(frame,
+							 &msg,
+							 arg,
+							 &blob);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			goto out;
+		}
+		ok = send_message(msg_ctx,
+				  pid,
+				  ID_CACHE_DELETE_V1,
+				  blob.data,
+				  blob.length);
+	} else if (strcmp(argv[1], "kill") == 0) {
+		struct messaging_id_cache_kill msg = {};
+
+		if (arg == NULL) {
+			fprintf(stderr, "%s", usage);
+			goto out;
+		}
+		ndr_err = messaging_id_cache_kill_push(frame,
+						       &msg,
+						       arg,
+						       &blob);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			goto out;
+		}
+		ok = send_message(msg_ctx,
+				  pid,
+				  ID_CACHE_KILL_V1,
+				  blob.data,
+				  blob.length);
+	} else if (strcmp(argv[1], "help") == 0) {
 		fprintf(stdout, "%s", usage);
-		return true;
-	}
-	else {
+		ok = true;
+	} else {
 		fprintf(stderr, "%s", usage);
-		return false;
 	}
 
-	return send_message(msg_ctx, pid, msg_type, arg, arglen);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 

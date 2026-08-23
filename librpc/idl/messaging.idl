@@ -49,7 +49,9 @@ interface messaging
 
 		/* ID_CACHE_FLUSH		= 0x000E,  Obsoleted */
 		ID_CACHE_DELETE			= 0x000F,
+		ID_CACHE_DELETE_V1		= 0x100F,
 		ID_CACHE_KILL			= 0x0010,
+		ID_CACHE_KILL_V1		= 0x1010,
 
 		/* Changes to smb.conf are really of general interest */
 		MSG_SMB_CONF_UPDATED		= 0x0021,
@@ -320,6 +322,24 @@ interface messaging
 	typedef [public] struct {
 		messaging_shutdown_version_values version;
 	} messaging_shutdown;
+
+	/* ID_CACHE_DELETE / ID_CACHE_KILL */
+	typedef [public, v1_enum] enum {
+		MESSAGING_ID_CACHE_VERSION_1 = 0x00000001
+	} messaging_id_cache_version_values;
+
+	const uint32 MESSAGING_ID_CACHE_VERSION_CURRENT =
+		MESSAGING_ID_CACHE_VERSION_1;
+
+	typedef [public] struct {
+		messaging_id_cache_version_values version;
+		utf8string id;
+	} messaging_id_cache_delete;
+
+	typedef [public] struct {
+		messaging_id_cache_version_values version;
+		utf8string id;
+	} messaging_id_cache_kill;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 
