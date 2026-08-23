@@ -37,6 +37,7 @@
 #include "dsdb/samdb/samdb.h"
 #include "auth/session.h"
 #include "lib/messaging/irpc.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "librpc/gen_ndr/ndr_irpc.h"
 #include "cluster/cluster.h"
 #include "dynconfig/dynconfig.h"
@@ -392,6 +393,47 @@ static void samba_parent_shutdown(struct imessaging_context *msg,
 	exit(0);
 }
 
+static void samba_parent_shutdown_v1(struct imessaging_context *msg,
+				     void *private_data,
+				     uint32_t msg_type,
+				     struct server_id src,
+				     size_t num_fds,
+				     int *fds,
+				     DATA_BLOB *data)
+{
+	struct server_state *state = talloc_get_type_abort(
+		private_data, struct server_state);
+	struct server_id_buf src_buf;
+	struct server_id dst = imessaging_get_server_id(msg);
+	struct server_id_buf dst_buf;
+	struct messaging_shutdown m = {};
+	TALLOC_CTX *frame = talloc_stackframe();
+	enum ndr_err_code ndr_err;
+
+	if (num_fds != 0) {
+		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
+		TALLOC_FREE(frame);
+		return;
+	}
+
+	ndr_err = messaging_shutdown_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SHUTDOWN_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return;
+	}
+
+	DBG_ERR("samba_shutdown of %s %s: from %s\n",
+		state->binary_name,
+		server_id_str_buf(dst, &dst_buf),
+		server_id_str_buf(src, &src_buf));
+
+	TALLOC_FREE(frame);
+	TALLOC_FREE(state);
+	exit(0);
+}
+
 /*
   called when a fatal condition occurs in a child task
  */
@@ -430,6 +472,14 @@ static NTSTATUS setup_parent_messaging(struct server_state *state,
 
 	status = imessaging_register(msg, state, MSG_SHUTDOWN,
 				     samba_parent_shutdown);
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
+	}
+
+	status = imessaging_register(msg,
+				     state,
+				     MSG_SHUTDOWN_V1,
+				     samba_parent_shutdown_v1);
 	if (!NT_STATUS_IS_OK(status)) {
 		return status;
 	}

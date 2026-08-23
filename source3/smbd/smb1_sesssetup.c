@@ -36,6 +36,7 @@
 #include "../libcli/smb/smb_signing.h"
 #include "lib/util/string_wrappers.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /****************************************************************************
  Add the standard 'Samba' signature to the end of the session setup.
@@ -508,6 +509,10 @@ static int shutdown_other_smbds(struct smbXsrv_session_global *session,
 	const char *port_colon;
 	size_t addr_len;
 	struct server_id_buf tmp;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_shutdown msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 
 	DEBUG(10, ("shutdown_other_smbds: %s, %s\n",
 		   server_id_str_buf(pid, &tmp), addr));
@@ -540,7 +545,12 @@ static int shutdown_other_smbds(struct smbXsrv_session_global *session,
 		  "(IP %s)\n", (unsigned int)procid_to_pid(&pid),
 		  state->ip));
 
-	messaging_send(state->msg_ctx, pid, MSG_SHUTDOWN, NULL);
+	frame = talloc_stackframe();
+	ndr_err = messaging_shutdown_push(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send(state->msg_ctx, pid, MSG_SHUTDOWN_V1, &blob);
+	}
+	TALLOC_FREE(frame);
 	return 0;
 }
 

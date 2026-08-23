@@ -51,6 +51,7 @@
 #include "lib/gencache.h"
 #include "rpc_server/rpc_config.h"
 #include "lib/global_contexts.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "source3/lib/substitute.h"
 #include "winbindd_traceid.h"
 #include "lib/util/util_process.h"
@@ -215,6 +216,29 @@ static void msg_shutdown(struct messaging_context *msg,
 	winbindd_terminate(true);
 }
 
+static void msg_shutdown_v1(struct messaging_context *msg,
+			    void *private_data,
+			    uint32_t msg_type,
+			    struct server_id server_id,
+			    DATA_BLOB *data)
+{
+	struct messaging_shutdown m = {};
+	TALLOC_CTX *frame = talloc_stackframe();
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_shutdown_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SHUTDOWN_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	/* only the parent waits for this message */
+	DEBUG(0,("Got shutdown message\n"));
+	winbindd_terminate(true);
+out:
+	TALLOC_FREE(frame);
+}
 
 static void winbind_msg_validate_cache(struct messaging_context *msg_ctx,
 				       void *private_data,
@@ -1145,6 +1169,7 @@ static void winbindd_register_handlers(struct messaging_context *msg_ctx,
 			   winbindd_msg_reload_services_parent);
 	messaging_register(msg_ctx, NULL,
 			   MSG_SHUTDOWN, msg_shutdown);
+	messaging_register(msg_ctx, NULL, MSG_SHUTDOWN_V1, msg_shutdown_v1);
 
 	/* Handle online/offline messages. */
 	messaging_register(msg_ctx, NULL,
