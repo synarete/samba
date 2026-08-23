@@ -169,6 +169,7 @@ static void pool_message(struct imessaging_context *msg,
 		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 			DBG_WARNING("Invalid MSG_REQ_POOL_USAGE_V1: %s\n",
 				    ndr_errstr(ndr_err));
+			close(fds[0]);
 			goto out;
 		}
 	} else if (msg_type == MSG_REQ_POOL_USAGE) {

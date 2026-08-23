@@ -1712,20 +1712,47 @@ static void smbd_setup_sig_hup_handler(struct smbd_server_connection *sconn)
 	}
 }
 
-static void smbd_conf_updated(struct messaging_context *msg,
+static void smbd_conf_updated(struct messaging_context *msg_ctx,
 			      void *private_data,
 			      uint32_t msg_type,
 			      struct server_id server_id,
 			      DATA_BLOB *data)
 {
-	struct smbd_server_connection *sconn =
-		talloc_get_type_abort(private_data,
-		struct smbd_server_connection);
+	struct smbd_server_connection *sconn = talloc_get_type_abort(
+		private_data, struct smbd_server_connection);
 
 	DEBUG(10,("smbd_conf_updated: Got message saying smb.conf was "
 		  "updated. Reloading.\n"));
 	change_to_root_user();
 	reload_services(sconn, conn_snum_used, false);
+}
+
+static void smbd_conf_updated_v1(struct messaging_context *msg_ctx,
+				 void *private_data,
+				 uint32_t msg_type,
+				 struct server_id server_id,
+				 DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct smbd_server_connection *sconn =
+		talloc_get_type_abort(private_data,
+		struct smbd_server_connection);
+	struct messaging_smb_conf_updated msg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_conf_updated_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_CONF_UPDATED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	DEBUG(10,("smbd_conf_updated: Got message saying smb.conf was "
+		  "updated. Reloading.\n"));
+	change_to_root_user();
+	reload_services(sconn, conn_snum_used, false);
+out:
+	TALLOC_FREE(frame);
 }
 
 static void smbd_id_cache_kill(struct messaging_context *msg_ctx,
@@ -2141,6 +2168,13 @@ void smbd_process(struct tevent_context *ev_ctx,
 			     MSG_SMB_CONF_UPDATED, sconn->ev_ctx);
 	messaging_register(sconn->msg_ctx, sconn,
 			   MSG_SMB_CONF_UPDATED, smbd_conf_updated);
+	messaging_deregister(sconn->msg_ctx,
+			     MSG_SMB_CONF_UPDATED_V1,
+			     sconn->ev_ctx);
+	messaging_register(sconn->msg_ctx,
+			   sconn,
+			   MSG_SMB_CONF_UPDATED_V1,
+			   smbd_conf_updated_v1);
 
 	messaging_deregister(sconn->msg_ctx, MSG_SMB_KILL_CLIENT_IP,
 			     NULL);
