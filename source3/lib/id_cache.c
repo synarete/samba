@@ -32,6 +32,7 @@
 #include "idmap_cache.h"
 #include "../librpc/gen_ndr/ndr_security.h"
 #include "../libcli/security/dom_sid.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 bool id_cache_ref_parse(const char* str, struct id_cache_ref* id)
 {
@@ -97,9 +98,10 @@ void id_cache_delete_message(struct messaging_context *msg_ctx,
 			     void *private_data,
 			     uint32_t msg_type,
 			     struct server_id server_id,
-			     DATA_BLOB* data)
+			     DATA_BLOB *data)
 {
-	const char *msg = (data && data->data) ? (const char *)data->data : "<NULL>";
+	const char *msg = (data && data->data) ? (const char *)data->data
+					       : "<NULL>";
 	struct id_cache_ref id;
 
 	if (!id_cache_ref_parse(msg, &id)) {
@@ -110,7 +112,39 @@ void id_cache_delete_message(struct messaging_context *msg_ctx,
 	id_cache_delete_from_cache(&id);
 }
 
+void id_cache_delete_message_v1(struct messaging_context *msg_ctx,
+				void *private_data,
+				uint32_t msg_type,
+				struct server_id server_id,
+				DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_id_cache_delete msg = {};
+	enum ndr_err_code ndr_err;
+	struct id_cache_ref id;
+
+	ndr_err = messaging_id_cache_delete_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid ID_CACHE_DELETE_V1 message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	if (!id_cache_ref_parse(msg.id, &id)) {
+		DEBUG(0, ("Invalid ?ID: %s\n", msg.id));
+		goto out;
+	}
+
+	id_cache_delete_from_cache(&id);
+out:
+	TALLOC_FREE(frame);
+}
+
 void id_cache_register_msgs(struct messaging_context *ctx)
 {
 	messaging_register(ctx, NULL, ID_CACHE_DELETE, id_cache_delete_message);
+	messaging_register(ctx,
+			   NULL,
+			   ID_CACHE_DELETE_V1,
+			   id_cache_delete_message_v1);
 }
