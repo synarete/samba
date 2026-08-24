@@ -1615,6 +1615,9 @@ uint32_t _fss_DeleteShareMapping(struct pipes_struct *p,
 	char *share;
 	NTSTATUS status;
 	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_force_tdis force_tdis_msg = {};
+	DATA_BLOB force_tdis_blob;
+	enum ndr_err_code ndr_err;
 	struct connection_struct *conn;
 	int snum;
 	char *service;
@@ -1661,9 +1664,16 @@ uint32_t _fss_DeleteShareMapping(struct pipes_struct *p,
 		goto err_tmp_free;
 	}
 
-	messaging_send_all(p->msg_ctx, MSG_SMB_FORCE_TDIS,
-			   sc_smap->sc_share_name,
-			   strlen(sc_smap->sc_share_name) + 1);
+	ndr_err = messaging_force_tdis_push(frame,
+					    &force_tdis_msg,
+					    sc_smap->sc_share_name,
+					    &force_tdis_blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send_all(p->msg_ctx,
+				   MSG_SMB_FORCE_TDIS_V1,
+				   force_tdis_blob.data,
+				   force_tdis_blob.length);
+	}
 
 	if (sc->smaps_count > 1) {
 		/* do not delete the underlying snapshot - still in use */

@@ -91,6 +91,7 @@ interface messaging
 		/* smbd messages */
 		/* MSG_SMB_CONF_UPDATED		= 0x0301,  Obsoleted */
 		MSG_SMB_FORCE_TDIS		= 0x0302,
+		MSG_SMB_FORCE_TDIS_V1		= 0x1302,
 		/* MSG_SMB_SAM_SYNC		= 0x0303,  Obsoleted */
 		/* MSG_SMB_SAM_REPL		= 0x0304,  Obsoleted */
 		/* MSG_SMB_UNLOCK		= 0x0305,  Obsoleted */
@@ -120,6 +121,7 @@ interface messaging
 
 		/* shutdown connection for given client */
 		MSG_SMB_KILL_CLIENT_IP		= 0x0316,
+		MSG_SMB_KILL_CLIENT_IP_V1	= 0x1316,
 
 		/* Tell number of child processes */
 		MSG_SMB_TELL_NUM_CHILDREN       = 0x0317,
@@ -139,6 +141,7 @@ interface messaging
 
 		/* smbd message */
 		MSG_SMB_FORCE_TDIS_DENIED	= 0x0321,
+		MSG_SMB_FORCE_TDIS_DENIED_V1	= 0x1321,
 
 		/* smbd ip dropped message */
 		MSG_SMB_IP_DROPPED		= 0x0322,
@@ -411,6 +414,37 @@ interface messaging
 		messaging_id_cache_version_values version;
 		utf8string id;
 	} messaging_id_cache_kill;
+
+	/* MSG_SMB_KILL_CLIENT_IP */
+	typedef [public, v1_enum] enum {
+		MESSAGING_KILL_CLIENT_IP_VERSION_1 = 0x00000001
+	} messaging_kill_client_ip_version_values;
+
+	const uint32 MESSAGING_KILL_CLIENT_IP_VERSION_CURRENT =
+		MESSAGING_KILL_CLIENT_IP_VERSION_1;
+
+	typedef [public] struct {
+		messaging_kill_client_ip_version_values version;
+		utf8string ip;
+	} messaging_kill_client_ip;
+
+	/* MSG_SMB_FORCE_TDIS / MSG_SMB_FORCE_TDIS_DENIED */
+	typedef [public, v1_enum] enum {
+		MESSAGING_FORCE_TDIS_VERSION_1 = 0x00000001
+	} messaging_force_tdis_version_values;
+
+	const uint32 MESSAGING_FORCE_TDIS_VERSION_CURRENT =
+		MESSAGING_FORCE_TDIS_VERSION_1;
+
+	typedef [public] struct {
+		messaging_force_tdis_version_values version;
+		utf8string sharename;
+	} messaging_force_tdis;
+
+	typedef [public] struct {
+		messaging_force_tdis_version_values version;
+		utf8string sharename;
+	} messaging_force_tdis_denied;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 

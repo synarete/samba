@@ -1830,9 +1830,21 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 	messaging_register(msg_ctx, NULL, MSG_DEBUG, smbd_msg_debug);
 	messaging_register(msg_ctx, NULL, MSG_SMB_FORCE_TDIS,
 			   smb_parent_send_to_children);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_FORCE_TDIS_V1,
+			   smb_parent_send_to_children);
 	messaging_register(msg_ctx, NULL, MSG_SMB_FORCE_TDIS_DENIED,
 			   smb_parent_send_to_children);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_FORCE_TDIS_DENIED_V1,
+			   smb_parent_send_to_children);
 	messaging_register(msg_ctx, NULL, MSG_SMB_KILL_CLIENT_IP,
+			   smb_parent_send_to_children);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_KILL_CLIENT_IP_V1,
 			   smb_parent_send_to_children);
 	messaging_register(msg_ctx, NULL, MSG_SMB_TELL_NUM_CHILDREN,
 			   smb_tell_num_children);

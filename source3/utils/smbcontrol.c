@@ -1186,14 +1186,29 @@ static bool do_closeshare(struct tevent_context *ev_ctx,
 			  const struct server_id pid,
 			  const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_force_tdis msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
 	if (argc != 2) {
 		fprintf(stderr, "Usage: smbcontrol <dest> close-share "
 			"<sharename>\n");
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_SMB_FORCE_TDIS, argv[1],
-			    strlen(argv[1]) + 1);
+	frame = talloc_stackframe();
+	ndr_err = messaging_force_tdis_push(frame, &msg, argv[1], &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_SMB_FORCE_TDIS_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 /*
@@ -1206,18 +1221,35 @@ static bool do_close_denied_share(
 	const struct server_id pid,
 	const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_force_tdis_denied msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
 	if (argc != 2) {
 		fprintf(stderr, "Usage: smbcontrol <dest> close-denied-share "
 			"<sharename>\n");
 		return False;
 	}
 
-	return send_message(
-		msg_ctx,
-		pid,
-		MSG_SMB_FORCE_TDIS_DENIED,
-		argv[1],
-		strlen(argv[1]) + 1);
+	frame = talloc_stackframe();
+	ndr_err = messaging_force_tdis_denied_push(frame,
+						   &msg,
+						   argv[1],
+						   &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(msg_ctx,
+			  pid,
+			  MSG_SMB_FORCE_TDIS_DENIED_V1,
+			  blob.data,
+			  blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 /* Kill a client by IP address */
@@ -1226,6 +1258,12 @@ static bool do_kill_client_by_ip(struct tevent_context *ev_ctx,
 				 const struct server_id pid,
 				 const int argc, const char **argv)
 {
+	TALLOC_CTX *frame = NULL;
+	struct messaging_kill_client_ip msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
 	if (argc != 2) {
 		fprintf(stderr, "Usage: smbcontrol <dest> kill-client-ip "
 			"<IP address>\n");
@@ -1237,8 +1275,20 @@ static bool do_kill_client_by_ip(struct tevent_context *ev_ctx,
 		return false;
 	}
 
-	return send_message(msg_ctx, pid, MSG_SMB_KILL_CLIENT_IP,
-			    argv[1], strlen(argv[1]) + 1);
+	frame = talloc_stackframe();
+	ndr_err = messaging_kill_client_ip_push(frame, &msg, argv[1], &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(msg_ctx,
+			  pid,
+			  MSG_SMB_KILL_CLIENT_IP_V1,
+			  blob.data,
+			  blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 /* Tell winbindd an IP got dropped */
