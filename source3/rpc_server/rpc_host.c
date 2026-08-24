@@ -2564,15 +2564,65 @@ static bool rpc_host_ready_signal_filter(
 		return false;
 	}
 	if (rec->num_fds != 1) {
-		DBG_DEBUG("Got %"PRIu8" fds\n", rec->num_fds);
+		DBG_DEBUG("Got %" PRIu8 " fds\n", rec->num_fds);
 		return false;
 	}
 
 	if (num_fds + 1 < num_fds) {
 		return false;
 	}
+	tmp = talloc_realloc(state, state->ready_signal_fds, int, num_fds + 1);
+	if (tmp == NULL) {
+		return false;
+	}
+	state->ready_signal_fds = tmp;
+
+	state->ready_signal_fds[num_fds] = rec->fds[0];
+	rec->fds[0] = -1;
+
+	tevent_schedule_immediate(state->ready_signal_immediate,
+				  state->ev,
+				  rpc_host_report_readiness,
+				  state);
+
+	return false;
+}
+
+static bool rpc_host_ready_signal_filter_v1(struct messaging_rec *rec,
+					    void *private_data)
+{
+	TALLOC_CTX *frame = NULL;
+	struct rpc_host_state *state = talloc_get_type_abort(
+		private_data, struct rpc_host_state);
+	size_t num_fds = talloc_array_length(state->ready_signal_fds);
+	struct messaging_daemon_ready_fd msg = {};
+	enum ndr_err_code ndr_err;
+	int *tmp = NULL;
+
+	if (rec->msg_type != MSG_DAEMON_READY_FD_V1) {
+		return false;
+	}
+	if (rec->num_fds != 1) {
+		DBG_DEBUG("Got %"PRIu8" fds\n", rec->num_fds);
+		return false;
+	}
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_daemon_ready_fd_pull(frame, &rec->buf, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid daemon-ready-fd message: %s\n",
+			    ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return false;
+	}
+
+	if (num_fds + 1 < num_fds) {
+		TALLOC_FREE(frame);
+		return false;
+	}
 	tmp = talloc_realloc(state, state->ready_signal_fds, int, num_fds+1);
 	if (tmp == NULL) {
+		TALLOC_FREE(frame);
 		return false;
 	}
 	state->ready_signal_fds = tmp;
@@ -2586,6 +2636,7 @@ static bool rpc_host_ready_signal_filter(
 		rpc_host_report_readiness,
 		state);
 
+	TALLOC_FREE(frame);
 	return false;
 }
 
@@ -2752,6 +2803,12 @@ static struct tevent_req *rpc_host_send(
 
 	subreq = messaging_filtered_read_send(
 		state, ev, msg_ctx, rpc_host_ready_signal_filter, state);
+	if (tevent_req_nomem(subreq, req)) {
+		return tevent_req_post(req, ev);
+	}
+
+	subreq = messaging_filtered_read_send(
+		state, ev, msg_ctx, rpc_host_ready_signal_filter_v1, state);
 	if (tevent_req_nomem(subreq, req)) {
 		return tevent_req_post(req, ev);
 	}
@@ -2958,14 +3015,14 @@ static int rpc_host_pidfile_create(
 	DBG_DEBUG("%s pid %d exists\n", progname, (int)existing_pid);
 
 	if (ready_signal_fd != -1) {
-		NTSTATUS status = messaging_send_iov(
-			msg_ctx,
-			pid_to_procid(existing_pid),
-			MSG_DAEMON_READY_FD,
-			NULL,
-			0,
-			&ready_signal_fd,
-			1);
+		NTSTATUS status = messaging_send_iov(msg_ctx,
+						     pid_to_procid(
+							     existing_pid),
+						     MSG_DAEMON_READY_FD,
+						     NULL,
+						     0,
+						     &ready_signal_fd,
+						     1);
 		if (!NT_STATUS_IS_OK(status)) {
 			DBG_DEBUG("Could not send ready_signal_fd: %s\n",
 				  nt_errstr(status));

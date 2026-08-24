@@ -42,6 +42,7 @@
 #include "source3/auth/proto.h"
 #include "source3/printing/queue_process.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 static void watch_handler(struct tevent_req *req)
 {
@@ -82,6 +83,40 @@ static bool ready_signal_filter(
 	return false;
 }
 
+static bool ready_signal_filter_v1(struct messaging_rec *rec,
+				   void *private_data)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_daemon_ready_fd msg = {};
+	enum ndr_err_code ndr_err;
+	pid_t pid = getpid();
+	ssize_t written;
+
+	if (rec->msg_type != MSG_DAEMON_READY_FD_V1) {
+		return false;
+	}
+	if (rec->num_fds != 1) {
+		return false;
+	}
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_daemon_ready_fd_pull(frame, &rec->buf, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid daemon-ready-fd message: %s\n",
+			    ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return false;
+	}
+
+	written = sys_write(rec->fds[0], &pid, sizeof(pid));
+	if (written != sizeof(pid)) {
+		DBG_ERR("Could not write pid: %s\n", strerror(errno));
+	}
+
+	TALLOC_FREE(frame);
+	return false;
+}
+
 static int samba_bgqd_pidfile_create(
 	struct messaging_context *msg_ctx,
 	const char *progname,
@@ -101,6 +136,7 @@ static int samba_bgqd_pidfile_create(
 	ret = pidfile_path_create(pidFile, &fd, &existing_pid);
 	if (ret == 0) {
 		struct tevent_req *ready_signal_req = NULL;
+		struct tevent_req *ready_signal_req_v1 = NULL;
 
 		/*
 		 * Listen for fd's sent via MSG_DAEMON_READY_FD:
@@ -123,6 +159,20 @@ static int samba_bgqd_pidfile_create(
 			return ENOMEM;
 		}
 
+		ready_signal_req_v1 = messaging_filtered_read_send(
+			msg_ctx,
+			messaging_tevent_context(msg_ctx),
+			msg_ctx,
+			ready_signal_filter_v1,
+			NULL);
+		if (ready_signal_req_v1 == NULL) {
+			DBG_DEBUG("messaging_filtered_read_send failed\n");
+			TALLOC_FREE(ready_signal_req);
+			pidfile_unlink(piddir, progname);
+			pidfile_fd_close(fd);
+			return ENOMEM;
+		}
+
 		/* leak fd */
 		return 0;
 	}
@@ -140,14 +190,14 @@ static int samba_bgqd_pidfile_create(
 		 * We lost the race for the pidfile, but someone else
 		 * can report readiness on our behalf.
 		 */
-		NTSTATUS status = messaging_send_iov(
-			msg_ctx,
-			pid_to_procid(existing_pid),
-			MSG_DAEMON_READY_FD,
-			NULL,
-			0,
-			&ready_signal_fd,
-			1);
+		NTSTATUS status = messaging_send_iov(msg_ctx,
+						     pid_to_procid(
+							     existing_pid),
+						     MSG_DAEMON_READY_FD,
+						     NULL,
+						     0,
+						     &ready_signal_fd,
+						     1);
 		if (!NT_STATUS_IS_OK(status)) {
 			DBG_DEBUG("Could not send ready_signal_fd: %s\n",
 				  nt_errstr(status));
