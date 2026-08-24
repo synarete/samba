@@ -193,6 +193,18 @@ enum ndr_err_code messaging_daemon_ready_fd_pull(
 	const DATA_BLOB *blob,
 	struct messaging_daemon_ready_fd *msg);
 
+/* MSG_FORCE_ELECTION_V1 */
+
+enum ndr_err_code messaging_force_election_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_force_election *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_force_election_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_force_election *msg);
+
 /* MSG_RELOAD_TLS_CERTIFICATES_V1 */
 
 enum ndr_err_code messaging_reload_tls_certificates_push(

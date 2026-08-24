@@ -1080,6 +1080,10 @@ static bool open_sockets(bool isdaemon, int port)
 
 	messaging_register(msg, NULL, MSG_FORCE_ELECTION,
 			   nmbd_message_election);
+	messaging_register(msg,
+			   NULL,
+			   MSG_FORCE_ELECTION_V1,
+			   nmbd_message_election_v1);
 #if 0
 	/* Until winsrepl is done. */
 	messaging_register(msg, NULL, MSG_WINS_NEW_ENTRY,
