@@ -75,6 +75,7 @@ interface messaging
 
 		/* nmbd messages */
 		MSG_FORCE_ELECTION		= 0x0101,
+		MSG_FORCE_ELECTION_V1		= 0x1101,
 		MSG_WINS_NEW_ENTRY		= 0x0102,
 		MSG_SEND_PACKET			= 0x0103,
 
@@ -328,6 +329,18 @@ interface messaging
 	typedef [public] struct {
 		messaging_daemon_ready_fd_version_values version;
 	} messaging_daemon_ready_fd;
+
+	/* MSG_FORCE_ELECTION */
+	typedef [public, v1_enum] enum {
+		MESSAGING_FORCE_ELECTION_VERSION_1 = 0x00000001
+	} messaging_force_election_version_values;
+
+	const uint32 MESSAGING_FORCE_ELECTION_VERSION_CURRENT =
+		MESSAGING_FORCE_ELECTION_VERSION_1;
+
+	typedef [public] struct {
+		messaging_force_election_version_values version;
+	} messaging_force_election;
 
 	/* MSG_RELOAD_TLS_CERTIFICATES */
 	typedef [public, v1_enum] enum {
