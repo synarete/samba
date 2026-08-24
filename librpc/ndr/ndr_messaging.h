@@ -159,6 +159,18 @@ enum ndr_err_code messaging_id_cache_kill_pull(
 	const DATA_BLOB *blob,
 	struct messaging_id_cache_kill *msg);
 
+/* MSG_RELOAD_TLS_CERTIFICATES_V1 */
+
+enum ndr_err_code messaging_reload_tls_certificates_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_reload_tls_certificates *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_reload_tls_certificates_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_reload_tls_certificates *msg);
+
 /* MSG_SMB_CONF_UPDATED_V1 */
 
 enum ndr_err_code messaging_smb_conf_updated_push(
