@@ -220,6 +220,49 @@ static void ringbuf_log_msg(struct imessaging_context *msg,
 	imessaging_send(msg, src, MSG_RINGBUF_LOG, &blob);
 }
 
+static void ringbuf_log_msg_v1(struct imessaging_context *msg,
+			       void *private_data,
+			       uint32_t msg_type,
+			       struct server_id src,
+			       size_t num_fds,
+			       int *fds,
+			       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_ringbuf_log req = {};
+	struct messaging_ringbuf_log reply = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	char *log = NULL;
+
+	if (num_fds != 0) {
+		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
+		goto out;
+	}
+
+	ndr_err = messaging_req_ringbuf_log_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_REQ_RINGBUF_LOG_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	log = debug_get_ringbuf();
+	if (log == NULL) {
+		log = discard_const_p(char, "*disabled*\n");
+	}
+
+	ndr_err = messaging_ringbuf_log_push(frame, &reply, log, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Failed to encode ringbuf-log reply: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+	imessaging_send(msg, src, MSG_RINGBUF_LOG_V1, &blob);
+out:
+	TALLOC_FREE(frame);
+}
+
 /****************************************************************************
  Receive a "set debug level" message.
 ****************************************************************************/
@@ -729,6 +772,13 @@ static struct imessaging_context *imessaging_init_internal(
 	}
 	status = imessaging_register(msg, NULL, MSG_REQ_RINGBUF_LOG,
 				     ringbuf_log_msg);
+	if (!NT_STATUS_IS_OK(status)) {
+		goto fail;
+	}
+	status = imessaging_register(msg,
+				     NULL,
+				     MSG_REQ_RINGBUF_LOG_V1,
+				     ringbuf_log_msg_v1);
 	if (!NT_STATUS_IS_OK(status)) {
 		goto fail;
 	}
