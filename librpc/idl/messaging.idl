@@ -68,6 +68,7 @@ interface messaging
 		MSG_RINGBUF_LOG_V1		= 0x1034,
 
 		MSG_DAEMON_READY_FD             = 0x0035,
+		MSG_DAEMON_READY_FD_V1          = 0x1035,
 
 		/* This sends an empty message */
 		MSG_CLUSTER_LEVEL_UPGRADED	= 0x0040,
@@ -315,6 +316,18 @@ interface messaging
 		messaging_ringbuf_log_version_values version;
 		utf8string log;
 	} messaging_ringbuf_log;
+
+	/* MSG_DAEMON_READY_FD */
+	typedef [public, v1_enum] enum {
+		MESSAGING_DAEMON_READY_FD_VERSION_1 = 0x00000001
+	} messaging_daemon_ready_fd_version_values;
+
+	const uint32 MESSAGING_DAEMON_READY_FD_VERSION_CURRENT =
+		MESSAGING_DAEMON_READY_FD_VERSION_1;
+
+	typedef [public] struct {
+		messaging_daemon_ready_fd_version_values version;
+	} messaging_daemon_ready_fd;
 
 	/* MSG_RELOAD_TLS_CERTIFICATES */
 	typedef [public, v1_enum] enum {
