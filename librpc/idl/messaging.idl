@@ -126,7 +126,9 @@ interface messaging
 
 		/* Tell number of child processes */
 		MSG_SMB_TELL_NUM_CHILDREN       = 0x0317,
+		MSG_SMB_TELL_NUM_CHILDREN_V1	= 0x1317,
 		MSG_SMB_NUM_CHILDREN            = 0x0318,
+		MSG_SMB_NUM_CHILDREN_V1		= 0x1318,
 
 		/* Cancel a notify, directory got deleted */
 		MSG_SMB_NOTIFY_CANCEL_DELETED   = 0x0319,
@@ -450,6 +452,23 @@ interface messaging
 		messaging_force_tdis_version_values version;
 		utf8string sharename;
 	} messaging_force_tdis_denied;
+
+	/* MSG_SMB_TELL_NUM_CHILDREN_V1 / MSG_SMB_NUM_CHILDREN_V1 */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_NUM_CHILDREN_VERSION_1 = 0x00000001
+	} messaging_smb_num_children_version_values;
+
+	const uint32 MESSAGING_SMB_NUM_CHILDREN_VERSION_CURRENT =
+		MESSAGING_SMB_NUM_CHILDREN_VERSION_1;
+
+	typedef [public] struct {
+		messaging_smb_num_children_version_values version;
+	} messaging_smb_tell_num_children;
+
+	typedef [public] struct {
+		messaging_smb_num_children_version_values version;
+		uint32 num_children;
+	} messaging_smb_num_children;
 
 	/* MSG_SMB_NOTIFY_CLEANUP_V1 / MSG_SMB_NOTIFY_STARTED_V1 / MSG_SMB_NOTIFY_GET_DB_V1 */
 	typedef [public, v1_enum] enum {
