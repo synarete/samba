@@ -274,6 +274,28 @@ enum ndr_err_code messaging_force_tdis_denied_pull(
 	const DATA_BLOB *blob,
 	struct messaging_force_tdis_denied *msg);
 
+/* MSG_SMB_TELL_NUM_CHILDREN_V1 / MSG_SMB_NUM_CHILDREN_V1 */
+
+enum ndr_err_code messaging_smb_tell_num_children_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_tell_num_children *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_tell_num_children_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_tell_num_children *msg);
+
+enum ndr_err_code messaging_smb_num_children_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_num_children *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_num_children_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_num_children *msg);
+
 /* MSG_SMB_NOTIFY_CLEANUP_V1 / MSG_SMB_NOTIFY_STARTED_V1 /
  * MSG_SMB_NOTIFY_GET_DB_V1 */
 
