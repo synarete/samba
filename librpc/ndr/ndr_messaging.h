@@ -274,4 +274,15 @@ enum ndr_err_code messaging_force_tdis_denied_pull(
 	const DATA_BLOB *blob,
 	struct messaging_force_tdis_denied *msg);
 
+/* MSG_SMB_IP_DROPPED_V1 */
+
+enum ndr_err_code messaging_ip_dropped_push(TALLOC_CTX *mem_ctx,
+					    struct messaging_ip_dropped *msg,
+					    const char *ip,
+					    DATA_BLOB *blob);
+
+enum ndr_err_code messaging_ip_dropped_pull(TALLOC_CTX *mem_ctx,
+					    const DATA_BLOB *blob,
+					    struct messaging_ip_dropped *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */

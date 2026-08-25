@@ -1880,6 +1880,10 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 				   NULL,
 				   MSG_SMB_IP_DROPPED,
 				   smb_parent_send_to_children);
+		messaging_register(msg_ctx,
+				   NULL,
+				   MSG_SMB_IP_DROPPED_V1,
+				   smb_parent_send_to_children);
 	}
 
 #ifdef DEVELOPER
@@ -2231,9 +2235,12 @@ static void smbd_close_socket_for_ip(struct smbd_parent_context *parent,
 			continue;
 		}
 		if (sockaddr_equal(&saddr.u.sa, &addr->u.sa)) {
+			TALLOC_CTX *frame = NULL;
 			struct ssaddr_buf addrstr_buf;
 			char *addrstr = ssaddr_str_buf(addr, &addrstr_buf);
+			struct messaging_ip_dropped msg = {};
 			DATA_BLOB blob;
+			enum ndr_err_code ndr_err;
 			NTSTATUS status;
 
 			DLIST_REMOVE(parent->sockets, s);
@@ -2241,11 +2248,20 @@ static void smbd_close_socket_for_ip(struct smbd_parent_context *parent,
 			DBG_NOTICE("smbd: Closed listening socket for %s\n",
 				   addrstr);
 
-			blob = data_blob_const(addrstr, strlen(addrstr)+1);
+			frame = talloc_stackframe();
+			ndr_err = messaging_ip_dropped_push(frame,
+							    &msg,
+							    addrstr,
+							    &blob);
+			if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+				TALLOC_FREE(frame);
+				return;
+			}
 			status = messaging_send(msg_ctx,
 						messaging_server_id(msg_ctx),
-						MSG_SMB_IP_DROPPED,
+						MSG_SMB_IP_DROPPED_V1,
 						&blob);
+			TALLOC_FREE(frame);
 			if (!NT_STATUS_IS_OK(status)) {
 				DBG_NOTICE(
 					"messaging_send failed: %s - ignoring\n",
