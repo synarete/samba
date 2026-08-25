@@ -102,6 +102,7 @@ interface messaging
 		MSG_SMB_KERNEL_BREAK		= 0x030A,
 		MSG_SMB_FILE_RENAME		= 0x030B,
 		MSG_SMB_INJECT_FAULT		= 0x030C,
+		MSG_SMB_INJECT_FAULT_V1		= 0x130C,
 		/* MSG_SMB_BLOCKING_LOCK_CANCEL	= 0x030D,  Obsoleted */
 		MSG_SMB_NOTIFY			= 0x030E,
 		/* MSG_SMB_STAT_CACHE_DELETE	= 0x030F,  Obsoleted */
@@ -452,6 +453,19 @@ interface messaging
 		messaging_force_tdis_version_values version;
 		utf8string sharename;
 	} messaging_force_tdis_denied;
+
+	/* MSG_SMB_INJECT_FAULT_V1 */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_INJECT_FAULT_VERSION_1 = 0x00000001
+	} messaging_smb_inject_fault_version_values;
+
+	const uint32 MESSAGING_SMB_INJECT_FAULT_VERSION_CURRENT =
+		MESSAGING_SMB_INJECT_FAULT_VERSION_1;
+
+	typedef [public] struct {
+		messaging_smb_inject_fault_version_values version;
+		int32 fault_code;
+	} messaging_smb_inject_fault;
 
 	/* MSG_SMB_TELL_NUM_CHILDREN_V1 / MSG_SMB_NUM_CHILDREN_V1 */
 	typedef [public, v1_enum] enum {

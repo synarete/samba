@@ -265,6 +265,47 @@ static void msg_inject_fault(struct messaging_context *msg,
 
 	kill(getpid(), sig);
 }
+
+static void msg_inject_fault_v1(struct messaging_context *msg,
+				void *private_data,
+				uint32_t msg_type,
+				struct server_id src,
+				DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_inject_fault nmsg = {};
+	enum ndr_err_code ndr_err;
+	struct server_id_buf tmp;
+
+	ndr_err = messaging_smb_inject_fault_pull(frame, data, &nmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("Process %s sent bogus signal injection "
+			  "request: %s\n",
+			  server_id_str_buf(src, &tmp),
+			  ndr_errstr(ndr_err)));
+		goto out;
+	}
+
+	if (nmsg.fault_code == -1) {
+		exit_server("internal error injected");
+		goto out;
+	}
+
+#ifdef HAVE_STRSIGNAL
+	DEBUG(0, ("Process %s requested injection of signal %d (%s)\n",
+		  server_id_str_buf(src, &tmp),
+		  nmsg.fault_code,
+		  strsignal(nmsg.fault_code)));
+#else
+	DEBUG(0, ("Process %s requested injection of signal %d\n",
+		  server_id_str_buf(src, &tmp),
+		  nmsg.fault_code));
+#endif
+
+	kill(getpid(), nmsg.fault_code);
+out:
+	TALLOC_FREE(frame);
+}
 #endif /* DEVELOPER */
 
 #if defined(DEVELOPER) || defined(ENABLE_SELFTEST)
@@ -1997,6 +2038,10 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 #ifdef DEVELOPER
 	messaging_register(msg_ctx, NULL, MSG_SMB_INJECT_FAULT,
 			   msg_inject_fault);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_INJECT_FAULT_V1,
+			   msg_inject_fault_v1);
 #endif
 
 #if defined(DEVELOPER) || defined(ENABLE_SELFTEST)
