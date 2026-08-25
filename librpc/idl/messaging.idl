@@ -1,6 +1,6 @@
 #include "idl_types.h"
 
-import "server_id.idl";
+import "server_id.idl", "file_id.idl";
 
 /*
    IDL structures for messaging code
@@ -120,6 +120,7 @@ interface messaging
 		MSG_SMB_NOTIFY_CLEANUP		= 0x0314,
 		MSG_SMB_NOTIFY_CLEANUP_V1	= 0x1314,
 		MSG_SMB_SCAVENGER		= 0x0315,
+		MSG_SMB_SCAVENGER_V1		= 0x1315,
 
 		/* shutdown connection for given client */
 		MSG_SMB_KILL_CLIENT_IP		= 0x0316,
@@ -467,6 +468,21 @@ interface messaging
 		messaging_dbwrap_modified_version_values version;
 		hyper instance;
 	} messaging_dbwrap_modified;
+
+	/* MSG_SMB_SCAVENGER */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_SCAVENGER_VERSION_1 = 0x00000001
+	} messaging_smb_scavenger_version_values;
+
+	const uint32 MESSAGING_SMB_SCAVENGER_VERSION_CURRENT =
+		MESSAGING_SMB_SCAVENGER_VERSION_1;
+
+	typedef [public] struct {
+		messaging_smb_scavenger_version_values version;
+		file_id file_id;
+		hyper open_persistent_id;
+		uint32 name_hash;
+	} messaging_smb_scavenger;
 
 	/* MSG_SMB_INJECT_FAULT_V1 */
 	typedef [public, v1_enum] enum {

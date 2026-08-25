@@ -341,6 +341,18 @@ enum ndr_err_code messaging_dbwrap_modified_pull(
 	const DATA_BLOB *blob,
 	struct messaging_dbwrap_modified *msg);
 
+/* MSG_SMB_SCAVENGER_V1 */
+
+enum ndr_err_code messaging_smb_scavenger_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_scavenger *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_scavenger_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_scavenger *msg);
+
 /* MSG_SMB_INJECT_FAULT_V1 */
 
 enum ndr_err_code messaging_smb_inject_fault_push(
