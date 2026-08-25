@@ -27,6 +27,8 @@
 #include "lib/util/server_id.h"
 #include "messaging/messaging.h"
 #include "messaging/messaging_internal.h"
+#include "librpc/gen_ndr/ndr_messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "replace.h"
 
 #if defined(DEVELOPER) || defined(ENABLE_SELFTEST)
@@ -119,6 +121,43 @@ static void do_sleep(struct imessaging_context *msg,
 		server_id_str_buf(src, &tmp));
 }
 
+static void do_sleep_v1(struct imessaging_context *msg,
+			void *private_data,
+			uint32_t msg_type,
+			struct server_id src,
+			size_t num_fds,
+			int *fds,
+			DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_sleep nmsg = {};
+	enum ndr_err_code ndr_err;
+	struct server_id_buf tmp;
+
+	if (num_fds != 0) {
+		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
+		return;
+	}
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_sleep_pull(frame, data, &nmsg);
+	TALLOC_FREE(frame);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("Process %s sent bogus sleep request: %s\n",
+			server_id_str_buf(src, &tmp),
+			ndr_errstr(ndr_err));
+		return;
+	}
+
+	DBG_ERR("Process %s requested a sleep of %u seconds\n",
+		server_id_str_buf(src, &tmp),
+		nmsg.seconds);
+	sleep(nmsg.seconds);
+	DBG_ERR("Restarting after %u second sleep requested by process %s\n",
+		nmsg.seconds,
+		server_id_str_buf(src, &tmp));
+}
+
 /*
  * Register the extra messaging handlers
  */
@@ -133,6 +172,11 @@ NTSTATUS imessaging_register_extra_handlers(struct imessaging_context *msg)
 	}
 
 	status = imessaging_register(msg, NULL, MSG_SMB_SLEEP, do_sleep);
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
+	}
+
+	status = imessaging_register(msg, NULL, MSG_SMB_SLEEP_V1, do_sleep_v1);
 	if (!NT_STATUS_IS_OK(status)) {
 		return status;
 	}
