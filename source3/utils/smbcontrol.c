@@ -502,9 +502,13 @@ static bool do_sleep(struct tevent_context *ev_ctx,
 		     const int argc, const char **argv)
 {
 #if defined(DEVELOPER) || defined(ENABLE_SELFTEST)
-	unsigned int seconds;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_sleep msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	long input;
 	const long MAX_SLEEP = 60 * 60; /* One hour maximum sleep */
+	bool ok = false;
 #endif
 
 	if (argc != 2) {
@@ -527,11 +531,18 @@ static bool do_sleep(struct tevent_context *ev_ctx,
 			MAX_SLEEP);
 		return False;
 	}
-	seconds = input;
-	return send_message(msg_ctx, pid,
-			    MSG_SMB_SLEEP,
-			    &seconds,
-			    sizeof(unsigned int));
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_sleep_push(frame, &msg, input, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_SMB_SLEEP_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
 #endif /* DEVELOPER || ENABLE_SELFTEST */
 }
 

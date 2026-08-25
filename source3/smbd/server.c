@@ -295,6 +295,36 @@ static void msg_sleep(struct messaging_context *msg,
 		seconds,
 		server_id_str_buf(src, &tmp));
 }
+
+static void msg_sleep_v1(struct messaging_context *msg,
+			 void *private_data,
+			 uint32_t msg_type,
+			 struct server_id src,
+			 DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_sleep nmsg = {};
+	enum ndr_err_code ndr_err;
+	struct server_id_buf tmp;
+
+	ndr_err = messaging_smb_sleep_pull(frame, data, &nmsg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("Process %s sent bogus sleep request: %s\n",
+			server_id_str_buf(src, &tmp),
+			ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return;
+	}
+
+	DBG_ERR("Process %s request a sleep of %u seconds\n",
+		server_id_str_buf(src, &tmp),
+		nmsg.seconds);
+	sleep(nmsg.seconds);
+	DBG_ERR("Restarting after %u second sleep requested by process %s\n",
+		nmsg.seconds,
+		server_id_str_buf(src, &tmp));
+	TALLOC_FREE(frame);
+}
 #endif /* DEVELOPER */
 
 static NTSTATUS messaging_send_to_children(struct messaging_context *msg_ctx,
@@ -1932,6 +1962,7 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 
 #if defined(DEVELOPER) || defined(ENABLE_SELFTEST)
 	messaging_register(msg_ctx, NULL, MSG_SMB_SLEEP, msg_sleep);
+	messaging_register(msg_ctx, NULL, MSG_SMB_SLEEP_V1, msg_sleep_v1);
 #endif
 
 	if (lp_multicast_dns_register() && (dns_port != 0)) {
