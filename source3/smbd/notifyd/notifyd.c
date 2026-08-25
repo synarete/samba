@@ -39,6 +39,7 @@
 #include "server_id_db_util.h"
 #include "lib/util/iov_buf.h"
 #include "messages_util.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #ifdef CLUSTER_SUPPORT
 #include "ctdb_protocol.h"
@@ -117,6 +118,11 @@ static void notifyd_trigger(struct messaging_context *msg_ctx,
 static void notifyd_get_db(struct messaging_context *msg_ctx,
 			   void *private_data, uint32_t msg_type,
 			   struct server_id src, DATA_BLOB *data);
+static void notifyd_get_db_v1(struct messaging_context *msg_ctx,
+			      void *private_data,
+			      uint32_t msg_type,
+			      struct server_id src,
+			      DATA_BLOB *data);
 
 #ifdef CLUSTER_SUPPORT
 static void notifyd_got_db(struct messaging_context *msg_ctx,
@@ -224,6 +230,14 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 		goto deregister_trigger;
 	}
 
+	status = messaging_register(msg_ctx,
+				    state,
+				    MSG_SMB_NOTIFY_GET_DB_V1,
+				    notifyd_get_db_v1);
+	if (tevent_req_nterror(req, status)) {
+		goto deregister_get_db;
+	}
+
 	names_db = messaging_names_db(msg_ctx);
 
 	ret = server_id_db_set_exclusive(names_db, "notify-daemon");
@@ -231,7 +245,7 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 		DBG_DEBUG("server_id_db_set_exclusive() failed: %s\n",
 			  strerror(ret));
 		tevent_req_error(req, ret);
-		goto deregister_get_db;
+		goto deregister_get_db_v1;
 	}
 
 	if (ctdbd_conn == NULL) {
@@ -246,7 +260,7 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 	status = messaging_register(msg_ctx, state, MSG_SMB_NOTIFY_DB,
 				    notifyd_got_db);
 	if (tevent_req_nterror(req, status)) {
-		goto deregister_get_db;
+		goto deregister_get_db_v1;
 	}
 
 	state->log = talloc_zero(state, struct messaging_reclog);
@@ -287,6 +301,8 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 deregister_db:
 	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_DB, state);
 #endif
+deregister_get_db_v1:
+	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_GET_DB_V1, state);
 deregister_get_db:
 	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_GET_DB, state);
 deregister_trigger:
@@ -973,6 +989,27 @@ static void notifyd_get_db(struct messaging_context *msg_ctx,
 	}
 }
 
+static void notifyd_get_db_v1(struct messaging_context *msg_ctx,
+			      void *private_data,
+			      uint32_t msg_type,
+			      struct server_id src,
+			      DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_get_db req = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_notify_get_db_pull(frame, data, &req);
+	TALLOC_FREE(frame);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_NOTIFY_GET_DB_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		return;
+	}
+
+	notifyd_get_db(msg_ctx, private_data, msg_type, src, data);
+}
+
 #ifdef CLUSTER_SUPPORT
 
 static int notifyd_add_proxy_syswatches(struct db_record *rec,
@@ -1468,6 +1505,10 @@ static int notifyd_snoop_broadcast(struct tevent_context *ev,
 	struct server_id src, dst;
 	struct server_id_buf idbuf;
 	NTSTATUS status;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_notify_get_db nmsg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 
 	if (msglen < MESSAGE_HDR_LENGTH) {
 		DBG_DEBUG("Got short broadcast\n");
@@ -1508,8 +1549,17 @@ static int notifyd_snoop_broadcast(struct tevent_context *ev,
 		return 0;
 	}
 
-	status = messaging_send_buf(state->msg_ctx, src, MSG_SMB_NOTIFY_GET_DB,
-				    NULL, 0);
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_notify_get_db_push(frame, &nmsg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto fail;
+	}
+	status = messaging_send_buf(state->msg_ctx,
+				    src,
+				    MSG_SMB_NOTIFY_GET_DB_V1,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("messaging_send_buf failed: %s\n",
 			  nt_errstr(status));
@@ -1517,6 +1567,11 @@ static int notifyd_snoop_broadcast(struct tevent_context *ev,
 		return 0;
 	}
 
+	return 0;
+
+fail:
+	TALLOC_FREE(frame);
+	TALLOC_FREE(p);
 	return 0;
 }
 #endif

@@ -634,6 +634,10 @@ static bool smbd_notifyd_init(struct messaging_context *msg, bool interactive,
 	pid_t pid;
 	NTSTATUS status;
 	bool ok;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_notify_started nmsg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 
 	if (interactive) {
 		req = notifyd_req(msg, ev);
@@ -687,8 +691,19 @@ static bool smbd_notifyd_init(struct messaging_context *msg, bool interactive,
 	/* Block those signals that we are not handling */
 	BlockSignals(True, SIGUSR1);
 
-	messaging_send(msg, pid_to_procid(getppid()), MSG_SMB_NOTIFY_STARTED,
-		       NULL);
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_notify_started_push(frame, &nmsg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = messaging_send(msg,
+					pid_to_procid(getppid()),
+					MSG_SMB_NOTIFY_STARTED_V1,
+					&blob);
+		if (!NT_STATUS_IS_OK(status)) {
+			DBG_WARNING("messaging_send returned %s\n",
+				    nt_errstr(status));
+		}
+	}
+	TALLOC_FREE(frame);
 
 	ok = tevent_req_poll(req, ev);
 	if (!ok) {
@@ -1026,6 +1041,10 @@ static void cleanupd_started(struct tevent_req *req)
 	NTSTATUS status;
 	struct smbd_parent_context *parent = tevent_req_callback_data(
 		req, struct smbd_parent_context);
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_notify_cleanup nmsg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 
 	ok = cleanupd_init_recv(req);
 	TALLOC_FREE(req);
@@ -1034,14 +1053,19 @@ static void cleanupd_started(struct tevent_req *req)
 		return;
 	}
 
-	status = messaging_send(parent->msg_ctx,
-				parent->cleanupd,
-				MSG_SMB_NOTIFY_CLEANUP,
-				NULL);
-	if (!NT_STATUS_IS_OK(status)) {
-		DBG_ERR("messaging_send returned %s\n",
-			nt_errstr(status));
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_notify_cleanup_push(frame, &nmsg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = messaging_send(parent->msg_ctx,
+					parent->cleanupd,
+					MSG_SMB_NOTIFY_CLEANUP_V1,
+					&blob);
+		if (!NT_STATUS_IS_OK(status)) {
+			DBG_ERR("messaging_send returned %s\n",
+				nt_errstr(status));
+		}
 	}
+	TALLOC_FREE(frame);
 }
 
 /**************************************************************************
@@ -1235,6 +1259,10 @@ static void remove_child_pid(struct smbd_parent_context *parent,
 	struct smbd_child_pid *child;
 	NTSTATUS status;
 	bool ok;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_notify_cleanup nmsg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 
 	for (child = parent->children; child != NULL; child = child->next) {
 		if (child->pid == pid) {
@@ -1324,14 +1352,21 @@ static void remove_child_pid(struct smbd_parent_context *parent,
 	}
 
 	if (!server_id_is_disconnected(&parent->cleanupd)) {
-		status = messaging_send(parent->msg_ctx,
-					parent->cleanupd,
-					MSG_SMB_NOTIFY_CLEANUP,
-					NULL);
-		if (!NT_STATUS_IS_OK(status)) {
-			DBG_ERR("messaging_send returned %s\n",
-				nt_errstr(status));
+		frame = talloc_stackframe();
+		ndr_err = messaging_smb_notify_cleanup_push(frame,
+							    &nmsg,
+							    &blob);
+		if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			status = messaging_send(parent->msg_ctx,
+						parent->cleanupd,
+						MSG_SMB_NOTIFY_CLEANUP_V1,
+						&blob);
+			if (!NT_STATUS_IS_OK(status)) {
+				DBG_ERR("messaging_send returned %s\n",
+					nt_errstr(status));
+			}
 		}
+		TALLOC_FREE(frame);
 	}
 }
 
@@ -1862,6 +1897,10 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 			   ID_CACHE_KILL_V1,
 			   smbd_parent_id_cache_kill_v1);
 	messaging_register(msg_ctx, NULL, MSG_SMB_NOTIFY_STARTED,
+			   smb_parent_send_to_children);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_NOTIFY_STARTED_V1,
 			   smb_parent_send_to_children);
 
 	if (parent->quic_tlsp != NULL) {

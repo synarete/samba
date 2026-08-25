@@ -274,6 +274,39 @@ enum ndr_err_code messaging_force_tdis_denied_pull(
 	const DATA_BLOB *blob,
 	struct messaging_force_tdis_denied *msg);
 
+/* MSG_SMB_NOTIFY_CLEANUP_V1 / MSG_SMB_NOTIFY_STARTED_V1 /
+ * MSG_SMB_NOTIFY_GET_DB_V1 */
+
+enum ndr_err_code messaging_smb_notify_cleanup_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_cleanup *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_cleanup_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_cleanup *msg);
+
+enum ndr_err_code messaging_smb_notify_started_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_started *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_started_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_started *msg);
+
+enum ndr_err_code messaging_smb_notify_get_db_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_get_db *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_get_db_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_get_db *msg);
+
 /* MSG_SMB_IP_DROPPED_V1 */
 
 enum ndr_err_code messaging_ip_dropped_push(TALLOC_CTX *mem_ctx,
