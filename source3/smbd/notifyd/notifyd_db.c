@@ -18,6 +18,7 @@
 #include "lib/util/server_id_db.h"
 #include "notifyd_private.h"
 #include "notifyd_db.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 struct notifyd_parse_db_state {
 	bool (*fn)(const char *path,
@@ -105,6 +106,10 @@ NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 	NTSTATUS status;
 	int ret;
 	bool ok;
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_notify_get_db nmsg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 
 	names_db = messaging_names_db(msg_ctx);
 	ok = server_id_db_lookup_one(names_db, "notify-daemon", &notifyd);
@@ -130,8 +135,19 @@ NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 		return NT_STATUS_NO_MEMORY;
 	}
 
-	status = messaging_send_buf(
-		msg_ctx, notifyd, MSG_SMB_NOTIFY_GET_DB, NULL, 0);
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_notify_get_db_push(frame, &nmsg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		TALLOC_FREE(ev);
+		return NT_STATUS_NO_MEMORY;
+	}
+	status = messaging_send_buf(msg_ctx,
+				    notifyd,
+				    MSG_SMB_NOTIFY_GET_DB_V1,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("messaging_send_buf failed: %s\n",
 			  nt_errstr(status));
