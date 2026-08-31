@@ -134,6 +134,7 @@ interface messaging
 
 		/* Cancel a notify, directory got deleted */
 		MSG_SMB_NOTIFY_CANCEL_DELETED   = 0x0319,
+		MSG_SMB_NOTIFY_CANCEL_DELETED_V1 = 0x1319,
 
 		/* notifyd messages */
 		MSG_SMB_NOTIFY_REC_CHANGE	= 0x031A,
@@ -514,7 +515,8 @@ interface messaging
 		uint32 num_children;
 	} messaging_smb_num_children;
 
-	/* MSG_SMB_NOTIFY_CLEANUP_V1 / MSG_SMB_NOTIFY_STARTED_V1 / MSG_SMB_NOTIFY_GET_DB_V1 */
+	/* MSG_SMB_NOTIFY_CLEANUP_V1 / MSG_SMB_NOTIFY_STARTED_V1 /
+	 * MSG_SMB_NOTIFY_GET_DB_V1 / MSG_SMB_NOTIFY_CANCEL_DELETED_V1 */
 	typedef [public, v1_enum] enum {
 		MESSAGING_SMB_NOTIFY_VERSION_1 = 0x00000001
 	} messaging_smb_notify_version_values;
@@ -533,6 +535,11 @@ interface messaging
 	typedef [public] struct {
 		messaging_smb_notify_version_values version;
 	} messaging_smb_notify_get_db;
+
+	typedef [public] struct {
+		messaging_smb_notify_version_values version;
+		file_id id;
+	} messaging_smb_notify_cancel_deleted;
 
 	/* MSG_SMB_SLEEP_V1 */
 	typedef [public, v1_enum] enum {
