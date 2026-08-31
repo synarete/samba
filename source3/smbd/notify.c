@@ -512,6 +512,30 @@ done:
 	TALLOC_FREE(fid);
 }
 
+void smbd_notify_cancel_deleted_v1(struct messaging_context *msg,
+				   void *private_data,
+				   uint32_t msg_type,
+				   struct server_id server_id,
+				   DATA_BLOB *data)
+{
+	struct smbd_server_connection *sconn = talloc_get_type_abort(
+		private_data, struct smbd_server_connection);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_cancel_deleted m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_notify_cancel_deleted_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_NOTIFY_CANCEL_DELETED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	files_forall(sconn, smbd_notify_cancel_deleted_fn, &m.id);
+out:
+	TALLOC_FREE(frame);
+}
+
 static struct files_struct *smbd_notifyd_reregister(struct files_struct *fsp,
 						    void *private_data)
 {

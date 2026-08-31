@@ -329,6 +329,19 @@ enum ndr_err_code messaging_smb_notify_get_db_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_notify_get_db *msg);
 
+/* MSG_SMB_NOTIFY_CANCEL_DELETED_V1 */
+
+enum ndr_err_code messaging_smb_notify_cancel_deleted_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_cancel_deleted *msg,
+	const struct file_id *id,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_cancel_deleted_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_cancel_deleted *msg);
+
 /* MSG_DBWRAP_MODIFIED_V1 */
 
 enum ndr_err_code messaging_dbwrap_modified_push(

@@ -1070,6 +1070,46 @@ enum ndr_err_code messaging_smb_notify_get_db_pull(
 	return NDR_ERR_SUCCESS;
 }
 
+enum ndr_err_code messaging_smb_notify_cancel_deleted_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_cancel_deleted *msg,
+	const struct file_id *id,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_SMB_NOTIFY_VERSION_CURRENT;
+	msg->id = *id;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)
+			ndr_push_messaging_smb_notify_cancel_deleted);
+}
+
+enum ndr_err_code messaging_smb_notify_cancel_deleted_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_cancel_deleted *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)
+			ndr_pull_messaging_smb_notify_cancel_deleted);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_smb_scavenger_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_scavenger *msg,
