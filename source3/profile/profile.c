@@ -143,6 +143,49 @@ static void reqprofile_message(struct messaging_context *msg_ctx,
 			   (uint8_t *)&level, sizeof(level));
 }
 
+static void reqprofile_message_v1(struct messaging_context *msg_ctx,
+				  void *private_data,
+				  uint32_t msg_type,
+				  struct server_id src,
+				  DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_profilelevel_v1 req = {};
+	struct messaging_profilelevel_v1 reply = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	int level;
+
+	ndr_err = messaging_req_profilelevel_v1_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("Invalid MSG_REQ_PROFILELEVEL_V1 from PID"
+			  " %u: %s\n",
+			  (unsigned int)procid_to_pid(&src),
+			  ndr_errstr(ndr_err)));
+		goto out;
+	}
+
+	if (!smbprofile_state.config.do_count) {
+		level = 0;
+	} else if (!smbprofile_state.config.do_times) {
+		level = 1;
+	} else {
+		level = 2;
+	}
+
+	DEBUG(1,("INFO: Received REQ_PROFILELEVEL message from PID %u\n",
+		 (unsigned int)procid_to_pid(&src)));
+
+	reply.level = level;
+	ndr_err = messaging_profilelevel_v1_push(frame, &reply, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+	messaging_send(msg_ctx, src, MSG_PROFILELEVEL_V1, &blob);
+out:
+	TALLOC_FREE(frame);
+}
+
 /*******************************************************************
   open the profiling tdb file
   ******************************************************************/
@@ -179,6 +222,10 @@ bool profile_setup(struct messaging_context *msg_ctx, bool rdonly)
 				   profile_message_v1);
 		messaging_register(msg_ctx, NULL, MSG_REQ_PROFILELEVEL,
 				   reqprofile_message);
+		messaging_register(msg_ctx,
+				   NULL,
+				   MSG_REQ_PROFILELEVEL_V1,
+				   reqprofile_message_v1);
 	}
 
 	profile_p = &smbprofile_state.stats.global;
