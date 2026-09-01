@@ -27,7 +27,9 @@ interface messaging
 		MSG_DEBUGLEVEL			= 0x0006,
 		MSG_DEBUGLEVEL_V1		= 0x1006,
 		MSG_REQ_PROFILELEVEL		= 0x0007,
+		MSG_REQ_PROFILELEVEL_V1		= 0x1007,
 		MSG_PROFILELEVEL		= 0x0008,
+		MSG_PROFILELEVEL_V1		= 0x1008,
 		MSG_REQ_POOL_USAGE		= 0x0009,
 		/* MSG_POOL_USAGE		= 0x000A,  Obsoleted */
 
@@ -260,6 +262,31 @@ interface messaging
 		[value(0)] uint32                reserved;
 		[switch_is(version)] messaging_profileU info;
 	} messaging_profile;
+
+	/* MSG_REQ_PROFILELEVEL / MSG_PROFILELEVEL */
+	typedef [public, v1_enum] enum {
+		MESSAGING_PROFILELEVEL_VERSION_1 = 0x00000001
+	} messaging_profilelevel_version_values;
+
+	typedef struct {
+		uint32 level;
+	} messaging_profilelevel_v1;
+
+	typedef [switch_type(messaging_profilelevel_version_values)] union {
+		[case(MESSAGING_PROFILELEVEL_VERSION_1)] messaging_profilelevel_v1 info1;
+		[default] ;
+	} messaging_profilelevelU;
+
+	typedef [public] struct {
+		messaging_profilelevel_version_values version;
+		[value(0)] uint32                     reserved;
+	} messaging_req_profilelevel;
+
+	typedef [public] struct {
+		messaging_profilelevel_version_values version;
+		[value(0)] uint32                     reserved;
+		[switch_is(version)] messaging_profilelevelU info;
+	} messaging_profilelevel;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 
