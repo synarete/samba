@@ -52,6 +52,7 @@ struct messaging_context *messaging_init(TALLOC_CTX *mem_ctx,
 					 struct tevent_context *ev);
 
 struct server_id messaging_server_id(const struct messaging_context *msg_ctx);
+bool messaging_has_cluster_level_upgraded(struct messaging_context *msg_ctx);
 struct tevent_context *messaging_tevent_context(
 	struct messaging_context *msg_ctx);
 struct server_id_db *messaging_names_db(struct messaging_context *msg_ctx);
