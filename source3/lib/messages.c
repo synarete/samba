@@ -103,6 +103,8 @@ struct messaging_context {
 	struct server_id_db *names_db;
 
 	TALLOC_CTX *per_process_talloc_ctx;
+
+	bool cluster_level_upgraded;
 };
 
 static struct messaging_rec *messaging_rec_dup(TALLOC_CTX *mem_ctx,
@@ -536,6 +538,8 @@ static void messaging_cluster_level_upgraded(struct messaging_context *msg_ctx,
 	 * to upgrade code here, but only if really
 	 * needed.
 	 */
+
+	msg_ctx->cluster_level_upgraded = true;
 }
 #endif
 
@@ -744,7 +748,11 @@ static NTSTATUS messaging_init_internal(TALLOC_CTX *mem_ctx,
 				   NULL,
 				   MSG_CLUSTER_LEVEL_UPGRADED,
 				   messaging_cluster_level_upgraded);
+	} else {
+		ctx->cluster_level_upgraded = true;
 	}
+#else
+	ctx->cluster_level_upgraded = true;
 #endif
 
 	{
@@ -780,6 +788,11 @@ struct messaging_context *messaging_init(TALLOC_CTX *mem_ctx,
 struct server_id messaging_server_id(const struct messaging_context *msg_ctx)
 {
 	return msg_ctx->id;
+}
+
+bool messaging_has_cluster_level_upgraded(struct messaging_context *msg_ctx)
+{
+	return msg_ctx->cluster_level_upgraded;
 }
 
 /*
