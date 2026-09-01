@@ -177,3 +177,47 @@ NTSTATUS messaging_send_profile(struct messaging_context *msg_ctx,
 	}
 	return messaging_send_profile_legacy(msg_ctx, dst, level);
 }
+
+/* MSG_REQ_PROFILELEVEL */
+
+static NTSTATUS messaging_send_req_profilelevel_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_profilelevel msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_req_profilelevel_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_one_or_all(msg_ctx,
+					   dst,
+					   MSG_REQ_PROFILELEVEL_V1,
+					   blob.data,
+					   blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_req_profilelevel_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	return messaging_send_one_or_all(
+		msg_ctx, dst, MSG_REQ_PROFILELEVEL, NULL, 0);
+}
+
+NTSTATUS messaging_send_req_profilelevel(struct messaging_context *msg_ctx,
+					 struct server_id dst)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_req_profilelevel_v1(msg_ctx, dst);
+	}
+	return messaging_send_req_profilelevel_legacy(msg_ctx, dst);
+}
