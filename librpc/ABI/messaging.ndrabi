@@ -14,6 +14,9 @@ root messaging_req_debuglevel
 root messaging_debuglevel
 root messaging_profile_version_values
 root messaging_profile
+root messaging_profilelevel_version_values
+root messaging_req_profilelevel
+root messaging_profilelevel
 root messaging_rec
 root messaging_reclog
 root messaging_hdr
@@ -81,6 +84,25 @@ enum messaging_profile_version_values base(uint32) {
 	0x00000001	# MESSAGING_PROFILE_VERSION_1
 }
 
+struct messaging_profilelevel align(4) {
+	[value(MESSAGING_PROFILELEVEL_VERSION_1)] enum:messaging_profilelevel_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_profilelevelU	# info
+}
+
+union messaging_profilelevelU align(4) switch_type(enum:messaging_profilelevel_version_values) {
+	case(MESSAGING_PROFILELEVEL_VERSION_1): struct:messaging_profilelevel_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_profilelevel_v1 align(4) {
+	scalar:uint32	# level
+}
+
+enum messaging_profilelevel_version_values base(uint32) {
+	0x00000001	# MESSAGING_PROFILELEVEL_VERSION_1
+}
+
 struct messaging_rec align(8) {
 	scalar:uint32	# msg_version
 	enum:messaging_type	# msg_type
@@ -102,6 +124,11 @@ struct messaging_req_debuglevel align(4) {
 	[value(0)] scalar:uint32	# reserved
 }
 
+struct messaging_req_profilelevel align(4) {
+	[value(MESSAGING_PROFILELEVEL_VERSION_1)] enum:messaging_profilelevel_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+}
+
 enum messaging_type base(uint32) {
 	0x0001	# MSG_DEBUG
 	0x1001	# MSG_DEBUG_V1
@@ -114,7 +141,9 @@ enum messaging_type base(uint32) {
 	0x0006	# MSG_DEBUGLEVEL
 	0x1006	# MSG_DEBUGLEVEL_V1
 	0x0007	# MSG_REQ_PROFILELEVEL
+	0x1007	# MSG_REQ_PROFILELEVEL_V1
 	0x0008	# MSG_PROFILELEVEL
+	0x1008	# MSG_PROFILELEVEL_V1
 	0x0009	# MSG_REQ_POOL_USAGE
 	0x000B	# MSG_REQ_DMALLOC_MARK
 	0x000C	# MSG_REQ_DMALLOC_LOG_CHANGED
@@ -241,6 +270,23 @@ sample messaging_profile length(16) {
 #	        reserved                 : 0x00000000 (0)
 #	        info                     : union messaging_profileU(case 1)
 #	        info1: struct messaging_profile_v1
+#	            level                    : 0x04030201 (67305985)
+
+sample messaging_req_profilelevel length(8) {
+	[0000] 01 00 00 00 00 00 00 00
+}
+#	    messaging_req_profilelevel: struct messaging_req_profilelevel
+#	        version                  : MESSAGING_PROFILELEVEL_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+
+sample messaging_profilelevel length(16) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 01 02 03 04
+}
+#	    messaging_profilelevel: struct messaging_profilelevel
+#	        version                  : MESSAGING_PROFILELEVEL_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_profilelevelU(case 1)
+#	        info1: struct messaging_profilelevel_v1
 #	            level                    : 0x04030201 (67305985)
 
 sample messaging_rec length(84) {
