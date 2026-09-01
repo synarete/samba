@@ -47,4 +47,19 @@ NTSTATUS messaging_send_profile(struct messaging_context *msg_ctx,
 				struct server_id dst,
 				int level);
 
+NTSTATUS messaging_send_req_profilelevel(struct messaging_context *msg_ctx,
+					 struct server_id dst);
+NTSTATUS messaging_send_req_profilelevel_v1(struct messaging_context *msg_ctx,
+					    struct server_id dst);
+NTSTATUS messaging_send_req_profilelevel_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst);
+
+NTSTATUS messaging_send_profilelevel_v1(struct messaging_context *msg_ctx,
+					struct server_id dst,
+					int level);
+NTSTATUS messaging_send_profilelevel_legacy(struct messaging_context *msg_ctx,
+					    struct server_id dst,
+					    int level);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */

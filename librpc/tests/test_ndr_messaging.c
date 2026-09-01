@@ -581,6 +581,254 @@ static void test_ndr_messaging_profile_bad_version(void **state)
 	talloc_free(mem_ctx);
 }
 
+/* MSG_REQ_PROFILELEVEL */
+/*
+ * Wire encoding of messaging_req_profilelevel:
+ *
+ *   01 00 00 00  - version (MESSAGING_PROFILELEVEL_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *
+ * No payload: this message is a request with no integer body.
+ */
+static const uint8_t req_profilelevel_blob[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+};
+
+static void test_ndr_messaging_req_profilelevel_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_profilelevel msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, req_profilelevel_blob),
+		.length = sizeof(req_profilelevel_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_profilelevel_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_PROFILELEVEL_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_req_profilelevel_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_profilelevel msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, req_profilelevel_blob),
+		.length = sizeof(req_profilelevel_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_profilelevel_push(mem_ctx, &msg, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_req_profilelevel_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_profilelevel msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_profilelevel_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
+/* MSG_PROFILELEVEL */
+/*
+ * Wire encoding of messaging_profilelevel with level = 2:
+ *
+ *   01 00 00 00  - version (MESSAGING_PROFILELEVEL_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (version repeated inside union, uint32
+ * LE) 02 00 00 00  - level = 2 (uint32 LE)
+ */
+static const uint8_t profilelevel_blob_2[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x02,
+	0x00,
+	0x00,
+	0x00, /* level = 2 */
+};
+
+/*
+ * Wire encoding of messaging_profilelevel with level = 0:
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   00 00 00 00  - level = 0
+ */
+static const uint8_t profilelevel_blob_0[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* level = 0 */
+};
+
+static void test_ndr_messaging_profilelevel_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_profilelevel msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, profilelevel_blob_2),
+		.length = sizeof(profilelevel_blob_2),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_profilelevel_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_PROFILELEVEL_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_int_equal(2, msg.info.info1.level);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_profilelevel_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_profilelevel msg = {
+		.info.info1.level = 2,
+	};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, profilelevel_blob_2),
+		.length = sizeof(profilelevel_blob_2),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_profilelevel_push(mem_ctx, &msg, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_profilelevel_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_profilelevel orig = {
+		.info.info1.level = 0,
+	};
+	struct messaging_profilelevel decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_profilelevel_push(mem_ctx, &orig, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded "0" blob must match the reference vector. */
+	assert_int_equal(sizeof(profilelevel_blob_0), blob.length);
+	assert_memory_equal(profilelevel_blob_0,
+			    blob.data,
+			    sizeof(profilelevel_blob_0));
+
+	err = messaging_profilelevel_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_PROFILELEVEL_VERSION_1, decoded.version);
+	assert_int_equal(0, decoded.info.info1.level);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_profilelevel_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_profilelevel msg = {};
+	/*
+	 * Same layout as profilelevel_blob_0 but with version = 0x00000002
+	 * (an unknown version value).
+	 */
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* level = 0 */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_profilelevel_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -600,6 +848,14 @@ int main(void)
 		cmocka_unit_test(test_ndr_messaging_profile_push),
 		cmocka_unit_test(test_ndr_messaging_profile_roundtrip),
 		cmocka_unit_test(test_ndr_messaging_profile_bad_version),
+		cmocka_unit_test(test_ndr_messaging_req_profilelevel_pull),
+		cmocka_unit_test(test_ndr_messaging_req_profilelevel_push),
+		cmocka_unit_test(
+			test_ndr_messaging_req_profilelevel_bad_version),
+		cmocka_unit_test(test_ndr_messaging_profilelevel_pull),
+		cmocka_unit_test(test_ndr_messaging_profilelevel_push),
+		cmocka_unit_test(test_ndr_messaging_profilelevel_roundtrip),
+		cmocka_unit_test(test_ndr_messaging_profilelevel_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);
