@@ -29,6 +29,7 @@
 #include "libcli/security/dom_sid.h"
 #include "libcli/security/security_token.h"
 #include "lib/messaging/messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "auth/common_auth.h"
 #include "audit_logging.h"
 #include "auth/authn_policy.h"
@@ -179,10 +180,29 @@ static NTSTATUS get_event_server(
 	/*
 	 * Select the first server that is listening, because we get
 	 * connection refused as NT_STATUS_OBJECT_NAME_NOT_FOUND
-	 * without waiting
+	 * without waiting.
+	 *
+	 * Note: We unconditionally send MSG_PING_V1 here without gating on
+	 * CLUSTER_LEVEL_ACTIVE(). lib/audit_logging is a common library shared
+	 * with source4 and cannot depend on source3 cluster support. This is
+	 * safe because any candidate process registered on the messaging bus
+	 * (via imessaging_init() or messaging_init_internal()) registers a
+	 * MSG_PING_V1 handler.
 	 */
 	for (i = 0; i < num_servers; i++) {
-		status = imessaging_send(msg_ctx, servers[i], MSG_PING, NULL);
+		struct messaging_ping ping = {};
+		DATA_BLOB blob = data_blob_null;
+		enum ndr_err_code ndr_err;
+
+		ndr_err = messaging_ping_push(frame, &ping, "", &blob);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			TALLOC_FREE(frame);
+			return NT_STATUS_NO_MEMORY;
+		}
+		status = imessaging_send(msg_ctx,
+					 servers[i],
+					 MSG_PING_V1,
+					 &blob);
 		if (NT_STATUS_IS_OK(status)) {
 			*event_server = servers[i];
 			TALLOC_FREE(frame);

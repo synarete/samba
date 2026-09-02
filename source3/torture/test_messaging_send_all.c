@@ -21,6 +21,7 @@
 #include "torture/proto.h"
 #include "lib/util/tevent_unix.h"
 #include "messages.h"
+#include "messages_send.h"
 #include "lib/async_req/async_sock.h"
 #include "lib/util/sys_rw.h"
 
@@ -115,6 +116,8 @@ static struct tevent_req *collect_pong_send(TALLOC_CTX *mem_ctx,
 {
 	struct tevent_req *req, *subreq;
 	struct messaging_send_all_state *state;
+	uint32_t pong_msg_type = messaging_use_ndr_v1() ? MSG_PONG_V1
+							: MSG_PONG;
 
 	req = tevent_req_create(mem_ctx, &state,
 				struct messaging_send_all_state);
@@ -129,7 +132,10 @@ static struct tevent_req *collect_pong_send(TALLOC_CTX *mem_ctx,
 	state->ev = ev;
 	state->msg = msg;
 
-	subreq = messaging_read_send(state, state->ev, state->msg, MSG_PONG);
+	subreq = messaging_read_send(state,
+				     state->ev,
+				     state->msg,
+				     pong_msg_type);
 	if (tevent_req_nomem(subreq, req)) {
 		return tevent_req_post(req, ev);
 	}
@@ -143,6 +149,8 @@ static void collect_pong_received(struct tevent_req *subreq)
 		subreq, struct tevent_req);
 	struct messaging_send_all_state *state = tevent_req_data(
 		req, struct messaging_send_all_state);
+	uint32_t pong_msg_type = messaging_use_ndr_v1() ? MSG_PONG_V1
+							: MSG_PONG;
 	size_t num_senders = talloc_array_length(state->senders);
 	size_t i;
 	struct messaging_rec *rec;
@@ -179,7 +187,10 @@ static void collect_pong_received(struct tevent_req *subreq)
 		return;
 	}
 
-	subreq = messaging_read_send(state, state->ev, state->msg, MSG_PONG);
+	subreq = messaging_read_send(state,
+				     state->ev,
+				     state->msg,
+				     pong_msg_type);
 	if (tevent_req_nomem(subreq, req)) {
 		return;
 	}
@@ -200,6 +211,7 @@ bool run_messaging_send_all(int dummy)
 	int exit_pipe[2];
 	pid_t children[MAX(5, torture_nprocs)];
 	struct tevent_req *req;
+	NTSTATUS ntstatus;
 	size_t i;
 	bool ok;
 	int ret, err;
@@ -242,7 +254,13 @@ bool run_messaging_send_all(int dummy)
 		return false;
 	}
 
-	messaging_send_all(msg_ctx, MSG_PING, NULL, 0);
+	ntstatus = messaging_send_ping(msg_ctx, pid_to_procid(0));
+	if (!NT_STATUS_IS_OK(ntstatus)) {
+		fprintf(stderr,
+			"messaging_send_ping failed: %s\n",
+			nt_errstr(ntstatus));
+		return false;
+	}
 
 	ok = tevent_req_poll_unix(req, ev, &err);
 	if (!ok) {
