@@ -34,6 +34,7 @@
 #include "passdb.h"
 #include "auth.h"
 #include "messages.h"
+#include "messages_send.h"
 #include "lib/messages_ctdb.h"
 #include "smbprofile.h"
 #include "rpc_server/spoolss/srv_spoolss_nt.h"
@@ -48,7 +49,9 @@
 #include "libcli/smb/smbXcli_base.h"
 #include "lib/util/time_basic.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "source3/smbd/dir.h"
+#include "lib/cluster_support.h"
 
 /* Internal message queue for deferred opens. */
 struct pending_message_list {
@@ -1614,10 +1617,8 @@ static bool deadtime_fn(const struct timeval *now, void *private_data)
 	if ((conn_num_open(sconn) == 0)
 	    || (conn_idle_all(sconn, now->tv_sec))) {
 		DEBUG( 2, ( "Closing idle connection\n" ) );
-		messaging_send(sconn->msg_ctx,
-			       messaging_server_id(sconn->msg_ctx),
-			       MSG_SHUTDOWN,
-			       NULL);
+		messaging_send_shutdown(sconn->msg_ctx,
+					messaging_server_id(sconn->msg_ctx));
 		return False;
 	}
 
