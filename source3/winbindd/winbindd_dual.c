@@ -1607,6 +1607,9 @@ NTSTATUS winbindd_reinit_after_fork(const struct winbindd_child *myself,
 	messaging_deregister(global_messaging_context(),
 			     MSG_SHUTDOWN, NULL);
 	messaging_deregister(global_messaging_context(),
+			     MSG_SHUTDOWN_V1,
+			     NULL);
+	messaging_deregister(global_messaging_context(),
 			     MSG_WINBIND_OFFLINE, NULL);
 	messaging_deregister(global_messaging_context(),
 			     MSG_WINBIND_ONLINE, NULL);

@@ -45,8 +45,10 @@
 #include "serverid.h"
 #include "lib/global_contexts.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "lib/tsocket/tsocket.h"
 #include "librpc/rpc/dcesrv_core.h"
+#include "lib/cluster_support.h"
 
 extern const struct generic_mapping file_generic_mapping;
 
@@ -1669,6 +1671,24 @@ WERROR _srvsvc_NetSessEnum(struct pipes_struct *p,
 	return werr;
 }
 
+static NTSTATUS srvsvc_netsessdel_shutdown_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id pid)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status = NT_STATUS_INTERNAL_ERROR;
+
+	ndr_err = messaging_shutdown_push_v1(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = messaging_send(msg_ctx, pid, MSG_SHUTDOWN_V1, &blob);
+	}
+	TALLOC_FREE(frame);
+	return status;
+}
+
 /*******************************************************************
  _srvsvc_NetSessDel
 ********************************************************************/
@@ -1719,10 +1739,15 @@ WERROR _srvsvc_NetSessDel(struct pipes_struct *p,
 			become_root();
 		}
 
-		ntstat = messaging_send(p->msg_ctx,
-					session_list[snum].pid,
-					MSG_SHUTDOWN,
-					NULL);
+		if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+			ntstat = srvsvc_netsessdel_shutdown_v1(
+				p->msg_ctx, session_list[snum].pid);
+		} else {
+			ntstat = messaging_send(p->msg_ctx,
+						session_list[snum].pid,
+						MSG_SHUTDOWN,
+						NULL);
+		}
 
 		if (NT_STATUS_IS_OK(ntstat))
 			werr = WERR_OK;

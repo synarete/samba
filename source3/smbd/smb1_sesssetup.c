@@ -36,6 +36,8 @@
 #include "../libcli/smb/smb_signing.h"
 #include "lib/util/string_wrappers.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 
 /****************************************************************************
  Add the standard 'Samba' signature to the end of the session setup.
@@ -498,6 +500,21 @@ struct shutdown_state {
 	struct messaging_context *msg_ctx;
 };
 
+static void shutdown_other_smbds_v1(struct messaging_context *msg_ctx,
+				    struct server_id pid)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_shutdown_push_v1(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send(msg_ctx, pid, MSG_SHUTDOWN_V1, &blob);
+	}
+	TALLOC_FREE(frame);
+}
+
 static int shutdown_other_smbds(struct smbXsrv_session_global *session,
 				void *private_data)
 {
@@ -540,7 +557,11 @@ static int shutdown_other_smbds(struct smbXsrv_session_global *session,
 		  "(IP %s)\n", (unsigned int)procid_to_pid(&pid),
 		  state->ip));
 
-	messaging_send(state->msg_ctx, pid, MSG_SHUTDOWN, NULL);
+	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		shutdown_other_smbds_v1(state->msg_ctx, pid);
+	} else {
+		messaging_send(state->msg_ctx, pid, MSG_SHUTDOWN, NULL);
+	}
 	return 0;
 }
 
