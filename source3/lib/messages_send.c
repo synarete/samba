@@ -272,3 +272,43 @@ NTSTATUS messaging_send_ping(struct messaging_context *msg_ctx,
 	}
 	return messaging_send_ping_legacy(msg_ctx, dst);
 }
+
+/* MSG_SHUTDOWN */
+
+static NTSTATUS messaging_send_shutdown_v1(struct messaging_context *msg_ctx,
+					   struct server_id dst)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_shutdown_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send_one_or_all(
+		msg_ctx, dst, MSG_SHUTDOWN_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_shutdown_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	return messaging_send_one_or_all(msg_ctx, dst, MSG_SHUTDOWN, NULL, 0);
+}
+
+NTSTATUS messaging_send_shutdown(struct messaging_context *msg_ctx,
+				 struct server_id dst)
+{
+	if (messaging_use_ndr_v1()) {
+		return messaging_send_shutdown_v1(msg_ctx, dst);
+	}
+	return messaging_send_shutdown_legacy(msg_ctx, dst);
+}
