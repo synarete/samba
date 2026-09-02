@@ -48,6 +48,7 @@
 #include "libcli/smb/smbXcli_base.h"
 #include "lib/util/time_basic.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "source3/smbd/dir.h"
 
 /* Internal message queue for deferred opens. */
@@ -1603,6 +1604,23 @@ out_free:
 	TALLOC_FREE(ctx);
 }
 
+static void deadtime_shutdown_v1(struct messaging_context *msg_ctx)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown_v1 msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_shutdown_v1_push(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send(msg_ctx,
+			       messaging_server_id(msg_ctx),
+			       MSG_SHUTDOWN_V1,
+			       &blob);
+	}
+	TALLOC_FREE(frame);
+}
+
 /*
  * Do the recurring check if we're idle
  */
@@ -1614,10 +1632,14 @@ static bool deadtime_fn(const struct timeval *now, void *private_data)
 	if ((conn_num_open(sconn) == 0)
 	    || (conn_idle_all(sconn, now->tv_sec))) {
 		DEBUG( 2, ( "Closing idle connection\n" ) );
-		messaging_send(sconn->msg_ctx,
-			       messaging_server_id(sconn->msg_ctx),
-			       MSG_SHUTDOWN,
-			       NULL);
+		if (messaging_has_cluster_level_upgraded(sconn->msg_ctx)) {
+			deadtime_shutdown_v1(sconn->msg_ctx);
+		} else {
+			messaging_send(sconn->msg_ctx,
+				       messaging_server_id(sconn->msg_ctx),
+				       MSG_SHUTDOWN,
+				       NULL);
+		}
 		return False;
 	}
 

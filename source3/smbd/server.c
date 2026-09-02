@@ -65,6 +65,7 @@
 #include "lib/addrchange.h"
 #include "../source4/lib/tls/tls.h"
 #include "libcli/smb/smbXcli_base.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #ifdef HAVE_LIBQUIC
 #include <netinet/quic.h>
@@ -160,6 +161,29 @@ static void msg_exit_server(struct messaging_context *msg,
 {
 	DEBUG(3, ("got a SHUTDOWN message\n"));
 	exit_server_cleanly(NULL);
+}
+
+static void msg_exit_server_v1(struct messaging_context *msg,
+			       void *private_data,
+			       uint32_t msg_type,
+			       struct server_id server_id,
+			       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown_v1 m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_shutdown_v1_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SHUTDOWN_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	DEBUG(3, ("got a SHUTDOWN message\n"));
+	exit_server_cleanly(NULL);
+out:
+	TALLOC_FREE(frame);
 }
 
 #ifdef DEVELOPER
@@ -1660,6 +1684,7 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
         /* Listen to messages */
 
 	messaging_register(msg_ctx, NULL, MSG_SHUTDOWN, msg_exit_server);
+	messaging_register(msg_ctx, NULL, MSG_SHUTDOWN_V1, msg_exit_server_v1);
 	messaging_register(msg_ctx, ev_ctx, MSG_SMB_CONF_UPDATED,
 			   smbd_parent_conf_updated);
 	messaging_register(msg_ctx, NULL, MSG_DEBUG, smbd_msg_debug);
