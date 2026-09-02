@@ -30,6 +30,7 @@
 #include "lib/gencache.h"
 #include "lib/global_contexts.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 int ClientNMB       = -1;
 int ClientDGRAM     = -1;
@@ -197,6 +198,28 @@ static void nmbd_terminate(struct messaging_context *msg,
 			   DATA_BLOB *data)
 {
 	terminate(msg);
+}
+
+static void nmbd_terminate_v1(struct messaging_context *msg,
+			      void *private_data,
+			      uint32_t msg_type,
+			      struct server_id server_id,
+			      DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_shutdown_v1 m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_shutdown_v1_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SHUTDOWN_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	terminate(msg);
+out:
+	TALLOC_FREE(frame);
 }
 
 /**************************************************************************** **
@@ -1020,6 +1043,7 @@ static bool open_sockets(bool isdaemon, int port)
 #endif
 	messaging_register(msg, NULL, MSG_SHUTDOWN,
 			   nmbd_terminate);
+	messaging_register(msg, NULL, MSG_SHUTDOWN_V1, nmbd_terminate_v1);
 	messaging_register(msg, NULL, MSG_SMB_CONF_UPDATED,
 			   msg_reload_nmbd_services);
 	messaging_register(msg, NULL, MSG_SEND_PACKET,
