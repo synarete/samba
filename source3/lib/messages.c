@@ -426,11 +426,20 @@ static bool messaging_alert_event_contexts(struct messaging_context *ctx)
  * Some message types have a legacy and a little endian
  * variant, the variant to use depends on the cluster level.
  *
- * Note: MSG_*_V1 NDR message types (MSG_DEBUG_V1, MSG_PING_V1,
- * MSG_SHUTDOWN_V1, etc.) are not checked here because reply handlers
- * (e.g. ping_message, debuglevel_message, reqprofile_message) mirror
- * the request format rather than checking the active cluster level,
- * and certain tests/tools send specific legacy/V1 types directly.
+ * Note: Only the NDR request types sent exclusively via
+ * messaging_send_*() in messages_send.c, which picks the type by
+ * messaging_use_ndr_v1(), are checked (MSG_REQ_DEBUGLEVEL,
+ * MSG_PROFILE, MSG_REQ_PROFILELEVEL and MSG_SHUTDOWN with their
+ * MSG_*_V1 variants). The following are deliberately not checked:
+ * - MSG_DEBUG/MSG_DEBUG_V1: the smbd and winbindd handlers forward
+ *   the received message with the same type to their children, which
+ *   may happen right before/after the cluster level was raised.
+ * - MSG_PING/MSG_PING_V1: tests/tools (msgtest, test_messaging_*,
+ *   notifyd tests) send a fixed type directly, and non-clustered
+ *   runs are always at level 2.0.
+ * - MSG_PONG*, MSG_DEBUGLEVEL* and MSG_PROFILELEVEL* replies: the
+ *   handlers (e.g. ping_message, debuglevel_message, reqprofile_message)
+ *   mirror the request format rather than checking the cluster level.
  *
  * Returns false if the message type doesn't match the
  * active cluster level, *required describes the
@@ -448,6 +457,7 @@ static bool messaging_cfl_check(uint32_t msg_type, const char **required)
 	case MSG_REQ_DEBUGLEVEL:
 	case MSG_PROFILE:
 	case MSG_REQ_PROFILELEVEL:
+	case MSG_SHUTDOWN:
 		*required = "< 2.0";
 		return !CLUSTER_LEVEL_ACTIVE(2, 0);
 	case MSG_SMB_NOTIFY_REC_CHANGE_LE:
@@ -459,6 +469,7 @@ static bool messaging_cfl_check(uint32_t msg_type, const char **required)
 	case MSG_REQ_DEBUGLEVEL_V1:
 	case MSG_PROFILE_V1:
 	case MSG_REQ_PROFILELEVEL_V1:
+	case MSG_SHUTDOWN_V1:
 		*required = ">= 2.0";
 		return CLUSTER_LEVEL_ACTIVE(2, 0);
 	}

@@ -42,11 +42,14 @@
 #include "smbd/globals.h"
 #include "auth.h"
 #include "messages.h"
+#include "messages_send.h"
 #include "serverid.h"
 #include "lib/global_contexts.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "lib/tsocket/tsocket.h"
 #include "librpc/rpc/dcesrv_core.h"
+#include "lib/cluster_support.h"
 
 extern const struct generic_mapping file_generic_mapping;
 
@@ -1719,10 +1722,8 @@ WERROR _srvsvc_NetSessDel(struct pipes_struct *p,
 			become_root();
 		}
 
-		ntstat = messaging_send(p->msg_ctx,
-					session_list[snum].pid,
-					MSG_SHUTDOWN,
-					NULL);
+		ntstat = messaging_send_shutdown(p->msg_ctx,
+						 session_list[snum].pid);
 
 		if (NT_STATUS_IS_OK(ntstat))
 			werr = WERR_OK;
