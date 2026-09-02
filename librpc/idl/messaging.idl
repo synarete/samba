@@ -38,10 +38,12 @@ interface messaging
 
 		/* If dmalloc is included, set a steady-state mark */
 		MSG_REQ_DMALLOC_MARK		= 0x000B,
+		MSG_REQ_DMALLOC_MARK_V1		= 0x100B,
 
 		/* If dmalloc is included, dump to the dmalloc log a description of
 		 * what has changed since the last MARK */
 		MSG_REQ_DMALLOC_LOG_CHANGED	= 0x000C,
+		MSG_REQ_DMALLOC_LOG_CHANGED_V1	= 0x100C,
 		MSG_SHUTDOWN			= 0x000D,
 		MSG_SHUTDOWN_V1			= 0x100D,
 
@@ -273,6 +275,22 @@ interface messaging
 	typedef [public] struct {
 		messaging_req_pool_usage_version_values version;
 	} messaging_req_pool_usage_v1;
+
+	/* MSG_REQ_DMALLOC_MARK / MSG_REQ_DMALLOC_LOG_CHANGED */
+	typedef [public, v1_enum] enum {
+		MESSAGING_REQ_DMALLOC_VERSION_1 = 0x00000001
+	} messaging_req_dmalloc_version_values;
+
+	const uint32 MESSAGING_REQ_DMALLOC_VERSION_CURRENT =
+		MESSAGING_REQ_DMALLOC_VERSION_1;
+
+	typedef [public] struct {
+		messaging_req_dmalloc_version_values version;
+	} messaging_req_dmalloc_mark_v1;
+
+	typedef [public] struct {
+		messaging_req_dmalloc_version_values version;
+	} messaging_req_dmalloc_log_changed_v1;
 
 	/* MSG_PING / MSG_PONG */
 	typedef [public, v1_enum] enum {

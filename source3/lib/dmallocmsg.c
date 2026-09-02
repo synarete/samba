@@ -18,6 +18,7 @@
 
 #include "includes.h"
 #include "messages.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /**
  * @file dmallocmsg.c
@@ -49,7 +50,32 @@ static void msg_req_dmalloc_mark(struct messaging_context *msg,
 #endif
 }
 
+static void msg_req_dmalloc_mark_v1(struct messaging_context *msg,
+				    void *private_data,
+				    uint32_t msg_type,
+				    struct server_id server_id,
+				    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_dmalloc_mark_v1 req = {};
+	enum ndr_err_code ndr_err;
 
+	ndr_err = messaging_req_dmalloc_mark_v1_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(2, ("Invalid req_dmalloc_mark message: %s\n",
+			  ndr_errstr(ndr_err)));
+		goto out;
+	}
+
+#ifdef ENABLE_DMALLOC
+	our_dm_mark = dmalloc_mark();
+	DEBUG(2,("Got MSG_REQ_DMALLOC_MARK: mark set\n"));
+#else
+	DEBUG(2,("Got MSG_REQ_DMALLOC_MARK but dmalloc not in this process\n"));
+#endif
+out:
+	TALLOC_FREE(frame);
+}
 
 static void msg_req_dmalloc_log_changed(struct messaging_context *msg,
 					void *private_data,
@@ -65,6 +91,32 @@ static void msg_req_dmalloc_log_changed(struct messaging_context *msg,
 #endif
 }
 
+static void msg_req_dmalloc_log_changed_v1(struct messaging_context *msg,
+					   void *private_data,
+					   uint32_t msg_type,
+					   struct server_id server_id,
+					   DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_dmalloc_log_changed_v1 req = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_req_dmalloc_log_changed_v1_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(2, ("Invalid req_dmalloc_log_changed message: %s\n",
+			  ndr_errstr(ndr_err)));
+		goto out;
+	}
+
+#ifdef ENABLE_DMALLOC
+	dmalloc_log_changed(our_dm_mark, True, True, True);
+	DEBUG(2,("Got MSG_REQ_DMALLOC_LOG_CHANGED: done\n"));
+#else
+	DEBUG(2,("Got MSG_REQ_DMALLOC_LOG_CHANGED but dmalloc not in this process\n"));
+#endif
+out:
+	TALLOC_FREE(frame);
+}
 
 /**
  * Register handler for MSG_REQ_POOL_USAGE
@@ -73,7 +125,15 @@ void register_dmalloc_msgs(struct messaging_context *msg_ctx)
 {
 	messaging_register(msg_ctx, NULL, MSG_REQ_DMALLOC_MARK,
 			   msg_req_dmalloc_mark);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_REQ_DMALLOC_MARK_V1,
+			   msg_req_dmalloc_mark_v1);
 	messaging_register(msg_ctx, NULL, MSG_REQ_DMALLOC_LOG_CHANGED,
 			   msg_req_dmalloc_log_changed);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_REQ_DMALLOC_LOG_CHANGED_V1,
+			   msg_req_dmalloc_log_changed_v1);
 	DEBUG(2, ("Registered MSG_REQ_DMALLOC_MARK and LOG_CHANGED\n"));
-}	
+}
