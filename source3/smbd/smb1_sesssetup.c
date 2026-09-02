@@ -30,12 +30,15 @@
 #include "source3/smbd/smbXsrv_session.h"
 #include "auth.h"
 #include "messages.h"
+#include "messages_send.h"
 #include "smbprofile.h"
 #include "../libcli/security/security.h"
 #include "auth/gensec/gensec.h"
 #include "../libcli/smb/smb_signing.h"
 #include "lib/util/string_wrappers.h"
 #include "source3/lib/substitute.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 
 /****************************************************************************
  Add the standard 'Samba' signature to the end of the session setup.
@@ -540,7 +543,7 @@ static int shutdown_other_smbds(struct smbXsrv_session_global *session,
 		  "(IP %s)\n", (unsigned int)procid_to_pid(&pid),
 		  state->ip));
 
-	messaging_send(state->msg_ctx, pid, MSG_SHUTDOWN, NULL);
+	messaging_send_shutdown(state->msg_ctx, pid);
 	return 0;
 }
 

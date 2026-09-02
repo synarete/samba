@@ -1286,7 +1286,7 @@ static bool do_shutdown(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_SHUTDOWN, NULL, 0);
+	return NT_STATUS_IS_OK(messaging_send_shutdown(msg_ctx, pid));
 }
 
 /* Notify a driver upgrade */
