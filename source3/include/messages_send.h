@@ -48,4 +48,7 @@ NTSTATUS messaging_send_profile(struct messaging_context *msg_ctx,
 NTSTATUS messaging_send_req_profilelevel(struct messaging_context *msg_ctx,
 					 struct server_id dst);
 
+NTSTATUS messaging_send_ping(struct messaging_context *msg_ctx,
+			     struct server_id dst);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
