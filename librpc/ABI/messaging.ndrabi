@@ -20,6 +20,8 @@ root messaging_profilelevel
 root messaging_ping_version_values
 root messaging_ping
 root messaging_pong
+root messaging_shutdown_version_values
+root messaging_shutdown
 root messaging_rec
 root messaging_reclog
 root messaging_hdr
@@ -156,6 +158,24 @@ struct messaging_req_profilelevel align(4) {
 	[value(0)] scalar:uint32	# reserved
 }
 
+struct messaging_shutdown align(4) {
+	[value(MESSAGING_SHUTDOWN_VERSION_1)] enum:messaging_shutdown_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_shutdownU	# info
+}
+
+union messaging_shutdownU align(1) switch_type(enum:messaging_shutdown_version_values) {
+	case(MESSAGING_SHUTDOWN_VERSION_1): struct:messaging_shutdown_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_shutdown_v1 align(1) {
+}
+
+enum messaging_shutdown_version_values base(uint32) {
+	0x00000001	# MESSAGING_SHUTDOWN_VERSION_1
+}
+
 enum messaging_type base(uint32) {
 	0x0001	# MSG_DEBUG
 	0x1001	# MSG_DEBUG_V1
@@ -177,6 +197,7 @@ enum messaging_type base(uint32) {
 	0x000B	# MSG_REQ_DMALLOC_MARK
 	0x000C	# MSG_REQ_DMALLOC_LOG_CHANGED
 	0x000D	# MSG_SHUTDOWN
+	0x100D	# MSG_SHUTDOWN_V1
 	0x000F	# ID_CACHE_DELETE
 	0x0010	# ID_CACHE_KILL
 	0x0021	# MSG_SMB_CONF_UPDATED
@@ -329,6 +350,15 @@ sample messaging_pong length(8) {
 #	    messaging_pong: struct messaging_pong
 #	        version                  : MESSAGING_PING_VERSION_1 (1)
 #	        reserved                 : 0x00000000 (0)
+
+sample messaging_shutdown length(12) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00
+}
+#	    messaging_shutdown: struct messaging_shutdown
+#	        version                  : MESSAGING_SHUTDOWN_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_shutdownU(case 1)
+#	        info1: struct messaging_shutdown_v1
 
 sample messaging_rec length(84) {
 	[0000] 01 02 03 04 02 03 04 05  03 04 05 06 07 08 09 0a
