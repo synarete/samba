@@ -499,11 +499,40 @@ static void pong_cb(struct messaging_context *msg,
 	num_replies++;
 }
 
+static void pong_cb_v1(struct messaging_context *msg,
+		       void *private_data,
+		       uint32_t msg_type,
+		       struct server_id pid,
+		       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_pong pong = {};
+	enum ndr_err_code ndr_err;
+	struct server_id_buf src_string;
+
+	ndr_err = messaging_pong_pull(frame, data, &pong);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_PONG from pid %s: %s\n",
+			    server_id_str_buf(pid, &src_string),
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	printf("PONG from pid %s\n", server_id_str_buf(pid, &src_string));
+	num_replies++;
+out:
+	TALLOC_FREE(frame);
+}
+
 static bool do_ping(struct tevent_context *ev_ctx,
 		    struct messaging_context *msg_ctx,
 		    const struct server_id pid,
 		    const int argc, const char **argv)
 {
+	const bool v1 = messaging_use_ndr_v1();
+	const uint32_t pong_type = v1 ? MSG_PONG_V1 : MSG_PONG;
+	NTSTATUS status;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> ping\n");
 		return False;
@@ -511,10 +540,15 @@ static bool do_ping(struct tevent_context *ev_ctx,
 
 	/* Send a message and register our interest in a reply */
 
-	if (!send_message(msg_ctx, pid, MSG_PING, NULL, 0))
+	status = messaging_send_ping(msg_ctx, pid);
+	if (!NT_STATUS_IS_OK(status))
 		return False;
 
-	messaging_register(msg_ctx, NULL, MSG_PONG, pong_cb);
+	if (v1) {
+		messaging_register(msg_ctx, NULL, pong_type, pong_cb_v1);
+	} else {
+		messaging_register(msg_ctx, NULL, pong_type, pong_cb);
+	}
 
 	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
 
@@ -523,7 +557,7 @@ static bool do_ping(struct tevent_context *ev_ctx,
 	if (num_replies == 0)
 		printf("No replies received\n");
 
-	messaging_deregister(msg_ctx, MSG_PONG, NULL);
+	messaging_deregister(msg_ctx, pong_type, NULL);
 
 	return num_replies;
 }
