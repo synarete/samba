@@ -22,6 +22,7 @@ bld.SAMBA3_BINARY('notifyd-tests',
                   install=False,
                   deps='''
                        smbconf
+                       NDR_MESSAGING
                   ''')
 
 bld.SAMBA3_BINARY('notifydd',

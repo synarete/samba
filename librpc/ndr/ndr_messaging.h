@@ -79,4 +79,21 @@ enum ndr_err_code messaging_profilelevel_pull(
 	const DATA_BLOB *blob,
 	struct messaging_profilelevel *msg);
 
+enum ndr_err_code messaging_ping_push_v1(TALLOC_CTX *mem_ctx,
+					 struct messaging_ping *msg,
+					 const char *payload,
+					 DATA_BLOB *blob);
+
+enum ndr_err_code messaging_ping_pull(TALLOC_CTX *mem_ctx,
+				      const DATA_BLOB *blob,
+				      struct messaging_ping *msg);
+
+enum ndr_err_code messaging_pong_push_v1(TALLOC_CTX *mem_ctx,
+					 struct messaging_pong *msg,
+					 DATA_BLOB *blob);
+
+enum ndr_err_code messaging_pong_pull(TALLOC_CTX *mem_ctx,
+				      const DATA_BLOB *blob,
+				      struct messaging_pong *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */

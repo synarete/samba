@@ -3,6 +3,7 @@
 bld.SAMBA_SUBSYSTEM(
     'audit_logging',
     deps='''MESSAGING_SEND
+            NDR_MESSAGING
             jansson
             samba-debug
             LIBTSOCKET

@@ -233,3 +233,74 @@ enum ndr_err_code messaging_profilelevel_pull(
 
 	return NDR_ERR_SUCCESS;
 }
+
+enum ndr_err_code messaging_ping_push_v1(TALLOC_CTX *mem_ctx,
+					 struct messaging_ping *msg,
+					 const char *payload,
+					 DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_PING_VERSION_1;
+	msg->info.info1.payload = payload;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_ping);
+}
+
+enum ndr_err_code messaging_ping_pull(TALLOC_CTX *mem_ctx,
+				      const DATA_BLOB *blob,
+				      struct messaging_ping *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(blob,
+				       mem_ctx,
+				       msg,
+				       (ndr_pull_flags_fn_t)
+					       ndr_pull_messaging_ping);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_PING_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_pong_push_v1(TALLOC_CTX *mem_ctx,
+					 struct messaging_pong *msg,
+					 DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_PING_VERSION_1;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_pong);
+}
+
+enum ndr_err_code messaging_pong_pull(TALLOC_CTX *mem_ctx,
+				      const DATA_BLOB *blob,
+				      struct messaging_pong *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(blob,
+				       mem_ctx,
+				       msg,
+				       (ndr_pull_flags_fn_t)
+					       ndr_pull_messaging_pong);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_PING_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
