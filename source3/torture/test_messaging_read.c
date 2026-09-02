@@ -21,6 +21,7 @@
 #include "torture/proto.h"
 #include "lib/util/tevent_unix.h"
 #include "messages.h"
+#include "messages_send.h"
 
 struct msg_count_state {
 	struct tevent_context *ev;
@@ -261,6 +262,7 @@ static struct tevent_req *msg_pingpong_send(TALLOC_CTX *mem_ctx,
 {
 	struct tevent_req *req, *subreq;
 	struct msg_pingpong_state *state;
+	uint32_t pong_msg_type;
 	NTSTATUS status;
 
 	req = tevent_req_create(mem_ctx, &state, struct msg_pingpong_state);
@@ -277,14 +279,17 @@ static struct tevent_req *msg_pingpong_send(TALLOC_CTX *mem_ctx,
 		return tevent_req_post(req, ev);
 	}
 
-	status = messaging_send_buf(state->msg_ctx, dst, MSG_PING, NULL, 0);
+	pong_msg_type = messaging_use_ndr_v1() ? MSG_PONG_V1 : MSG_PONG;
+
+	status = messaging_send_ping(state->msg_ctx, dst);
 	if (!NT_STATUS_IS_OK(status)) {
-		DBG_DEBUG("messaging_send_buf failed: %s\n", nt_errstr(status));
+		DBG_DEBUG("messaging_send_ping failed: %s\n",
+			  nt_errstr(status));
 		tevent_req_error(req, map_errno_from_nt_status(status));
 		return tevent_req_post(req, ev);
 	}
 
-	subreq = messaging_read_send(state, ev, state->msg_ctx, MSG_PONG);
+	subreq = messaging_read_send(state, ev, state->msg_ctx, pong_msg_type);
 	if (tevent_req_nomem(subreq, req)) {
 		return tevent_req_post(req, ev);
 	}
