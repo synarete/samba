@@ -19,7 +19,9 @@ interface messaging
 		MSG_DEBUG			= 0x0001,
 		MSG_DEBUG_V1			= 0x1001,
 		MSG_PING			= 0x0002,
+		MSG_PING_V1			= 0x1002,
 		MSG_PONG			= 0x0003,
+		MSG_PONG_V1			= 0x1003,
 		MSG_PROFILE			= 0x0004,
 		MSG_PROFILE_V1			= 0x1004,
 		MSG_REQ_DEBUGLEVEL		= 0x0005,
@@ -287,6 +289,31 @@ interface messaging
 		[value(0)] uint32                     reserved;
 		[switch_is(version)] messaging_profilelevelU info;
 	} messaging_profilelevel;
+
+	/* MSG_PING / MSG_PONG */
+	typedef [public, v1_enum] enum {
+		MESSAGING_PING_VERSION_1 = 0x00000001
+	} messaging_ping_version_values;
+
+	typedef struct {
+		utf8string payload;
+	} messaging_ping_v1;
+
+	typedef [switch_type(messaging_ping_version_values)] union {
+		[case(MESSAGING_PING_VERSION_1)] messaging_ping_v1 info1;
+		[default] ;
+	} messaging_pingU;
+
+	typedef [public] struct {
+		messaging_ping_version_values version;
+		[value(0)] uint32             reserved;
+		[switch_is(version)] messaging_pingU info;
+	} messaging_ping;
+
+	typedef [public] struct {
+		messaging_ping_version_values version;
+		[value(0)] uint32             reserved;
+	} messaging_pong;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 
