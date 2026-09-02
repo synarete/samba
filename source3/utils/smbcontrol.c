@@ -1198,6 +1198,33 @@ static bool do_ip_dropped(struct tevent_context *ev_ctx,
 
 /* Display talloc pool usage */
 
+static bool do_poolusage_v1(struct messaging_context *msg_ctx,
+			    const struct server_id dst)
+{
+	TALLOC_CTX *frame = NULL;
+	struct iovec iov;
+	struct messaging_req_pool_usage_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	int stdout_fd = 1;
+	bool ok = false;
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_req_pool_usage_v1_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	iov.iov_base = blob.data;
+	iov.iov_len = blob.length;
+	messaging_send_iov(
+		msg_ctx, dst, MSG_REQ_POOL_USAGE_V1, &iov, 1, &stdout_fd, 1);
+	ok = true;
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_poolusage(struct tevent_context *ev_ctx,
 			 struct messaging_context *msg_ctx,
 			 const struct server_id dst,
@@ -1214,6 +1241,10 @@ static bool do_poolusage(struct tevent_context *ev_ctx,
 	if (pid == 0) {
 		fprintf(stderr, "Can only send to a specific PID\n");
 		return false;
+	}
+
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_poolusage_v1(msg_ctx, dst);
 	}
 
 	messaging_send_iov(

@@ -33,6 +33,7 @@ interface messaging
 		MSG_PROFILELEVEL		= 0x0008,
 		MSG_PROFILELEVEL_V1		= 0x1008,
 		MSG_REQ_POOL_USAGE		= 0x0009,
+		MSG_REQ_POOL_USAGE_V1		= 0x1009,
 		/* MSG_POOL_USAGE		= 0x000A,  Obsoleted */
 
 		/* If dmalloc is included, set a steady-state mark */
@@ -260,6 +261,18 @@ interface messaging
 		messaging_profilelevel_version_values version;
 		uint32 level;
 	} messaging_profilelevel_v1;
+
+	/* MSG_REQ_POOL_USAGE */
+	typedef [public, v1_enum] enum {
+		MESSAGING_REQ_POOL_USAGE_VERSION_1 = 0x00000001
+	} messaging_req_pool_usage_version_values;
+
+	const uint32 MESSAGING_REQ_POOL_USAGE_VERSION_CURRENT =
+		MESSAGING_REQ_POOL_USAGE_VERSION_1;
+
+	typedef [public] struct {
+		messaging_req_pool_usage_version_values version;
+	} messaging_req_pool_usage_v1;
 
 	/* MSG_PING / MSG_PONG */
 	typedef [public, v1_enum] enum {
