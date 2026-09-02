@@ -80,6 +80,7 @@ bld.SAMBA3_BINARY('smbtorture' + bld.env.suffix3,
                       util_sd
                       TDB_VALIDATE
                       nterr-string-to-code
+                      NDR_MESSAGING
                       ''',
                  cflags='-DWINBINDD_SOCKET_DIR=\"%s\"' % bld.env.WINBINDD_SOCKET_DIR,
                  for_selftest=True)
@@ -89,6 +90,7 @@ bld.SAMBA3_BINARY('msgtest',
                  deps='''
                       talloc
                       smbconf
+                      NDR_MESSAGING
                       ''',
                  install=False)
 
