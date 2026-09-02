@@ -829,6 +829,233 @@ static void test_ndr_messaging_profilelevel_bad_version(void **state)
 	talloc_free(mem_ctx);
 }
 
+/* MSG_PING / MSG_PONG */
+/*
+ * Wire encoding of messaging_ping with payload = "ping-payload":
+ *
+ *   01 00 00 00  - version (MESSAGING_PING_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (version repeated inside union, uint32
+ * LE) 70 69 6e 67  - "ping" (UTF-8) 2d 70 61 79  - "-pay" 6c 6f 61 64  -
+ * "load" 00           - "\0" (no trailing padding; utf8string is not aligned)
+ */
+static const uint8_t ping_blob_payload[] = {
+	0x01, 0x00, 0x00, 0x00, /* version */
+	0x00, 0x00, 0x00, 0x00, /* reserved */
+	0x01, 0x00, 0x00, 0x00, /* union discriminant */
+	0x70, 0x69, 0x6e, 0x67, /* "ping" */
+	0x2d, 0x70, 0x61, 0x79, /* "-pay" */
+	0x6c, 0x6f, 0x61, 0x64, /* "load" */
+	0x00,			/* "\0" */
+};
+
+/*
+ * Wire encoding of messaging_ping with payload = "":
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   00           - "\0"
+ */
+static const uint8_t ping_blob_empty[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x00, /* "\0" */
+};
+
+/*
+ * Wire encoding of messaging_pong:
+ *
+ *   01 00 00 00  - version (MESSAGING_PING_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ */
+static const uint8_t pong_blob[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+};
+
+static void test_ndr_messaging_ping_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_ping msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, ping_blob_payload),
+		.length = sizeof(ping_blob_payload),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_ping_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_PING_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_string_equal("ping-payload", msg.info.info1.payload);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_ping_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_ping msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, ping_blob_payload),
+		.length = sizeof(ping_blob_payload),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_ping_push(mem_ctx, &msg, "ping-payload", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_ping_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_ping orig = {};
+	struct messaging_ping decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_ping_push(mem_ctx, &orig, "", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded empty ping blob must match the reference vector. */
+	assert_int_equal(sizeof(ping_blob_empty), blob.length);
+	assert_memory_equal(ping_blob_empty,
+			    blob.data,
+			    sizeof(ping_blob_empty));
+
+	err = messaging_ping_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_PING_VERSION_1, decoded.version);
+	assert_string_equal("", decoded.info.info1.payload);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_ping_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_ping msg = {};
+	/*
+	 * Same layout as ping_blob_empty but with version = 0x00000002
+	 * (an unknown version value).
+	 */
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x00, /* payload = "" */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_ping_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_pong_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_pong msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, pong_blob),
+		.length = sizeof(pong_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_pong_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_PING_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_pong_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_pong msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, pong_blob),
+		.length = sizeof(pong_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_pong_push(mem_ctx, &msg, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_pong_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_pong msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_pong_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -856,6 +1083,13 @@ int main(void)
 		cmocka_unit_test(test_ndr_messaging_profilelevel_push),
 		cmocka_unit_test(test_ndr_messaging_profilelevel_roundtrip),
 		cmocka_unit_test(test_ndr_messaging_profilelevel_bad_version),
+		cmocka_unit_test(test_ndr_messaging_ping_pull),
+		cmocka_unit_test(test_ndr_messaging_ping_push),
+		cmocka_unit_test(test_ndr_messaging_ping_roundtrip),
+		cmocka_unit_test(test_ndr_messaging_ping_bad_version),
+		cmocka_unit_test(test_ndr_messaging_pong_pull),
+		cmocka_unit_test(test_ndr_messaging_pong_push),
+		cmocka_unit_test(test_ndr_messaging_pong_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);
