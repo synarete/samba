@@ -23,6 +23,76 @@
 #include "librpc/gen_ndr/ndr_messaging.h"
 #include "librpc/ndr/ndr_messaging.h"
 
+enum ndr_err_code messaging_ping_v1_push(TALLOC_CTX *mem_ctx,
+					 struct messaging_ping_v1 *msg,
+					 const char *payload,
+					 DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_PING_VERSION_CURRENT;
+	msg->payload = payload;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_ping_v1);
+}
+
+enum ndr_err_code messaging_ping_v1_pull(TALLOC_CTX *mem_ctx,
+					 const DATA_BLOB *blob,
+					 struct messaging_ping_v1 *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(blob,
+				       mem_ctx,
+				       msg,
+				       (ndr_pull_flags_fn_t)
+					       ndr_pull_messaging_ping_v1);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_PING_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_pong_v1_push(TALLOC_CTX *mem_ctx,
+					 struct messaging_pong_v1 *msg,
+					 DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_PING_VERSION_CURRENT;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_pong_v1);
+}
+
+enum ndr_err_code messaging_pong_v1_pull(TALLOC_CTX *mem_ctx,
+					 const DATA_BLOB *blob,
+					 struct messaging_pong_v1 *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(blob,
+				       mem_ctx,
+				       msg,
+				       (ndr_pull_flags_fn_t)
+					       ndr_pull_messaging_pong_v1);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_PING_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_debug_v1_push(TALLOC_CTX *mem_ctx,
 					  struct messaging_debug_v1 *msg,
 					  DATA_BLOB *blob)

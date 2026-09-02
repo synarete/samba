@@ -21,6 +21,7 @@
 #include "torture/proto.h"
 #include "lib/util/tevent_unix.h"
 #include "messages.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "lib/async_req/async_sock.h"
 #include "lib/util/sys_rw.h"
 
@@ -129,7 +130,10 @@ static struct tevent_req *collect_pong_send(TALLOC_CTX *mem_ctx,
 	state->ev = ev;
 	state->msg = msg;
 
-	subreq = messaging_read_send(state, state->ev, state->msg, MSG_PONG);
+	subreq = messaging_read_send(state,
+				     state->ev,
+				     state->msg,
+				     MSG_PONG_V1);
 	if (tevent_req_nomem(subreq, req)) {
 		return tevent_req_post(req, ev);
 	}
@@ -179,7 +183,10 @@ static void collect_pong_received(struct tevent_req *subreq)
 		return;
 	}
 
-	subreq = messaging_read_send(state, state->ev, state->msg, MSG_PONG);
+	subreq = messaging_read_send(state,
+				     state->ev,
+				     state->msg,
+				     MSG_PONG_V1);
 	if (tevent_req_nomem(subreq, req)) {
 		return;
 	}
@@ -200,6 +207,9 @@ bool run_messaging_send_all(int dummy)
 	int exit_pipe[2];
 	pid_t children[MAX(5, torture_nprocs)];
 	struct tevent_req *req;
+	struct messaging_ping_v1 ping = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
 	size_t i;
 	bool ok;
 	int ret, err;
@@ -242,7 +252,13 @@ bool run_messaging_send_all(int dummy)
 		return false;
 	}
 
-	messaging_send_all(msg_ctx, MSG_PING, NULL, 0);
+	ndr_err = messaging_ping_v1_push(ev, &ping, "", &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr, "messaging_ping_v1_push failed\n");
+		return false;
+	}
+
+	messaging_send_all(msg_ctx, MSG_PING_V1, blob.data, blob.length);
 
 	ok = tevent_req_poll_unix(req, ev, &err);
 	if (!ok) {

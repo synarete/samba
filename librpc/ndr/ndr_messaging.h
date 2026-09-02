@@ -24,6 +24,23 @@
 
 #include "librpc/gen_ndr/messaging.h"
 
+enum ndr_err_code messaging_ping_v1_push(TALLOC_CTX *mem_ctx,
+					 struct messaging_ping_v1 *msg,
+					 const char *payload,
+					 DATA_BLOB *blob);
+
+enum ndr_err_code messaging_ping_v1_pull(TALLOC_CTX *mem_ctx,
+					 const DATA_BLOB *blob,
+					 struct messaging_ping_v1 *msg);
+
+enum ndr_err_code messaging_pong_v1_push(TALLOC_CTX *mem_ctx,
+					 struct messaging_pong_v1 *msg,
+					 DATA_BLOB *blob);
+
+enum ndr_err_code messaging_pong_v1_pull(TALLOC_CTX *mem_ctx,
+					 const DATA_BLOB *blob,
+					 struct messaging_pong_v1 *msg);
+
 enum ndr_err_code messaging_debug_v1_push(TALLOC_CTX *mem_ctx,
 					  struct messaging_debug_v1 *msg,
 					  DATA_BLOB *blob);

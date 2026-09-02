@@ -104,6 +104,46 @@ static void ping_message(struct imessaging_context *msg,
 	imessaging_send(msg, src, MSG_PONG, data);
 }
 
+static void ping_message_v1(struct imessaging_context *msg,
+			    void *private_data,
+			    uint32_t msg_type,
+			    struct server_id src,
+			    size_t num_fds,
+			    int *fds,
+			    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_ping_v1 ping = {};
+	struct messaging_pong_v1 pong = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	struct server_id_buf idbuf;
+
+	if (num_fds != 0) {
+		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
+		goto out;
+	}
+
+	ndr_err = messaging_ping_v1_pull(frame, data, &ping);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_PING_V1 from server %s: %s\n",
+			    server_id_str_buf(src, &idbuf),
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	DEBUG(1, ("INFO: Received PING message from server %s\n",
+		  server_id_str_buf(src, &idbuf)));
+
+	ndr_err = messaging_pong_v1_push(frame, &pong, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+	imessaging_send(msg, src, MSG_PONG_V1, &blob);
+out:
+	TALLOC_FREE(frame);
+}
+
 static void pool_message(struct imessaging_context *msg,
 			 void *private_data,
 			 uint32_t msg_type,
@@ -641,6 +681,10 @@ static struct imessaging_context *imessaging_init_internal(
 	}
 
 	status = imessaging_register(msg, NULL, MSG_PING, ping_message);
+	if (!NT_STATUS_IS_OK(status)) {
+		goto fail;
+	}
+	status = imessaging_register(msg, NULL, MSG_PING_V1, ping_message_v1);
 	if (!NT_STATUS_IS_OK(status)) {
 		goto fail;
 	}
