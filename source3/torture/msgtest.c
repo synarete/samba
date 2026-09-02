@@ -22,6 +22,8 @@
 
 #include "includes.h"
 #include "messages.h"
+#include "messages_send.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 static int pong_count;
 
@@ -30,21 +32,25 @@ static int pong_count;
 a useful function for testing the message system
 ****************************************************************************/
 static void pong_message(struct messaging_context *msg_ctx,
-			 void *private_data, 
-			 uint32_t msg_type, 
+			 void *private_data,
+			 uint32_t msg_type,
 			 struct server_id pid,
 			 DATA_BLOB *data)
 {
 	pong_count++;
 }
 
- int main(int argc, char *argv[])
+int main(int argc, char *argv[])
 {
 	struct tevent_context *evt_ctx;
 	struct messaging_context *msg_ctx;
+	struct messaging_ping ping = {};
+	DATA_BLOB blob = data_blob_null;
+	DATA_BLOB blob_payload = data_blob_null;
+	uint32_t ping_msg_type;
+	enum ndr_err_code ndr_err;
 	pid_t pid;
 	int i, n;
-	char buf[12];
 	int ret;
 	TALLOC_CTX *frame = talloc_stackframe();
 
@@ -72,9 +78,38 @@ static void pong_message(struct messaging_context *msg_ctx,
 	n = atoi(argv[2]);
 
 	messaging_register(msg_ctx, NULL, MSG_PONG, pong_message);
+	messaging_register(msg_ctx, NULL, MSG_PONG_V1, pong_message);
 
-	for (i=0;i<n;i++) {
-		messaging_send(msg_ctx, pid_to_procid(pid), MSG_PING, NULL);
+	if (messaging_use_ndr_v1()) {
+		ping_msg_type = MSG_PING_V1;
+		ndr_err = messaging_ping_push(frame, &ping, "", &blob);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			fprintf(stderr, "messaging_ping_push failed\n");
+			TALLOC_FREE(frame);
+			exit(1);
+		}
+
+		ndr_err = messaging_ping_push(frame,
+					      &ping,
+					      "1234567890",
+					      &blob_payload);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			fprintf(stderr, "messaging_ping_push failed\n");
+			TALLOC_FREE(frame);
+			exit(1);
+		}
+	} else {
+		ping_msg_type = MSG_PING;
+		blob = data_blob_null;
+		blob_payload = data_blob_string_const_null("1234567890");
+	}
+
+	for (i = 0; i < n; i++) {
+		messaging_send_buf(msg_ctx,
+				   pid_to_procid(pid),
+				   ping_msg_type,
+				   blob.data,
+				   blob.length);
 	}
 
 	while (pong_count < i) {
@@ -87,15 +122,17 @@ static void pong_message(struct messaging_context *msg_ctx,
 	/* Ensure all messages get through to ourselves. */
 	pong_count = 0;
 
-	strlcpy(buf, "1234567890", sizeof(buf));
-
-	for (i=0;i<n;i++) {
-		messaging_send(msg_ctx,
-			       messaging_server_id(msg_ctx),
-			       MSG_PING,
-			       NULL);
-		messaging_send_buf(msg_ctx, messaging_server_id(msg_ctx),
-				   MSG_PING,(uint8_t *)buf, 11);
+	for (i = 0; i < n; i++) {
+		messaging_send_buf(msg_ctx,
+				   messaging_server_id(msg_ctx),
+				   ping_msg_type,
+				   blob.data,
+				   blob.length);
+		messaging_send_buf(msg_ctx,
+				   messaging_server_id(msg_ctx),
+				   ping_msg_type,
+				   blob_payload.data,
+				   blob_payload.length);
 	}
 
 	/*
@@ -129,16 +166,20 @@ static void pong_message(struct messaging_context *msg_ctx,
 		size_t ping_count = 0;
 
 		printf("Sending pings for %d seconds\n", (int)timelimit);
-		while (timeval_elapsed(&tv) < timelimit) {		
-			if(NT_STATUS_IS_OK(messaging_send_buf(
-						   msg_ctx, pid_to_procid(pid),
-						   MSG_PING,
-						   (uint8_t *)buf, 11)))
-			   ping_count++;
-			if (NT_STATUS_IS_OK(messaging_send(msg_ctx,
-							   pid_to_procid(pid),
-							   MSG_PING,
-							   NULL)))
+		while (timeval_elapsed(&tv) < timelimit) {
+			if (NT_STATUS_IS_OK(
+				    messaging_send_buf(msg_ctx,
+						       pid_to_procid(pid),
+						       ping_msg_type,
+						       blob_payload.data,
+						       blob_payload.length)))
+				ping_count++;
+			if (NT_STATUS_IS_OK(
+				    messaging_send_buf(msg_ctx,
+						       pid_to_procid(pid),
+						       ping_msg_type,
+						       blob.data,
+						       blob.length)))
 				ping_count++;
 
 			while (ping_count > pong_count + 20) {
