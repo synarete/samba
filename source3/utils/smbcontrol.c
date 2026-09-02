@@ -1424,6 +1424,28 @@ static bool do_msg_cleanup(struct tevent_context *ev_ctx,
 
 /* Shutdown a server process */
 
+static bool do_shutdown_v1(struct messaging_context *msg_ctx,
+			   const struct server_id pid)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_shutdown msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_shutdown_push_v1(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_SHUTDOWN_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_shutdown(struct tevent_context *ev_ctx,
 			struct messaging_context *msg_ctx,
 			const struct server_id pid,
@@ -1432,6 +1454,10 @@ static bool do_shutdown(struct tevent_context *ev_ctx,
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> shutdown\n");
 		return False;
+	}
+
+	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		return do_shutdown_v1(msg_ctx, pid);
 	}
 
 	return send_message(msg_ctx, pid, MSG_SHUTDOWN, NULL, 0);

@@ -42,6 +42,7 @@ interface messaging
 		 * what has changed since the last MARK */
 		MSG_REQ_DMALLOC_LOG_CHANGED	= 0x000C,
 		MSG_SHUTDOWN			= 0x000D,
+		MSG_SHUTDOWN_V1			= 0x100D,
 
 		/* ID_CACHE_FLUSH		= 0x000E,  Obsoleted */
 		ID_CACHE_DELETE			= 0x000F,
@@ -314,6 +315,25 @@ interface messaging
 		messaging_ping_version_values version;
 		[value(0)] uint32             reserved;
 	} messaging_pong;
+
+	/* MSG_SHUTDOWN */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SHUTDOWN_VERSION_1 = 0x00000001
+	} messaging_shutdown_version_values;
+
+	typedef struct {
+	} messaging_shutdown_v1;
+
+	typedef [switch_type(messaging_shutdown_version_values)] union {
+		[case(MESSAGING_SHUTDOWN_VERSION_1)] messaging_shutdown_v1 info1;
+		[default] ;
+	} messaging_shutdownU;
+
+	typedef [public] struct {
+		messaging_shutdown_version_values version;
+		[value(0)] uint32                 reserved;
+		[switch_is(version)] messaging_shutdownU info;
+	} messaging_shutdown;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 
