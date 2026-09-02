@@ -62,4 +62,11 @@ NTSTATUS messaging_send_profilelevel_legacy(struct messaging_context *msg_ctx,
 					    struct server_id dst,
 					    int level);
 
+NTSTATUS messaging_send_ping(struct messaging_context *msg_ctx,
+			     struct server_id dst);
+NTSTATUS messaging_send_ping_v1(struct messaging_context *msg_ctx,
+				struct server_id dst);
+NTSTATUS messaging_send_ping_legacy(struct messaging_context *msg_ctx,
+				    struct server_id dst);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */

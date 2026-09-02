@@ -20,6 +20,7 @@
 #include "replace.h"
 #include "notifyd.h"
 #include "messages.h"
+#include "messages_send.h"
 #include "lib/util/server_id_db.h"
 
 int main(int argc, const char *argv[])
@@ -30,6 +31,8 @@ int main(int argc, const char *argv[])
 	struct server_id_db *names;
 	struct server_id notifyd;
 	struct tevent_req *req;
+	uint32_t pong_msg_type;
+	NTSTATUS status;
 	unsigned i;
 	bool ok;
 
@@ -70,7 +73,6 @@ int main(int argc, const char *argv[])
 		char path[64];
 		size_t len;
 		struct iovec iov[2];
-		NTSTATUS status;
 
 		len = snprintf(path, sizeof(path), "/tmp%u", i);
 
@@ -104,12 +106,21 @@ int main(int argc, const char *argv[])
 		}
 	}
 
-	req = messaging_read_send(ev, ev, msg_ctx, MSG_PONG);
+	pong_msg_type = messaging_use_ndr_v1() ? MSG_PONG_V1 : MSG_PONG;
+
+	req = messaging_read_send(ev, ev, msg_ctx, pong_msg_type);
 	if (req == NULL) {
 		fprintf(stderr, "messaging_read_send failed\n");
 		exit(1);
 	}
-	messaging_send_buf(msg_ctx, notifyd, MSG_PING, NULL, 0);
+
+	status = messaging_send_ping(msg_ctx, notifyd);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr,
+			"messaging_send_ping failed: %s\n",
+			nt_errstr(status));
+		exit(1);
+	}
 
 	ok = tevent_req_poll(req, ev);
 	if (!ok) {
