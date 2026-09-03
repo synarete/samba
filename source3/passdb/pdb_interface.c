@@ -33,6 +33,7 @@
 #include "../lib/util/memcache.h"
 #include "nsswitch/winbind_client.h"
 #include "../libcli/security/security.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "../lib/util/util_pw.h"
 #include "passdb/pdb_secrets.h"
 #include "lib/util_sid_passdb.h"
@@ -625,6 +626,27 @@ static NTSTATUS pdb_default_delete_user(struct pdb_methods *methods,
 	return status;
 }
 
+static void pdb_delete_user_id_cache_v1(struct messaging_context *msg_ctx,
+					const char *msg_data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_id_cache_delete_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_id_cache_delete_v1_push(frame,
+						    &msg,
+						    msg_data,
+						    &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send_all(msg_ctx,
+				   ID_CACHE_DELETE_V1,
+				   blob.data,
+				   blob.length);
+	}
+	TALLOC_FREE(frame);
+}
+
 NTSTATUS pdb_delete_user(TALLOC_CTX *mem_ctx, struct samu *sam_acct)
 {
 	struct pdb_methods *pdb = pdb_get_methods();
@@ -661,10 +683,15 @@ NTSTATUS pdb_delete_user(TALLOC_CTX *mem_ctx, struct samu *sam_acct)
 		 * just return */
 		return status;
 	}
-	messaging_send_all(global_messaging_context(),
-			   ID_CACHE_DELETE,
-			   msg_data,
-			   strlen(msg_data) + 1);
+	if (messaging_has_cluster_level_upgraded(global_messaging_context())) {
+		pdb_delete_user_id_cache_v1(global_messaging_context(),
+					    msg_data);
+	} else {
+		messaging_send_all(global_messaging_context(),
+				   ID_CACHE_DELETE,
+				   msg_data,
+				   strlen(msg_data) + 1);
+	}
 
 	TALLOC_FREE(msg_data);
 	return status;

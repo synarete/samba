@@ -381,6 +381,38 @@ static void smbd_parent_id_cache_kill(struct messaging_context *msg_ctx,
 	messaging_send_to_children(msg_ctx, msg_type, data);
 }
 
+static void smbd_parent_id_cache_kill_v1(struct messaging_context *msg_ctx,
+					 void *private_data,
+					 uint32_t msg_type,
+					 struct server_id server_id,
+					 DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_id_cache_kill_v1 msg = {};
+	enum ndr_err_code ndr_err;
+	struct server_id_buf idbuf;
+	struct id_cache_ref id;
+
+	ndr_err = messaging_id_cache_kill_v1_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid ID_CACHE_KILL_V1 from %s: %s\n",
+			    server_id_str_buf(server_id, &idbuf),
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	if (!id_cache_ref_parse(msg.id, &id)) {
+		DEBUG(0, ("Invalid ?ID: %s\n", msg.id));
+		goto out;
+	}
+
+	id_cache_delete_from_cache(&id);
+
+	messaging_send_to_children(msg_ctx, msg_type, data);
+out:
+	TALLOC_FREE(frame);
+}
+
 static void smbd_parent_id_cache_delete(struct messaging_context *ctx,
 					void* data,
 					uint32_t msg_type,
@@ -388,6 +420,17 @@ static void smbd_parent_id_cache_delete(struct messaging_context *ctx,
 					DATA_BLOB* msg_data)
 {
 	id_cache_delete_message(ctx, data, msg_type, srv_id, msg_data);
+
+	messaging_send_to_children(ctx, msg_type, msg_data);
+}
+
+static void smbd_parent_id_cache_delete_v1(struct messaging_context *ctx,
+					   void *data,
+					   uint32_t msg_type,
+					   struct server_id srv_id,
+					   DATA_BLOB *msg_data)
+{
+	id_cache_delete_message_v1(ctx, data, msg_type, srv_id, msg_data);
 
 	messaging_send_to_children(ctx, msg_type, msg_data);
 }
@@ -1699,8 +1742,16 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 
 	messaging_register(msg_ctx, NULL,
 			   ID_CACHE_DELETE, smbd_parent_id_cache_delete);
+	messaging_register(msg_ctx,
+			   NULL,
+			   ID_CACHE_DELETE_V1,
+			   smbd_parent_id_cache_delete_v1);
 	messaging_register(msg_ctx, NULL,
 			   ID_CACHE_KILL, smbd_parent_id_cache_kill);
+	messaging_register(msg_ctx,
+			   NULL,
+			   ID_CACHE_KILL_V1,
+			   smbd_parent_id_cache_kill_v1);
 	messaging_register(msg_ctx, NULL, MSG_SMB_NOTIFY_STARTED,
 			   smb_parent_send_to_children);
 
