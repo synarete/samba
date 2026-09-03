@@ -1764,6 +1764,39 @@ static void smbd_id_cache_kill(struct messaging_context *msg_ctx,
 	id_cache_delete_from_cache(&id);
 }
 
+static void smbd_id_cache_kill_v1(struct messaging_context *msg_ctx,
+				  void *private_data,
+				  uint32_t msg_type,
+				  struct server_id server_id,
+				  DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct smbd_server_connection *sconn = talloc_get_type_abort(
+		private_data, struct smbd_server_connection);
+	struct messaging_id_cache_kill_v1 msg = {};
+	enum ndr_err_code ndr_err;
+	struct id_cache_ref id;
+
+	ndr_err = messaging_id_cache_kill_v1_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid ID_CACHE_KILL_V1 message: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	if (!id_cache_ref_parse(msg.id, &id)) {
+		DEBUG(0, ("Invalid ?ID: %s\n", msg.id));
+		goto out;
+	}
+
+	if (id_in_use(sconn, &id)) {
+		exit_server_cleanly(msg.id);
+	}
+	id_cache_delete_from_cache(&id);
+out:
+	TALLOC_FREE(frame);
+}
+
 struct smbd_tevent_trace_state {
 	struct tevent_context *ev;
 	TALLOC_CTX *frame;
@@ -2110,6 +2143,11 @@ void smbd_process(struct tevent_context *ev_ctx,
 	messaging_deregister(sconn->msg_ctx, ID_CACHE_KILL, NULL);
 	messaging_register(sconn->msg_ctx, sconn,
 			   ID_CACHE_KILL, smbd_id_cache_kill);
+	messaging_deregister(sconn->msg_ctx, ID_CACHE_KILL_V1, NULL);
+	messaging_register(sconn->msg_ctx,
+			   sconn,
+			   ID_CACHE_KILL_V1,
+			   smbd_id_cache_kill_v1);
 
 	messaging_deregister(sconn->msg_ctx,
 			     MSG_SMB_CONF_UPDATED, sconn->ev_ctx);

@@ -446,3 +446,79 @@ enum ndr_err_code messaging_shutdown_v1_pull(TALLOC_CTX *mem_ctx,
 
 	return NDR_ERR_SUCCESS;
 }
+
+enum ndr_err_code messaging_id_cache_delete_v1_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_id_cache_delete_v1 *msg,
+	const char *id,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_ID_CACHE_VERSION_CURRENT;
+	msg->id = id;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_id_cache_delete_v1);
+}
+
+enum ndr_err_code messaging_id_cache_delete_v1_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_id_cache_delete_v1 *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_id_cache_delete_v1);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_ID_CACHE_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_id_cache_kill_v1_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_id_cache_kill_v1 *msg,
+	const char *id,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_ID_CACHE_VERSION_CURRENT;
+	msg->id = id;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_id_cache_kill_v1);
+}
+
+enum ndr_err_code messaging_id_cache_kill_v1_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_id_cache_kill_v1 *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_id_cache_kill_v1);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_ID_CACHE_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
