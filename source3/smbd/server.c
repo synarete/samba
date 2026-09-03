@@ -124,7 +124,24 @@ struct smbd_child_pid {
 static NTSTATUS messaging_send_to_children(struct messaging_context *msg_ctx,
 					   uint32_t msg_type, DATA_BLOB* data);
 
-static void smbd_parent_conf_updated(struct messaging_context *msg,
+static void smbd_parent_conf_updated_send_v1(
+	struct messaging_context *msg_ctx)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_conf_updated_v1_push(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send_to_children(msg_ctx,
+					   MSG_SMB_CONF_UPDATED_V1,
+					   &blob);
+	}
+	TALLOC_FREE(frame);
+}
+
+static void smbd_parent_conf_updated(struct messaging_context *msg_ctx,
 				     void *private_data,
 				     uint32_t msg_type,
 				     struct server_id server_id,
@@ -141,7 +158,44 @@ static void smbd_parent_conf_updated(struct messaging_context *msg,
 	if (!ok) {
 		DBG_ERR("Failed to reinit guest info\n");
 	}
-	messaging_send_to_children(msg, MSG_SMB_CONF_UPDATED, NULL);
+
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		smbd_parent_conf_updated_send_v1(msg_ctx);
+		return;
+	}
+	messaging_send_to_children(msg_ctx, MSG_SMB_CONF_UPDATED, NULL);
+}
+
+static void smbd_parent_conf_updated_v1(struct messaging_context *msg_ctx,
+					void *private_data,
+					uint32_t msg_type,
+					struct server_id server_id,
+					DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated_v1 msg = {};
+	enum ndr_err_code ndr_err;
+	bool ok;
+
+	ndr_err = messaging_smb_conf_updated_v1_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_CONF_UPDATED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	DEBUG(10,("smbd_parent_conf_updated: Got message saying smb.conf was "
+		  "updated. Reloading.\n"));
+	change_to_root_user();
+	reload_services(NULL, NULL, false);
+
+	ok = reinit_guest_session_info(NULL);
+	if (!ok) {
+		DBG_ERR("Failed to reinit guest info\n");
+	}
+	messaging_send_to_children(msg_ctx, MSG_SMB_CONF_UPDATED_V1, data);
+out:
+	TALLOC_FREE(frame);
 }
 
 /****************************************************************************
@@ -1730,6 +1784,10 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 	messaging_register(msg_ctx, NULL, MSG_SHUTDOWN_V1, msg_exit_server_v1);
 	messaging_register(msg_ctx, ev_ctx, MSG_SMB_CONF_UPDATED,
 			   smbd_parent_conf_updated);
+	messaging_register(msg_ctx,
+			   ev_ctx,
+			   MSG_SMB_CONF_UPDATED_V1,
+			   smbd_parent_conf_updated_v1);
 	messaging_register(msg_ctx, NULL, MSG_DEBUG, smbd_msg_debug);
 	messaging_register(msg_ctx, NULL, MSG_SMB_FORCE_TDIS,
 			   smb_parent_send_to_children);

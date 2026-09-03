@@ -49,6 +49,7 @@
 #include "../lib/util/pidfile.h"
 #include "librpc/gen_ndr/ndr_winbind_c.h"
 #include "lib/util/util_process.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_WINBIND
@@ -968,6 +969,35 @@ static bool winbindd_child_msg_filter(struct messaging_rec *rec,
 	return false;
 }
 
+static bool winbindd_child_msg_filter_v1(struct messaging_rec *rec,
+					 void *private_data)
+{
+	TALLOC_CTX *frame = NULL;
+	struct winbindd_child *child = talloc_get_type_abort(
+		private_data, struct winbindd_child);
+	struct messaging_smb_conf_updated_v1 msg = {};
+	enum ndr_err_code ndr_err;
+
+	if (rec->msg_type != MSG_SMB_CONF_UPDATED_V1) {
+		return false;
+	}
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_conf_updated_v1_pull(frame, &rec->buf, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_CONF_UPDATED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return false;
+	}
+
+	DBG_DEBUG("Got reload-config message\n");
+	winbindd_reload_services_file(child->logfilename);
+
+	TALLOC_FREE(frame);
+	return false;
+}
+
 /* React on 'smbcontrol winbindd reload-config' in the same way as on SIGHUP*/
 void winbindd_msg_reload_services_parent(struct messaging_context *msg,
 					 void *private_data,
@@ -1002,6 +1032,53 @@ void winbindd_msg_reload_services_parent(struct messaging_context *msg,
 	}
 
 	forall_children(winbind_msg_relay_fn, &state);
+}
+
+void winbindd_msg_reload_services_parent_v1(struct messaging_context *msg_ctx,
+					    void *private_data,
+					    uint32_t msg_type,
+					    struct server_id server_id,
+					    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct winbind_msg_relay_state state = {
+		.msg_ctx = msg_ctx,
+		.msg_type = msg_type,
+		.data = data,
+	};
+	struct messaging_smb_conf_updated_v1 smb_conf_msg = {};
+	enum ndr_err_code ndr_err;
+	bool ok;
+
+	ndr_err = messaging_smb_conf_updated_v1_pull(frame, data, &smb_conf_msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_CONF_UPDATED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	DBG_DEBUG("Got reload-config message\n");
+
+	/* Flush various caches */
+	winbindd_flush_caches();
+
+	winbindd_reload_services_file((const char *)private_data);
+
+	/* Set tevent_thread_call_depth_set_callback according to debug level */
+	if (lp_winbind_debug_traceid() && debuglevel_get() > 1) {
+		tevent_thread_call_depth_set_callback(winbind_call_flow, NULL);
+	} else {
+		tevent_thread_call_depth_set_callback(NULL, NULL);
+	}
+
+	ok = update_trusted_domains_dc();
+	if (!ok) {
+		DBG_ERR("update_trusted_domains_dc() failed\n");
+	}
+
+	forall_children(winbind_msg_relay_fn, &state);
+out:
+	TALLOC_FREE(frame);
 }
 
 /* Set our domains as offline and forward the offline message to our children. */
@@ -1605,6 +1682,9 @@ NTSTATUS winbindd_reinit_after_fork(const struct winbindd_child *myself,
 	messaging_deregister(global_messaging_context(),
 			     MSG_SMB_CONF_UPDATED, NULL);
 	messaging_deregister(global_messaging_context(),
+			     MSG_SMB_CONF_UPDATED_V1,
+			     NULL);
+	messaging_deregister(global_messaging_context(),
 			     MSG_SHUTDOWN, NULL);
 	messaging_deregister(global_messaging_context(),
 			     MSG_SHUTDOWN_V1,
@@ -1844,6 +1924,16 @@ static bool fork_domain_child(struct winbindd_child *child)
 					   global_event_context(),
 					   global_messaging_context(),
 					   winbindd_child_msg_filter,
+					   child);
+	if (req == NULL) {
+		DBG_ERR("messaging_filtered_read_send failed\n");
+		_exit(1);
+	}
+
+	req = messaging_filtered_read_send(global_event_context(),
+					   global_event_context(),
+					   global_messaging_context(),
+					   winbindd_child_msg_filter_v1,
 					   child);
 	if (req == NULL) {
 		DBG_ERR("messaging_filtered_read_send failed\n");

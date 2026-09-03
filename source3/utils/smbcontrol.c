@@ -1877,6 +1877,28 @@ static bool do_reload_certs(struct tevent_context *ev_ctx,
 
 	return send_message(msg_ctx, pid, MSG_RELOAD_TLS_CERTIFICATES, NULL, 0);
 }
+static bool do_reload_config_v1(struct messaging_context *msg_ctx,
+				const struct server_id pid)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_conf_updated_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_conf_updated_v1_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_SMB_CONF_UPDATED_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_reload_config(struct tevent_context *ev_ctx,
 			     struct messaging_context *msg_ctx,
 			     const struct server_id pid,
@@ -1885,6 +1907,10 @@ static bool do_reload_config(struct tevent_context *ev_ctx,
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> reload-config\n");
 		return False;
+	}
+
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_reload_config_v1(msg_ctx, pid);
 	}
 
 	return send_message(msg_ctx, pid, MSG_SMB_CONF_UPDATED, NULL, 0);
