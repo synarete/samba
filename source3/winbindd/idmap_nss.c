@@ -28,6 +28,7 @@
 #include "libcli/security/dom_sid.h"
 #include "lib/global_contexts.h"
 #include "messages.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_IDMAP
@@ -117,6 +118,50 @@ static bool idmap_nss_msg_filter(struct messaging_rec *rec, void *private_data)
 	return false;
 }
 
+static bool idmap_nss_msg_filter_v1(struct messaging_rec *rec,
+				    void *private_data)
+{
+	TALLOC_CTX *frame = NULL;
+	struct idmap_domain *dom = talloc_get_type_abort(private_data,
+							 struct idmap_domain);
+	struct idmap_nss_context *ctx = NULL;
+	struct messaging_smb_conf_updated_v1 msg = {};
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+	bool ret;
+
+	if (rec->msg_type != MSG_SMB_CONF_UPDATED_V1) {
+		return false;
+	}
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_conf_updated_v1_pull(frame, &rec->buf, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_CONF_UPDATED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	ret = lp_load_global(get_dyn_CONFIGFILE());
+	if (!ret) {
+		DBG_WARNING("Failed to reload configuration\n");
+		goto out;
+	}
+
+	status = idmap_nss_get_context(dom, &ctx);
+	if (NT_STATUS_IS_ERR(status)) {
+		DBG_WARNING("Failed to get idmap nss context: %s\n",
+			    nt_errstr(status));
+		goto out;
+	}
+
+	ctx->use_upn = idmap_config_bool(dom->name, "use_upn", false);
+
+out:
+	TALLOC_FREE(frame);
+	return false;
+}
+
 /*****************************
  Initialise idmap database.
 *****************************/
@@ -141,6 +186,16 @@ static NTSTATUS idmap_nss_int_init(struct idmap_domain *dom)
 			msg_ctx,
 			idmap_nss_msg_filter,
 			dom);
+	if (req == NULL) {
+		DBG_WARNING("messaging_filtered_read_send failed\n");
+		return NT_STATUS_UNSUCCESSFUL;
+	}
+
+	req = messaging_filtered_read_send(dom,
+					   messaging_tevent_context(msg_ctx),
+					   msg_ctx,
+					   idmap_nss_msg_filter_v1,
+					   dom);
 	if (req == NULL) {
 		DBG_WARNING("messaging_filtered_read_send failed\n");
 		return NT_STATUS_UNSUCCESSFUL;

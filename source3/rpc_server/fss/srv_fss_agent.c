@@ -33,6 +33,7 @@
 #include "rpc_server/rpc_server.h"
 #include "srv_fss_private.h"
 #include "lib/global_contexts.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_RPC_SRV
@@ -1134,6 +1135,23 @@ static uint32_t fss_sc_expose(struct smbconf_ctx *fconf_ctx,
 	return err;
 }
 
+static void fss_smb_conf_updated_v1(struct messaging_context *msg_ctx)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_conf_updated_v1_push(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send_all(msg_ctx,
+				   MSG_SMB_CONF_UPDATED_V1,
+				   blob.data,
+				   blob.length);
+	}
+	TALLOC_FREE(frame);
+}
+
 uint32_t _fss_ExposeShadowCopySet(struct pipes_struct *p,
 				  struct fss_ExposeShadowCopySet *r)
 {
@@ -1221,7 +1239,11 @@ uint32_t _fss_ExposeShadowCopySet(struct pipes_struct *p,
 	}
 	unbecome_root();
 
-	messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+	if (messaging_has_cluster_level_upgraded(p->msg_ctx)) {
+		fss_smb_conf_updated_v1(p->msg_ctx);
+	} else {
+		messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+	}
 	for (sc = sc_set->scs; sc; sc = sc->next) {
 		struct fss_sc_smap *sm;
 		for (sm = sc->smaps; sm; sm = sm->next)
@@ -1555,7 +1577,14 @@ static NTSTATUS sc_smap_unexpose(struct messaging_context *msg_ctx,
 			ret = NT_STATUS_UNSUCCESSFUL;
 			goto err_cancel;
 		}
-		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+			fss_smb_conf_updated_v1(msg_ctx);
+		} else {
+			messaging_send_all(msg_ctx,
+					   MSG_SMB_CONF_UPDATED,
+					   NULL,
+					   0);
+		}
 	} else {
 		ret = NT_STATUS_OK;
 		goto err_cancel;
