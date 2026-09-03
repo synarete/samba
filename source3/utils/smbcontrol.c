@@ -1865,6 +1865,31 @@ static bool do_winbind_validate_cache(struct tevent_context *ev_ctx,
 	return num_replies;
 }
 
+static bool do_reload_certs_v1(struct messaging_context *msg_ctx,
+				const struct server_id pid)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_reload_tls_certificates_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_reload_tls_certificates_v1_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(msg_ctx,
+			  pid,
+			  MSG_RELOAD_TLS_CERTIFICATES_V1,
+			  blob.data,
+			  blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_reload_certs(struct tevent_context *ev_ctx,
 					struct messaging_context *msg_ctx,
 					const struct server_id pid,
@@ -1873,6 +1898,10 @@ static bool do_reload_certs(struct tevent_context *ev_ctx,
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol ldap_server reload-certs \n");
 		return false;
+	}
+
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_reload_certs_v1(msg_ctx, pid);
 	}
 
 	return send_message(msg_ctx, pid, MSG_RELOAD_TLS_CERTIFICATES, NULL, 0);
