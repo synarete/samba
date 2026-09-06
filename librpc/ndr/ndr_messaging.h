@@ -156,6 +156,27 @@ enum ndr_err_code messaging_id_cache_kill_v1_pull(
 	const DATA_BLOB *blob,
 	struct messaging_id_cache_kill_v1 *msg);
 
+enum ndr_err_code messaging_req_ringbuf_log_v1_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_req_ringbuf_log_v1 *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_req_ringbuf_log_v1_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_req_ringbuf_log_v1 *msg);
+
+enum ndr_err_code messaging_ringbuf_log_v1_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_ringbuf_log_v1 *msg,
+	const char *log,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_ringbuf_log_v1_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_ringbuf_log_v1 *msg);
+
 enum ndr_err_code messaging_reload_tls_certificates_v1_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_reload_tls_certificates_v1 *msg,

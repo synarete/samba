@@ -1389,6 +1389,73 @@ static void print_ringbuf_log_cb(struct messaging_context *msg,
 	num_replies++;
 }
 
+static void print_ringbuf_log_v1_cb(struct messaging_context *msg,
+				    void *private_data,
+				    uint32_t msg_type,
+				    struct server_id pid,
+				    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_ringbuf_log_v1 reply = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_ringbuf_log_v1_pull(frame, data, &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_RINGBUF_LOG_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return;
+	}
+	printf("%s", reply.log);
+	num_replies++;
+	TALLOC_FREE(frame);
+}
+
+static bool do_ringbuflog_v1(struct messaging_context *msg_ctx,
+			     const struct server_id pid,
+			     struct tevent_context *ev_ctx)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_req_ringbuf_log_v1 req = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_RINGBUF_LOG_V1,
+			   print_ringbuf_log_v1_cb);
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_req_ringbuf_log_v1_push(frame, &req, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	if (!send_message(msg_ctx,
+			  pid,
+			  MSG_REQ_RINGBUF_LOG_V1,
+			  blob.data,
+			  blob.length))
+	{
+		goto out;
+	}
+
+	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
+
+	/* No replies were received within the timeout period */
+
+	if (num_replies == 0) {
+		printf("No replies received\n");
+	}
+
+	ok = num_replies != 0;
+out:
+	TALLOC_FREE(frame);
+	messaging_deregister(msg_ctx, MSG_RINGBUF_LOG_V1, NULL);
+	return ok;
+}
+
 static bool do_ringbuflog(struct tevent_context *ev_ctx,
 			  struct messaging_context *msg_ctx,
 			  const struct server_id pid,
@@ -1397,6 +1464,10 @@ static bool do_ringbuflog(struct tevent_context *ev_ctx,
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> ringbuf-log\n");
 		return false;
+	}
+
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_ringbuflog_v1(msg_ctx, pid, ev_ctx);
 	}
 
 	messaging_register(msg_ctx, NULL, MSG_RINGBUF_LOG,
