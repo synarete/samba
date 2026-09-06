@@ -36,6 +36,7 @@
 #include "dynconfig/dynconfig.h"
 #include "source3/lib/global_contexts.h"
 #include "messages.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "nsswitch/winbind_client.h"
 #include "source3/include/auth.h"
 #include "source3/lib/util_procid.h"
@@ -67,7 +68,8 @@ static bool ready_signal_filter(
 	pid_t pid = getpid();
 	ssize_t written;
 
-	if (rec->msg_type != MSG_DAEMON_READY_FD) {
+	if (rec->msg_type != MSG_DAEMON_READY_FD &&
+	    rec->msg_type != MSG_DAEMON_READY_FD_V1) {
 		return false;
 	}
 	if (rec->num_fds != 1) {
@@ -80,6 +82,39 @@ static bool ready_signal_filter(
 	}
 
 	return false;
+}
+
+static void samba_bgqd_send_ready_signal_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	int ready_signal_fd)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_daemon_ready_fd_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_daemon_ready_fd_v1_push(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		struct iovec iov = {
+			.iov_base = blob.data,
+			.iov_len = blob.length,
+		};
+		status = messaging_send_iov(
+			msg_ctx,
+			dst,
+			MSG_DAEMON_READY_FD_V1,
+			&iov,
+			1,
+			&ready_signal_fd,
+			1);
+		if (!NT_STATUS_IS_OK(status)) {
+			DBG_DEBUG("Could not send ready_signal_fd: %s\n",
+				  nt_errstr(status));
+		}
+	}
+	TALLOC_FREE(frame);
 }
 
 static int samba_bgqd_pidfile_create(
@@ -140,17 +175,24 @@ static int samba_bgqd_pidfile_create(
 		 * We lost the race for the pidfile, but someone else
 		 * can report readiness on our behalf.
 		 */
-		NTSTATUS status = messaging_send_iov(
-			msg_ctx,
-			pid_to_procid(existing_pid),
-			MSG_DAEMON_READY_FD,
-			NULL,
-			0,
-			&ready_signal_fd,
-			1);
-		if (!NT_STATUS_IS_OK(status)) {
-			DBG_DEBUG("Could not send ready_signal_fd: %s\n",
-				  nt_errstr(status));
+		if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+			samba_bgqd_send_ready_signal_v1(
+				msg_ctx,
+				pid_to_procid(existing_pid),
+				ready_signal_fd);
+		} else {
+			NTSTATUS status = messaging_send_iov(
+				msg_ctx,
+				pid_to_procid(existing_pid),
+				MSG_DAEMON_READY_FD,
+				NULL,
+				0,
+				&ready_signal_fd,
+				1);
+			if (!NT_STATUS_IS_OK(status)) {
+				DBG_DEBUG("Could not send ready_signal_fd: %s\n",
+					  nt_errstr(status));
+			}
 		}
 	}
 
