@@ -68,6 +68,7 @@ interface messaging
 		MSG_RINGBUF_LOG_V1		= 0x1034,
 
 		MSG_DAEMON_READY_FD             = 0x0035,
+		MSG_DAEMON_READY_FD_V1          = 0x1035,
 
 		/* This sends an empty message */
 		MSG_CLUSTER_LEVEL_UPGRADED	= 0x0040,
@@ -322,6 +323,18 @@ interface messaging
 	typedef [public] struct {
 		messaging_smb_conf_updated_version_values version;
 	} messaging_smb_conf_updated_v1;
+
+	/* MSG_DAEMON_READY_FD */
+	typedef [public, v1_enum] enum {
+		MESSAGING_DAEMON_READY_FD_VERSION_1 = 0x00000001
+	} messaging_daemon_ready_fd_version_values;
+
+	const uint32 MESSAGING_DAEMON_READY_FD_VERSION_CURRENT =
+		MESSAGING_DAEMON_READY_FD_VERSION_1;
+
+	typedef [public] struct {
+		messaging_daemon_ready_fd_version_values version;
+	} messaging_daemon_ready_fd_v1;
 
 	/* MSG_REQ_DMALLOC_MARK / MSG_REQ_DMALLOC_LOG_CHANGED */
 	typedef [public, v1_enum] enum {

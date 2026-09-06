@@ -2580,7 +2580,9 @@ static bool rpc_host_ready_signal_filter(
 	size_t num_fds = talloc_array_length(state->ready_signal_fds);
 	int *tmp = NULL;
 
-	if (rec->msg_type != MSG_DAEMON_READY_FD) {
+	if (rec->msg_type != MSG_DAEMON_READY_FD &&
+	    rec->msg_type != MSG_DAEMON_READY_FD_V1)
+	{
 		return false;
 	}
 	if (rec->num_fds != 1) {
@@ -2947,6 +2949,35 @@ static NTSTATUS rpc_host_recv(struct tevent_req *req)
 	return tevent_req_simple_recv_ntstatus(req);
 }
 
+static NTSTATUS rpc_host_send_ready_signal_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	int ready_signal_fd)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_daemon_ready_fd_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status = NT_STATUS_NO_MEMORY;
+
+	ndr_err = messaging_daemon_ready_fd_v1_push(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		struct iovec iov = {
+			.iov_base = blob.data,
+			.iov_len = blob.length,
+		};
+		status = messaging_send_iov(msg_ctx,
+					    dst,
+					    MSG_DAEMON_READY_FD_V1,
+					    &iov,
+					    1,
+					    &ready_signal_fd,
+					    1);
+	}
+	TALLOC_FREE(frame);
+	return status;
+}
+
 static int rpc_host_pidfile_create(
 	struct messaging_context *msg_ctx,
 	const char *progname,
@@ -2978,14 +3009,23 @@ static int rpc_host_pidfile_create(
 	DBG_DEBUG("%s pid %d exists\n", progname, (int)existing_pid);
 
 	if (ready_signal_fd != -1) {
-		NTSTATUS status = messaging_send_iov(
-			msg_ctx,
-			pid_to_procid(existing_pid),
-			MSG_DAEMON_READY_FD,
-			NULL,
-			0,
-			&ready_signal_fd,
-			1);
+		NTSTATUS status;
+
+		if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+			status = rpc_host_send_ready_signal_v1(
+				msg_ctx,
+				pid_to_procid(existing_pid),
+				ready_signal_fd);
+		} else {
+			status = messaging_send_iov(msg_ctx,
+						    pid_to_procid(
+							    existing_pid),
+						    MSG_DAEMON_READY_FD,
+						    NULL,
+						    0,
+						    &ready_signal_fd,
+						    1);
+		}
 		if (!NT_STATUS_IS_OK(status)) {
 			DBG_DEBUG("Could not send ready_signal_fd: %s\n",
 				  nt_errstr(status));
