@@ -558,6 +558,28 @@ static bool do_sleep(struct tevent_context *ev_ctx,
 
 /* Force a browser election */
 
+static bool do_election_v1(struct messaging_context *msg_ctx,
+			   const struct server_id pid)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_force_election_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_force_election_v1_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_FORCE_ELECTION_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_election(struct tevent_context *ev_ctx,
 			struct messaging_context *msg_ctx,
 			const struct server_id pid,
@@ -566,6 +588,10 @@ static bool do_election(struct tevent_context *ev_ctx,
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> force-election\n");
 		return False;
+	}
+
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_election_v1(msg_ctx, pid);
 	}
 
 	return send_message(msg_ctx, pid, MSG_FORCE_ELECTION, NULL, 0);

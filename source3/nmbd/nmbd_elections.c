@@ -23,6 +23,7 @@
 #include "includes.h"
 #include "nmbd/nmbd.h"
 #include "lib/util/string_wrappers.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /* Election parameters. */
 extern time_t StartupTime;
@@ -392,4 +393,36 @@ void nmbd_message_election(struct messaging_context *msg,
 			}
 		}
 	}
+}
+
+void nmbd_message_election_v1(struct messaging_context *msg_ctx,
+			      void *private_data,
+			      uint32_t msg_type,
+			      struct server_id server_id,
+			      DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_force_election_v1 msg = {};
+	enum ndr_err_code ndr_err;
+	struct subnet_record *subrec;
+
+	ndr_err = messaging_force_election_v1_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_FORCE_ELECTION_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	for (subrec = FIRST_SUBNET; subrec; subrec = NEXT_SUBNET_EXCLUDING_UNICAST(subrec)) {
+		struct work_record *work;
+		for (work = subrec->workgrouplist; work; work = work->next) {
+			if (strequal(work->work_group, lp_workgroup())) {
+				work->needelection = True;
+				work->ElectionCount=0;
+				work->mst_state = lp_local_master() ? MST_POTENTIAL : MST_NONE;
+			}
+		}
+	}
+out:
+	TALLOC_FREE(frame);
 }
