@@ -335,6 +335,72 @@ static void smb_parent_send_to_children(struct messaging_context *ctx,
 	messaging_send_to_children(ctx, msg_type, msg_data);
 }
 
+static void smb_parent_force_tdis_v1(struct messaging_context *msg_ctx,
+				     void *private_data,
+				     uint32_t msg_type,
+				     struct server_id server_id,
+				     DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_force_tdis_v1 msg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_force_tdis_v1_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_FORCE_TDIS_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	messaging_send_to_children(msg_ctx, msg_type, data);
+out:
+	TALLOC_FREE(frame);
+}
+
+static void smb_parent_force_tdis_denied_v1(struct messaging_context *msg_ctx,
+					    void *private_data,
+					    uint32_t msg_type,
+					    struct server_id server_id,
+					    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_force_tdis_denied_v1 msg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_force_tdis_denied_v1_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_FORCE_TDIS_DENIED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	messaging_send_to_children(msg_ctx, msg_type, data);
+out:
+	TALLOC_FREE(frame);
+}
+
+static void smb_parent_kill_client_ip_v1(struct messaging_context *msg_ctx,
+					 void *private_data,
+					 uint32_t msg_type,
+					 struct server_id server_id,
+					 DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_kill_client_ip_v1 msg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_kill_client_ip_v1_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_KILL_CLIENT_IP_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	messaging_send_to_children(msg_ctx, msg_type, data);
+out:
+	TALLOC_FREE(frame);
+}
+
 static NTSTATUS smb_parent_load_tls_certificates(struct smbd_parent_context *parent,
 						 struct loadparm_context *lp_ctx)
 {
@@ -1836,10 +1902,22 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 	messaging_register(msg_ctx, NULL, MSG_DEBUG, smbd_msg_debug);
 	messaging_register(msg_ctx, NULL, MSG_SMB_FORCE_TDIS,
 			   smb_parent_send_to_children);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_FORCE_TDIS_V1,
+			   smb_parent_force_tdis_v1);
 	messaging_register(msg_ctx, NULL, MSG_SMB_FORCE_TDIS_DENIED,
 			   smb_parent_send_to_children);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_FORCE_TDIS_DENIED_V1,
+			   smb_parent_force_tdis_denied_v1);
 	messaging_register(msg_ctx, NULL, MSG_SMB_KILL_CLIENT_IP,
 			   smb_parent_send_to_children);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_KILL_CLIENT_IP_V1,
+			   smb_parent_kill_client_ip_v1);
 	messaging_register(msg_ctx, NULL, MSG_SMB_TELL_NUM_CHILDREN,
 			   smb_tell_num_children);
 

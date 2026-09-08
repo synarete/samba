@@ -168,8 +168,19 @@ void msg_force_tdis(struct messaging_context *msg,
 		    uint32_t msg_type,
 		    struct server_id server_id,
 		    DATA_BLOB *data);
+void msg_force_tdis_v1(struct messaging_context *msg_ctx,
+		       void *private_data,
+		       uint32_t msg_type,
+		       struct server_id server_id,
+		       DATA_BLOB *data);
 void msg_force_tdis_denied(
 	struct messaging_context *msg,
+	void *private_data,
+	uint32_t msg_type,
+	struct server_id server_id,
+	DATA_BLOB *data);
+void msg_force_tdis_denied_v1(
+	struct messaging_context *msg_ctx,
 	void *private_data,
 	uint32_t msg_type,
 	struct server_id server_id,

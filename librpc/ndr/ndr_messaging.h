@@ -217,4 +217,37 @@ enum ndr_err_code messaging_daemon_ready_fd_v1_pull(
 	const DATA_BLOB *blob,
 	struct messaging_daemon_ready_fd_v1 *msg);
 
+enum ndr_err_code messaging_smb_kill_client_ip_v1_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_kill_client_ip_v1 *msg,
+	const char *client_ip,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_kill_client_ip_v1_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_kill_client_ip_v1 *msg);
+
+enum ndr_err_code messaging_smb_force_tdis_v1_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_force_tdis_v1 *msg,
+	const char *sharename,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_force_tdis_v1_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_force_tdis_v1 *msg);
+
+enum ndr_err_code messaging_smb_force_tdis_denied_v1_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_force_tdis_denied_v1 *msg,
+	const char *sharename,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_force_tdis_denied_v1_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_force_tdis_denied_v1 *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */

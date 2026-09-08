@@ -1204,6 +1204,30 @@ send:
 
 /* Close a share */
 
+static bool do_closeshare_v1(struct messaging_context *msg_ctx,
+			     const struct server_id pid,
+			     const char *sharename)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_force_tdis_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_force_tdis_v1_push(
+		frame, &msg, sharename, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_SMB_FORCE_TDIS_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_closeshare(struct tevent_context *ev_ctx,
 			  struct messaging_context *msg_ctx,
 			  const struct server_id pid,
@@ -1215,6 +1239,10 @@ static bool do_closeshare(struct tevent_context *ev_ctx,
 		return False;
 	}
 
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_closeshare_v1(msg_ctx, pid, argv[1]);
+	}
+
 	return send_message(msg_ctx, pid, MSG_SMB_FORCE_TDIS, argv[1],
 			    strlen(argv[1]) + 1);
 }
@@ -1222,6 +1250,34 @@ static bool do_closeshare(struct tevent_context *ev_ctx,
 /*
  * Close a share if access denied by now
  **/
+
+static bool do_close_denied_share_v1(struct messaging_context *msg_ctx,
+				     const struct server_id pid,
+				     const char *sharename)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_force_tdis_denied_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_force_tdis_denied_v1_push(
+		frame, &msg, sharename, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx,
+		pid,
+		MSG_SMB_FORCE_TDIS_DENIED_V1,
+		blob.data,
+		blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
 
 static bool do_close_denied_share(
 	struct tevent_context *ev_ctx,
@@ -1235,6 +1291,10 @@ static bool do_close_denied_share(
 		return False;
 	}
 
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_close_denied_share_v1(msg_ctx, pid, argv[1]);
+	}
+
 	return send_message(
 		msg_ctx,
 		pid,
@@ -1244,6 +1304,34 @@ static bool do_close_denied_share(
 }
 
 /* Kill a client by IP address */
+static bool do_kill_client_by_ip_v1(struct messaging_context *msg_ctx,
+				    const struct server_id pid,
+				    const char *client_ip)
+{
+	TALLOC_CTX *frame = NULL;
+	struct messaging_smb_kill_client_ip_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
+	frame = talloc_stackframe();
+	ndr_err = messaging_smb_kill_client_ip_v1_push(
+		frame, &msg, client_ip, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx,
+		pid,
+		MSG_SMB_KILL_CLIENT_IP_V1,
+		blob.data,
+		blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_kill_client_by_ip(struct tevent_context *ev_ctx,
 				 struct messaging_context *msg_ctx,
 				 const struct server_id pid,
@@ -1258,6 +1346,10 @@ static bool do_kill_client_by_ip(struct tevent_context *ev_ctx,
 	if (!is_ipaddress_v4(argv[1]) && !is_ipaddress_v6(argv[1])) {
 		fprintf(stderr, "%s is not a valid IP address!\n", argv[1]);
 		return false;
+	}
+
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		return do_kill_client_by_ip_v1(msg_ctx, pid, argv[1]);
 	}
 
 	return send_message(msg_ctx, pid, MSG_SMB_KILL_CLIENT_IP,
