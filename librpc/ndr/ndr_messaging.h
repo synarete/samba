@@ -197,6 +197,17 @@ enum ndr_err_code messaging_smb_conf_updated_v1_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_conf_updated_v1 *msg);
 
+enum ndr_err_code messaging_smb_ip_dropped_v1_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_ip_dropped_v1 *msg,
+	const char *server_ip,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_ip_dropped_v1_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_ip_dropped_v1 *msg);
+
 enum ndr_err_code messaging_force_election_v1_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_force_election_v1 *msg,
