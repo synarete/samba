@@ -1643,6 +1643,47 @@ out_free:
 	TALLOC_FREE(ctx);
 }
 
+static void msg_kill_client_with_server_ip_v1(
+	struct messaging_context *msg_ctx,
+	void *private_data,
+	uint32_t msg_type,
+	struct server_id server_id,
+	DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct smbd_server_connection *sconn = talloc_get_type_abort(
+		private_data, struct smbd_server_connection);
+	struct messaging_smb_ip_dropped_v1 msg = {};
+	enum ndr_err_code ndr_err;
+	char *server_ip = NULL;
+
+	ndr_err = messaging_smb_ip_dropped_v1_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_IP_DROPPED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	DBG_NOTICE("Got kill request for source IP %s\n", msg.server_ip);
+
+	server_ip = tsocket_address_inet_addr_string(sconn->local_address,
+						     frame);
+	if (server_ip == NULL) {
+		goto out;
+	}
+
+	if (strequal(msg.server_ip, server_ip)) {
+		DBG_NOTICE(
+			"Got ip dropped message for %s - exiting immediately\n",
+			msg.server_ip);
+		TALLOC_FREE(frame);
+		exit_server_cleanly("Forced disconnect for client");
+	}
+
+out:
+	TALLOC_FREE(frame);
+}
+
 static void deadtime_shutdown_v1(struct messaging_context *msg_ctx)
 {
 	TALLOC_CTX *frame = talloc_stackframe();
@@ -2263,6 +2304,11 @@ void smbd_process(struct tevent_context *ev_ctx,
 			   sconn,
 			   MSG_SMB_IP_DROPPED,
 			   msg_kill_client_with_server_ip);
+	messaging_deregister(sconn->msg_ctx, MSG_SMB_IP_DROPPED_V1, NULL);
+	messaging_register(sconn->msg_ctx,
+			   sconn,
+			   MSG_SMB_IP_DROPPED_V1,
+			   msg_kill_client_with_server_ip_v1);
 
 #if defined(WITH_SMB1SERVER)
 	if ((lp_keepalive() != 0) &&

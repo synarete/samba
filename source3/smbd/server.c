@@ -401,6 +401,28 @@ out:
 	TALLOC_FREE(frame);
 }
 
+static void smb_parent_ip_dropped_v1(struct messaging_context *msg_ctx,
+				     void *private_data,
+				     uint32_t msg_type,
+				     struct server_id server_id,
+				     DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_ip_dropped_v1 msg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_ip_dropped_v1_pull(frame, data, &msg);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_IP_DROPPED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	messaging_send_to_children(msg_ctx, msg_type, data);
+out:
+	TALLOC_FREE(frame);
+}
+
 static NTSTATUS smb_parent_load_tls_certificates(struct smbd_parent_context *parent,
 						 struct loadparm_context *lp_ctx)
 {
@@ -1952,6 +1974,10 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 				   NULL,
 				   MSG_SMB_IP_DROPPED,
 				   smb_parent_send_to_children);
+		messaging_register(msg_ctx,
+				   NULL,
+				   MSG_SMB_IP_DROPPED_V1,
+				   smb_parent_ip_dropped_v1);
 	}
 
 #ifdef DEVELOPER
@@ -2287,6 +2313,25 @@ static void smbd_init_addrchange(TALLOC_CTX *mem_ctx,
 	tevent_req_set_callback(req, smbd_addr_changed, state);
 }
 
+static void smbd_close_socket_for_ip_send_v1(
+	struct messaging_context *msg_ctx, const char *addrstr)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_ip_dropped_v1 msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_ip_dropped_v1_push(frame, &msg, addrstr,
+						   &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send(msg_ctx,
+			       messaging_server_id(msg_ctx),
+			       MSG_SMB_IP_DROPPED_V1,
+			       &blob);
+	}
+	TALLOC_FREE(frame);
+}
+
 static void smbd_close_socket_for_ip(struct smbd_parent_context *parent,
 				     struct messaging_context *msg_ctx,
 				     struct samba_sockaddr *addr)
@@ -2313,6 +2358,11 @@ static void smbd_close_socket_for_ip(struct smbd_parent_context *parent,
 			DBG_NOTICE("smbd: Closed listening socket for %s\n",
 				   addrstr);
 
+			if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+				smbd_close_socket_for_ip_send_v1(msg_ctx,
+								 addrstr);
+				return;
+			}
 			blob = data_blob_const(addrstr, strlen(addrstr)+1);
 			status = messaging_send(msg_ctx,
 						messaging_server_id(msg_ctx),
