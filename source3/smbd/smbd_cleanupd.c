@@ -62,6 +62,11 @@ static void smbd_cleanupd_process_exited(struct messaging_context *msg,
 					 void *private_data, uint32_t msg_type,
 					 struct server_id server_id,
 					 DATA_BLOB *data);
+static void smbd_cleanupd_process_exited_v1(struct messaging_context *msg,
+					    void *private_data,
+					    uint32_t msg_type,
+					    struct server_id server_id,
+					    DATA_BLOB *data);
 static void smbd_cleanupd_got_glock(struct tevent_req *subreq);
 
 struct tevent_req *smbd_cleanupd_send(TALLOC_CTX *mem_ctx,
@@ -103,6 +108,14 @@ struct tevent_req *smbd_cleanupd_send(TALLOC_CTX *mem_ctx,
 
 	status = messaging_register(msg, req, MSG_SMB_NOTIFY_CLEANUP,
 				    smbd_cleanupd_process_exited);
+	if (tevent_req_nterror(req, status)) {
+		return tevent_req_post(req, ev);
+	}
+
+	status = messaging_register(msg,
+				    req,
+				    MSG_SMB_NOTIFY_CLEANUP_V1,
+				    smbd_cleanupd_process_exited_v1);
 	if (tevent_req_nterror(req, status)) {
 		return tevent_req_post(req, ev);
 	}
@@ -380,6 +393,28 @@ static void smbd_cleanupd_process_exited(struct messaging_context *msg,
 	}
 
 	TALLOC_FREE(frame);
+}
+
+static void smbd_cleanupd_process_exited_v1(struct messaging_context *msg,
+					    void *private_data,
+					    uint32_t msg_type,
+					    struct server_id server_id,
+					    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_cleanup nmsg = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_notify_cleanup_pull(frame, data, &nmsg);
+	TALLOC_FREE(frame);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_NOTIFY_CLEANUP_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		return;
+	}
+
+	smbd_cleanupd_process_exited(
+		msg, private_data, msg_type, server_id, data);
 }
 
 NTSTATUS smbd_cleanupd_recv(struct tevent_req *req)

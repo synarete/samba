@@ -117,6 +117,7 @@ interface messaging
 
 		/* Trigger a notify cleanup run */
 		MSG_SMB_NOTIFY_CLEANUP		= 0x0314,
+		MSG_SMB_NOTIFY_CLEANUP_V1	= 0x1314,
 		MSG_SMB_SCAVENGER		= 0x0315,
 
 		/* shutdown connection for given client */
@@ -134,9 +135,11 @@ interface messaging
 		MSG_SMB_NOTIFY_REC_CHANGE	= 0x031A,
 		MSG_SMB_NOTIFY_TRIGGER		= 0x031B,
 		MSG_SMB_NOTIFY_GET_DB		= 0x031C,
+		MSG_SMB_NOTIFY_GET_DB_V1	= 0x131C,
 		MSG_SMB_NOTIFY_DB		= 0x031D,
 		MSG_SMB_NOTIFY_REC_CHANGES	= 0x031E,
 		MSG_SMB_NOTIFY_STARTED          = 0x031F,
+		MSG_SMB_NOTIFY_STARTED_V1	= 0x131F,
 		MSG_SMB_SLEEP			= 0x0320,
 
 		/* smbd message */
@@ -371,6 +374,26 @@ interface messaging
 		messaging_smb_force_tdis_version_values version;
 		utf8string sharename;
 	} messaging_smb_force_tdis_denied_v1;
+
+	/* MSG_SMB_NOTIFY_CLEANUP_V1 / MSG_SMB_NOTIFY_STARTED_V1 / MSG_SMB_NOTIFY_GET_DB_V1 */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_NOTIFY_VERSION_1 = 0x00000001
+	} messaging_smb_notify_version_values;
+
+	const uint32 MESSAGING_SMB_NOTIFY_VERSION_CURRENT =
+		MESSAGING_SMB_NOTIFY_VERSION_1;
+
+	typedef [public] struct {
+		messaging_smb_notify_version_values version;
+	} messaging_smb_notify_cleanup;
+
+	typedef [public] struct {
+		messaging_smb_notify_version_values version;
+	} messaging_smb_notify_started;
+
+	typedef [public] struct {
+		messaging_smb_notify_version_values version;
+	} messaging_smb_notify_get_db;
 
 	/* MSG_FORCE_ELECTION */
 	typedef [public, v1_enum] enum {

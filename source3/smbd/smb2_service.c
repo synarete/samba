@@ -485,6 +485,23 @@ static NTSTATUS notify_init_sconn(struct smbd_server_connection *sconn)
 		return status;
 	}
 
+	status = messaging_register(sconn->msg_ctx,
+				    sconn,
+				    MSG_SMB_NOTIFY_STARTED_V1,
+				    smbd_notifyd_restarted_v1);
+	if (!NT_STATUS_IS_OK(status)) {
+		DBG_DEBUG("messaging_register failed: %s\n",
+			  nt_errstr(status));
+		messaging_deregister(sconn->msg_ctx,
+				     MSG_SMB_NOTIFY_STARTED,
+				     sconn);
+		messaging_deregister(sconn->msg_ctx,
+				     MSG_SMB_NOTIFY_CANCEL_DELETED,
+				     sconn);
+		TALLOC_FREE(sconn->notify_ctx);
+		return status;
+	}
+
 	return NT_STATUS_OK;
 }
 

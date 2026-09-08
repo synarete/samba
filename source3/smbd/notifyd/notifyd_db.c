@@ -18,6 +18,7 @@
 #include "lib/util/server_id_db.h"
 #include "notifyd_private.h"
 #include "notifyd_db.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 struct notifyd_parse_db_state {
 	bool (*fn)(const char *path,
@@ -90,6 +91,27 @@ static NTSTATUS notifyd_parse_db(
 	return status;
 }
 
+static NTSTATUS notify_walk_send_get_db_v1(struct messaging_context *msg_ctx,
+					   struct server_id notifyd)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_get_db nmsg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status = NT_STATUS_NO_MEMORY;
+
+	ndr_err = messaging_smb_notify_get_db_push(frame, &nmsg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = messaging_send_buf(msg_ctx,
+					    notifyd,
+					    MSG_SMB_NOTIFY_GET_DB_V1,
+					    blob.data,
+					    blob.length);
+	}
+	TALLOC_FREE(frame);
+	return status;
+}
+
 NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 		     bool (*fn)(const char *path, struct server_id server,
 				const struct notify_instance *instance,
@@ -130,8 +152,12 @@ NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 		return NT_STATUS_NO_MEMORY;
 	}
 
-	status = messaging_send_buf(
-		msg_ctx, notifyd, MSG_SMB_NOTIFY_GET_DB, NULL, 0);
+	if (messaging_has_cluster_level_upgraded(msg_ctx)) {
+		status = notify_walk_send_get_db_v1(msg_ctx, notifyd);
+	} else {
+		status = messaging_send_buf(
+			msg_ctx, notifyd, MSG_SMB_NOTIFY_GET_DB, NULL, 0);
+	}
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("messaging_send_buf failed: %s\n",
 			  nt_errstr(status));

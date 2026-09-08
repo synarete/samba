@@ -26,6 +26,7 @@
 #include "librpc/gen_ndr/ndr_file_id.h"
 #include "libcli/security/privileges.h"
 #include "libcli/security/security.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 struct notify_change_event {
 	struct timespec when;
@@ -544,6 +545,38 @@ void smbd_notifyd_restarted(struct messaging_context *msg,
 {
 	struct smbd_server_connection *sconn = talloc_get_type_abort(
 		private_data, struct smbd_server_connection);
+
+	TALLOC_FREE(sconn->notify_ctx);
+
+	sconn->notify_ctx = notify_init(sconn, sconn->msg_ctx,
+					sconn, notify_callback);
+	if (sconn->notify_ctx == NULL) {
+		DBG_DEBUG("notify_init failed\n");
+		return;
+	}
+
+	files_forall(sconn, smbd_notifyd_reregister, sconn->notify_ctx);
+}
+
+void smbd_notifyd_restarted_v1(struct messaging_context *msg,
+			       void *private_data,
+			       uint32_t msg_type,
+			       struct server_id server_id,
+			       DATA_BLOB *data)
+{
+	struct smbd_server_connection *sconn = talloc_get_type_abort(
+		private_data, struct smbd_server_connection);
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_started m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_notify_started_pull(frame, data, &m);
+	TALLOC_FREE(frame);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_NOTIFY_STARTED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		return;
+	}
 
 	TALLOC_FREE(sconn->notify_ctx);
 
