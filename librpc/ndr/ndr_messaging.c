@@ -743,3 +743,119 @@ enum ndr_err_code messaging_daemon_ready_fd_v1_pull(
 
 	return NDR_ERR_SUCCESS;
 }
+
+enum ndr_err_code messaging_smb_kill_client_ip_v1_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_kill_client_ip_v1 *msg,
+	const char *client_ip,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_SMB_KILL_CLIENT_IP_VERSION_CURRENT;
+	msg->client_ip = client_ip;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_kill_client_ip_v1);
+}
+
+enum ndr_err_code messaging_smb_kill_client_ip_v1_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_kill_client_ip_v1 *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_kill_client_ip_v1);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_KILL_CLIENT_IP_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_force_tdis_v1_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_force_tdis_v1 *msg,
+	const char *sharename,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_SMB_FORCE_TDIS_VERSION_CURRENT;
+	msg->sharename = sharename;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_force_tdis_v1);
+}
+
+enum ndr_err_code messaging_smb_force_tdis_v1_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_force_tdis_v1 *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_force_tdis_v1);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_FORCE_TDIS_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_force_tdis_denied_v1_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_force_tdis_denied_v1 *msg,
+	const char *sharename,
+	DATA_BLOB *blob)
+{
+	msg->version = MESSAGING_SMB_FORCE_TDIS_VERSION_CURRENT;
+	msg->sharename = sharename;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)
+			ndr_push_messaging_smb_force_tdis_denied_v1);
+}
+
+enum ndr_err_code messaging_smb_force_tdis_denied_v1_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_force_tdis_denied_v1 *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)
+			ndr_pull_messaging_smb_force_tdis_denied_v1);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_FORCE_TDIS_VERSION_CURRENT) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
