@@ -256,7 +256,6 @@ sub check_env($$)
 	ad_member_s3_join   => ["vampire_dc"],
 
 	clusteredmember             => ["ad_dc"],
-	clusteredmember_mixed       => ["ad_dc"],
 	clusteredmember_msg_upgrade => ["ad_dc"],
 );
 
@@ -500,19 +499,11 @@ sub setup_nt4_member
 
 sub setup_clusteredmember
 {
-	my ($self, $prefix, $dcvars, %args) = @_;
+	my ($self, $prefix, $dcvars) = @_;
 	my $count = 0;
 	my $rc;
 	my @retvals = ();
 	my $ret;
-
-	# Optional per-node binary overrides.  Each element is a hashref:
-	#   { ctdbd   => "/path/to/ctdbd",   # undef  → default from PATH
-	#     smbd    => "/path/to/smbd",    # undef  → default bindir
-	#     winbindd => "/path/to/winbindd" # undef → default bindir
-	#   }
-	# Missing elements or an undef value mean "use the default binary".
-	my $node_binaries = $args{node_binaries} // [];
 
 	# Optional coderef called after ctdbd is up but before smbd starts.
 	# Receives ($ctdb_data) and must return true on success.
@@ -523,8 +514,7 @@ sub setup_clusteredmember
 
 	mkdir($prefix, 0777);
 
-	my $ctdb_data = $self->setup_ctdb($prefix,
-	    ctdbd_binaries => $node_binaries);
+	my $ctdb_data = $self->setup_ctdb($prefix);
 
 	if (not $ctdb_data) {
 		print "No ctdb data\n";
@@ -699,15 +689,6 @@ sub setup_clusteredmember
 
 	for (my $i=0; $i<@retvals; $i++) {
 		my $node_provision = $retvals[$i];
-
-		# Stamp per-node smbd/winbindd binary overrides into the
-		# env_vars hash so that check_or_start() can pick them up.
-		my $nb = $node_binaries->[$i] // {};
-		$node_provision->{SMBD_BINARY}     = $nb->{smbd}
-		    if defined $nb->{smbd};
-		$node_provision->{WINBINDD_BINARY} = $nb->{winbindd}
-		    if defined $nb->{winbindd};
-
 		my $ok;
 		$ok = $self->check_or_start(
 		    env_vars => $node_provision,
@@ -787,54 +768,6 @@ sub setup_clusteredmember
 	}
 
 	return $ret;
-}
-
-# setup_clusteredmember_mixed - like setup_clusteredmember but with two
-# different Samba builds on the two cluster nodes.
-#
-# Node 0 runs the binaries from the current build (the default bindir).
-# Node 1 runs the binaries from an alternate installation, specified via:
-#
-#   SELFTEST_MIXED_VERSIONS_BINDIR=/path/to/other/samba/bin
-#
-# If the variable is unset this function falls back to setup_clusteredmember
-# (both nodes run the same build), which keeps the environment usable as a
-# sanity-check even without a second build tree available.
-sub setup_clusteredmember_mixed
-{
-	my ($self, $prefix, $dcvars) = @_;
-
-	my $alt_bindir = $ENV{SELFTEST_MIXED_VERSIONS_BINDIR};
-
-	unless (defined $alt_bindir and $alt_bindir ne "") {
-		print "SELFTEST_MIXED_VERSIONS_BINDIR not set; " .
-		      "running clusteredmember_mixed with identical binaries\n";
-		return $self->setup_clusteredmember($prefix, $dcvars);
-	}
-
-	unless (-d $alt_bindir) {
-		print "SELFTEST_MIXED_VERSIONS_BINDIR=$alt_bindir does not " .
-		      "exist; cannot set up mixed-version cluster\n";
-		return undef;
-	}
-
-	my $alt_ctdbd    = "$alt_bindir/ctdbd";
-	my $alt_smbd     = "$alt_bindir/smbd";
-	my $alt_winbindd = "$alt_bindir/winbindd";
-
-	# node 0: current build (all undef → defaults)
-	# node 1: alternate build
-	my @node_binaries = (
-		{},
-		{
-			ctdbd    => (-x $alt_ctdbd    ? $alt_ctdbd    : undef),
-			smbd     => (-x $alt_smbd     ? $alt_smbd     : undef),
-			winbindd => (-x $alt_winbindd ? $alt_winbindd : undef),
-		},
-	);
-
-	return $self->setup_clusteredmember($prefix, $dcvars,
-	    node_binaries => \@node_binaries);
 }
 
 # setup_clusteredmember_msg_upgrade - 3-node cluster that starts at legacy
@@ -2768,8 +2701,7 @@ sub check_or_start($$) {
 	$env_vars->{NMBD_TL_PID} = $pid;
 	write_pid($env_vars, "nmbd", $pid);
 
-	$binary = $env_vars->{WINBINDD_BINARY}
-	    // Samba::bindir_path($self, "winbindd");
+	$binary = Samba::bindir_path($self, "winbindd");
 	@full_cmd = $self->make_bin_cmd($binary, $env_vars,
 					 $ENV{WINBINDD_OPTIONS},
 					 $ENV{WINBINDD_VALGRIND},
@@ -2793,7 +2725,7 @@ sub check_or_start($$) {
 	$env_vars->{WINBINDD_TL_PID} = $pid;
 	write_pid($env_vars, "winbindd", $pid);
 
-	$binary = $env_vars->{SMBD_BINARY} // Samba::bindir_path($self, "smbd");
+	$binary = Samba::bindir_path($self, "smbd");
 	@full_cmd = $self->make_bin_cmd($binary, $env_vars,
 					 $ENV{SMBD_OPTIONS}, $ENV{SMBD_VALGRIND},
 					 $ENV{SMBD_DONT_LOG_STDOUT});
@@ -4442,17 +4374,12 @@ sub wait_for_start($$$$$)
 ##
 ## provision and start of ctdb
 ##
-sub setup_ctdb
+sub setup_ctdb($$)
 {
-	my ($self, $prefix, %args) = @_;
+	my ($self, $prefix) = @_;
 	my $num_nodes = 3;
 
-	# Optional arrayref of per-node binary hashrefs forwarded to
-	# provision_ctdb (see setup_clusteredmember for the schema).
-	my $ctdbd_binaries = $args{ctdbd_binaries} // [];
-
-	my $data = $self->provision_ctdb($prefix, $num_nodes,
-	    ctdbd_binaries => $ctdbd_binaries);
+	my $data = $self->provision_ctdb($prefix, $num_nodes);
 	$data or return undef;
 
 	my $rc = $self->check_or_start_ctdb($data);
@@ -4470,12 +4397,9 @@ sub setup_ctdb
 	return $data;
 }
 
-sub provision_ctdb
+sub provision_ctdb($$$$)
 {
-	my ($self, $prefix, $num_nodes, %args) = @_;
-	# Optional arrayref; element $i is a hashref that may contain
-	# { ctdbd => "/path/to/ctdbd" } for node $i.
-	my $ctdbd_binaries = $args{ctdbd_binaries} // [];
+	my ($self, $prefix, $num_nodes) = @_;
 	my $rc;
 	my $abs_prefix = abs_path($prefix);
 	my $ctdb = abs_path(Samba::bindir_path($self, "ctdb"));
@@ -4538,13 +4462,6 @@ sub provision_ctdb
 	# CTDB should not attempt to manage public addresses -
 	# clients should just connect to CTDB private addresses
 	$cmd .= " -P " . "/dev/null";
-	# Per-node ctdbd binary overrides (see local_daemons.sh setup -b).
-	for (my $i = 0; $i < $num_nodes; $i++) {
-		my $nb = $ctdbd_binaries->[$i] // {};
-		if (defined $nb->{ctdbd}) {
-			$cmd .= " -b ${i}:$nb->{ctdbd}";
-		}
-	}
 
 	my $ret = system($cmd);
 	if ($ret != 0) {

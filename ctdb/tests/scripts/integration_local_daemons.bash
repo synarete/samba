@@ -45,35 +45,6 @@ setup_ctdb()
 	fi
 }
 
-# setup_ctdb_mixed_versions <node0_binary> <node1_binary> [setup_opts...]
-#
-# Configure a 2-node local-daemon cluster where each node may run a different
-# ctdbd binary.  An empty string or the literal "ctdbd" uses the default binary
-# from PATH (same as a plain setup_ctdb call).
-#
-# Example – node 0 runs the default ctdbd, node 1 runs an older build:
-#
-#   setup_ctdb_mixed_versions "" /path/to/old/ctdbd -F
-#
-setup_ctdb_mixed_versions()
-{
-	local binary0="$1"
-	local binary1="$2"
-	shift 2
-
-	local binary_flags=""
-
-	if [ -n "$binary0" ] && [ "$binary0" != "ctdbd" ]; then
-		binary_flags="${binary_flags} -b 0:${binary0}"
-	fi
-	if [ -n "$binary1" ] && [ "$binary1" != "ctdbd" ]; then
-		binary_flags="${binary_flags} -b 1:${binary1}"
-	fi
-
-	# shellcheck disable=SC2086
-	setup_ctdb $binary_flags "$@"
-}
-
 ctdb_nodes_start()
 {
 	local nodespec="${1:-all}"

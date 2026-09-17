@@ -2028,28 +2028,6 @@ def planclusteredmembertestsuite(tname, prefix, tshare='tmp'):
         modname=modnamearg)
 
 
-def planclusteredmembertestsuite_mixed(tname, prefix, tshare='tmp'):
-    '''Define a mixed-version clustered test (clusteredmember_mixed env)'''
-
-    autharg = '-U${DOMAIN}/${DC_USERNAME}%${DC_PASSWORD}'
-    namearg = 'clustered.mixed.%s' % tname
-    modnamearg = 'samba3.%s' % namearg
-    extraargs = ''
-
-    prefix = os.path.join(prefix, 'clusteredmember_mixed')
-    unclist = os.path.join(prefix, 'unclists/%s.txt' % tshare)
-
-    unclistarg = '--unclist=%s' % unclist
-    sharearg = '//$SERVER_IP/%s' % tshare
-
-    return selftesthelpers.plansmbtorture4testsuite(
-        tname,
-        'clusteredmember_mixed',
-        [extraargs, unclistarg, sharearg, autharg, tname],
-        target='samba3',
-        modname=modnamearg)
-
-
 if have_cluster_support:
     CLUSTERED_TESTS = [ 'smb2.deny.deny2' ]
 
@@ -2078,26 +2056,6 @@ if have_cluster_support:
              '""',
              smbtorture3,
              "-N 1000 -o 2000"])
-
-    # Mixed-version cluster tests: node 0 runs the current build; node 1 runs
-    # SELFTEST_MIXED_VERSIONS_BINDIR (if set, otherwise identical to above).
-    # The same test suites used for clusteredmember are run here so that any
-    # messaging-level incompatibility between the two builds is caught.
-    for test in CLUSTERED_TESTS:
-        planclusteredmembertestsuite_mixed(test, "$PREFIX")
-
-    for test in CLUSTERED_PERSISTENT_TESTS:
-        planclusteredmembertestsuite_mixed(test, '$PREFIX', 'ca_so')
-
-    plantestsuite("samba3.blackbox.smbXsrv_client_cross_node",
-                  "clusteredmember_mixed:local",
-                  [os.path.join(samba3srcdir,
-                                "script/tests/"
-                                "test_smbXsrv_client_cross_node.sh"),
-                   configuration,
-                   '$CTDB_SERVER_NAME_NODE0',
-                   '$CTDB_SERVER_NAME_NODE1',
-                   "tmp"])
 
     # Messaging-format upgrade test: the clusteredmember_msg_upgrade env
     # pre-seeds cluster_level.tdb with level 0.1 (legacy, pre-NDR) before
