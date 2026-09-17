@@ -534,7 +534,6 @@ struct smbXsrv_connection {
 
 const char *smbXsrv_connection_dbg(const struct smbXsrv_connection *xconn);
 
-NTSTATUS smbXsrv_version_global_init(const struct server_id *server_id);
 uint32_t smbXsrv_version_global_current(void);
 
 struct smbXsrv_client_table;

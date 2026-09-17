@@ -18,242 +18,42 @@
 */
 
 #include "includes.h"
-#include "system/filesys.h"
 #include "smbd/globals.h"
-#include "dbwrap/dbwrap.h"
-#include "dbwrap/dbwrap_open.h"
-#include "lib/util/util_tdb.h"
 #include "librpc/gen_ndr/ndr_smbXsrv.h"
-#include "serverid.h"
+#include "lib/cluster_support.h"
 
 /*
- * This implements a version scheme for file server internal
- * states. smbXsrv_version_global.tdb stores the possible
- * and current versions of structure formats (struct smbXsrv_*_global)
- * per cluster node.
+ * This maps the active cluster functional level onto the record
+ * version used for the file server internal states, that is the
+ * struct smbXsrv_*_global records and the related messages.
  *
- * If the supported versions doesn't match a version of any
- * of the other nodes, it refused to start.
+ * The cluster functional level is the single authority for this.
+ * Every process verifies the active level against the level ranges
+ * it was built with before it does anything else, see
+ * cluster_level_db_check() and cluster_level_activate(), and exits
+ * if the level is not supported. The level is only ever raised by
+ * an explicit administrative step which requires all nodes to
+ * support the new level. So any process that is running is
+ * guaranteed to understand the active level.
  *
- * This should prevent silent corruption of the internal
- * databases and structures, if two incompatible implementations
- * read and write.
- *
- * In future this can be used to implement rolling code upgrades
- * in a cluster, but for now it is simple.
+ * Note this is deliberately evaluated on every call instead of being
+ * cached, because the active level can be raised while we are
+ * running: the MSG_CLUSTER_LEVEL_UPGRADED handler installs the new
+ * level and we use it for the records we write from then on. That is
+ * the behaviour described in source3/librpc/idl/cluster_level.idl.
  */
-
-static struct db_context *smbXsrv_version_global_db_ctx = NULL;
-static uint32_t smbXsrv_version_global_current_version = UINT32_MAX;
-
-NTSTATUS smbXsrv_version_global_init(const struct server_id *server_id)
-{
-	const char *global_path = NULL;
-	struct db_context *db_ctx = NULL;
-	struct db_record *db_rec = NULL;
-	TDB_DATA key;
-	TDB_DATA val;
-	DATA_BLOB blob;
-	struct smbXsrv_version_globalB global_blob;
-	enum ndr_err_code ndr_err;
-	struct smbXsrv_version_global *global = NULL;
-	uint32_t i;
-	uint32_t num_valid = 0;
-	struct smbXsrv_version_node *valid = NULL;
-	struct smbXsrv_version_node *local_node = NULL;
-	bool exists;
-	NTSTATUS status;
-	const char *key_string = "smbXsrv_version_global";
-	TALLOC_CTX *frame;
-
-	if (smbXsrv_version_global_db_ctx != NULL) {
-		return NT_STATUS_OK;
-	}
-
-	frame = talloc_stackframe();
-
-	global_path = lock_path(talloc_tos(), "smbXsrv_version_global.tdb");
-	if (global_path == NULL) {
-		TALLOC_FREE(frame);
-		return NT_STATUS_NO_MEMORY;
-	}
-
-	db_ctx = db_open(NULL, global_path,
-			 0, /* hash_size */
-			 TDB_DEFAULT |
-			 TDB_CLEAR_IF_FIRST |
-			 TDB_INCOMPATIBLE_HASH,
-			 O_RDWR | O_CREAT, 0600,
-			 DBWRAP_LOCK_ORDER_1,
-			 DBWRAP_FLAG_NONE);
-	if (db_ctx == NULL) {
-		status = map_nt_error_from_unix_common(errno);
-		DBG_ERR("failed to open[%s] - %s\n",
-			global_path,
-			nt_errstr(status));
-		TALLOC_FREE(frame);
-		return status;
-	}
-
-	key = string_term_tdb_data(key_string);
-
-	db_rec = dbwrap_fetch_locked(db_ctx, db_ctx, key);
-	if (db_rec == NULL) {
-		status = NT_STATUS_INTERNAL_DB_ERROR;
-		DBG_ERR("dbwrap_fetch_locked(%s) - %s\n",
-			key_string,
-			nt_errstr(status));
-
-		TALLOC_FREE(frame);
-		return status;
-	}
-
-	val = dbwrap_record_get_value(db_rec);
-	if (val.dsize == 0) {
-		global = talloc_zero(frame, struct smbXsrv_version_global);
-		if (global == NULL) {
-			DBG_ERR("talloc_zero failed - %s\n", __location__);
-			TALLOC_FREE(frame);
-			return NT_STATUS_NO_MEMORY;
-		}
-		global_blob = (struct smbXsrv_version_globalB) {
-			.version = SMBXSRV_VERSION_1,
-			.info.info1 = global,
-		};
-	} else {
-		blob = data_blob_const(val.dptr, val.dsize);
-
-		ndr_err = ndr_pull_struct_blob(&blob, frame, &global_blob,
-			(ndr_pull_flags_fn_t)ndr_pull_smbXsrv_version_globalB);
-		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-			status = ndr_map_error2ntstatus(ndr_err);
-			DBG_ERR("ndr_pull_smbXsrv_version_globalB - %s\n",
-				nt_errstr(status));
-			TALLOC_FREE(frame);
-			return status;
-		}
-
-		switch (global_blob.version) {
-		case SMBXSRV_VERSION_1:
-			global = global_blob.info.info1;
-			if (global == NULL) {
-				status = NT_STATUS_INTERNAL_DB_CORRUPTION;
-				break;
-			}
-			status = NT_STATUS_OK;
-			break;
-		default:
-			status = NT_STATUS_REVISION_MISMATCH;
-			break;
-		}
-
-		if (!NT_STATUS_IS_OK(status)) {
-			DBG_ERR("%s\n", nt_errstr(status));
-			NDR_PRINT_DEBUG(smbXsrv_version_globalB, &global_blob);
-			TALLOC_FREE(frame);
-			return status;
-		}
-	}
-
-	valid = talloc_zero_array(global,
-				  struct smbXsrv_version_node,
-				  global->num_nodes + 1);
-	if (valid == NULL) {
-		DBG_ERR("talloc_zero_array failed - %s\n", __location__);
-		TALLOC_FREE(frame);
-		return NT_STATUS_NO_MEMORY;
-	}
-
-	num_valid = 0;
-	for (i=0; i < global->num_nodes; i++) {
-		struct smbXsrv_version_node *n = &global->nodes[i];
-
-		exists = serverid_exists(&n->server_id);
-		if (!exists) {
-			continue;
-		}
-
-		if (n->min_version > n->max_version) {
-			status = NT_STATUS_INTERNAL_DB_CORRUPTION;
-			DBG_ERR("%s\n", nt_errstr(status));
-			NDR_PRINT_DEBUG(smbXsrv_version_globalB, &global_blob);
-			TALLOC_FREE(frame);
-			return status;
-		}
-
-		if (n->min_version > global_blob.version) {
-			status = NT_STATUS_INTERNAL_DB_CORRUPTION;
-			DBG_ERR("%s\n", nt_errstr(status));
-			NDR_PRINT_DEBUG(smbXsrv_version_globalB, &global_blob);
-			TALLOC_FREE(frame);
-			return status;
-		}
-
-		if (n->max_version < global_blob.version) {
-			status = NT_STATUS_INTERNAL_DB_CORRUPTION;
-			DBG_ERR("%s\n", nt_errstr(status));
-			NDR_PRINT_DEBUG(smbXsrv_version_globalB, &global_blob);
-			TALLOC_FREE(frame);
-			return status;
-		}
-
-		valid[num_valid] = *n;
-		if (server_id->vnn == n->server_id.vnn) {
-			local_node = &valid[num_valid];
-		}
-		num_valid++;
-	}
-
-	if (local_node == NULL) {
-		local_node = &valid[num_valid];
-		num_valid++;
-	}
-
-	*local_node = (struct smbXsrv_version_node) {
-		.server_id = *server_id,
-		.min_version = SMBXSRV_VERSION_1,
-		.max_version = SMBXSRV_VERSION_CURRENT,
-		.current_version = global_blob.version,
-	};
-
-	global->num_nodes = num_valid;
-	global->nodes = valid;
-
-	global_blob.seqnum += 1;
-	global_blob.info.info1 = global;
-
-	ndr_err = ndr_push_struct_blob(&blob, db_rec, &global_blob,
-			(ndr_push_flags_fn_t)ndr_push_smbXsrv_version_globalB);
-	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		status = ndr_map_error2ntstatus(ndr_err);
-		DBG_ERR("ndr_push_smbXsrv_version_globalB - %s\n",
-			nt_errstr(status));
-		TALLOC_FREE(frame);
-		return status;
-	}
-
-	val = make_tdb_data(blob.data, blob.length);
-	status = dbwrap_record_store(db_rec, val, DBWRAP_REPLACE);
-	TALLOC_FREE(db_rec);
-	if (!NT_STATUS_IS_OK(status)) {
-		DBG_ERR("dbwrap_record_store - %s\n", nt_errstr(status));
-		TALLOC_FREE(frame);
-		return status;
-	}
-
-	DBG_DEBUG("\n");
-	if (DEBUGLVL(10)) {
-		NDR_PRINT_DEBUG(smbXsrv_version_globalB, &global_blob);
-	}
-
-	smbXsrv_version_global_db_ctx = db_ctx;
-	smbXsrv_version_global_current_version = global_blob.version;
-
-	TALLOC_FREE(frame);
-	return NT_STATUS_OK;
-}
-
 uint32_t smbXsrv_version_global_current(void)
 {
-	return smbXsrv_version_global_current_version;
+	const struct cluster_level_active *al = NULL;
+
+	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		return SMBXSRV_VERSION_1;
+	}
+
+	al = cluster_level_global_active();
+
+	DBG_ERR("Unknown cluster functional level %" PRIu32 ".%" PRIu32,
+		al->major, al->minor);
+	smb_panic("No smbXsrv version for the active cluster functional level");
+	return SMBXSRV_VERSION_CURRENT;
 }
