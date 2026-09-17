@@ -2380,7 +2380,6 @@ extern void build_options(bool screen);
 	NTSTATUS status;
 	struct tevent_context *ev_ctx;
 	struct messaging_context *msg_ctx;
-	struct server_id server_id;
 	struct tevent_signal *se;
 	int profiling_level;
 	char *np_dir = NULL;
@@ -2805,12 +2804,6 @@ quic_disabled:
 
 	if(!get_global_sam_sid()) {
 		exit_daemon("Samba cannot create a SAM SID", EACCES);
-	}
-
-	server_id = messaging_server_id(msg_ctx);
-	status = smbXsrv_version_global_init(&server_id);
-	if (!NT_STATUS_IS_OK(status)) {
-		exit_daemon("Samba cannot init server context", EACCES);
 	}
 
 	status = smbXsrv_client_global_init();
