@@ -113,6 +113,8 @@ local_daemons_setup_usage()
 $0 <directory> setup [ <options>... ]
 
 Options:
+  -b <node>:<binary>
+                Use <binary> as ctdbd for <node> (default: ctdbd from PATH)
   -C            Comment out given config item (default: item uncommented)
   -F            Disable failover (default: failover enabled)
   -N <file>     Nodes file (default: automatically generated)
@@ -130,6 +132,7 @@ EOF
 local_daemons_setup()
 {
 	_commented_config=""
+	_ctdbd_binaries=""
 	_disable_failover=false
 	_nodes_file=""
 	_num_nodes=3
@@ -141,8 +144,12 @@ local_daemons_setup()
 
 	set -e
 
-	while getopts "C:FN:n:P:Rr:S:6h?" _opt; do
+	while getopts "b:C:FN:n:P:Rr:S:6h?" _opt; do
 		case "$_opt" in
+		b)
+			_t="${_ctdbd_binaries}${_ctdbd_binaries:+|}"
+			_ctdbd_binaries="${_t}${OPTARG}"
+			;;
 		C)
 			_t="${_commented_config}${_commented_config:+|}"
 			_commented_config="${_t}${OPTARG}"
@@ -261,6 +268,20 @@ EOF
 					"${CTDB_BASE}/ctdb.conf"
 			done
 		)
+
+		# Write per-node ctdbd binary override if one was given via -b.
+		# The file is absent when the default ctdbd (from PATH) is used.
+		(
+			IFS='|'
+			for _b in $_ctdbd_binaries; do
+				_bnode="${_b%%:*}"
+				_bpath="${_b#*:}"
+				if [ "$_bnode" = "$_n" ]; then
+					printf '%s\n' "$_bpath" \
+						>"${CTDB_BASE}/ctdbd_binary"
+				fi
+			done
+		)
 	done
 }
 
@@ -361,7 +382,12 @@ local_daemons_start()
 
 	onnode_common
 
-	onnode -i "$_nodes" "${VALGRIND:-} ctdbd"
+	# Use a per-node ctdbd binary override when present (written by
+	# setup -b <node>:<binary>), otherwise fall back to ctdbd from PATH.
+	onnode -i "$_nodes" \
+		"_b=\"\${CTDB_BASE}/ctdbd_binary\"; \
+		 _ctdbd=\$([ -f \"\$_b\" ] && cat \"\$_b\" || echo ctdbd); \
+		 ${VALGRIND:-} \$_ctdbd"
 }
 
 local_daemons_stop()
