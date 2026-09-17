@@ -1,0 +1,126 @@
+Cluster Messaging Format Upgrade Test
+======================================
+
+Background
+----------
+Recent commits introduced IDL/NDR-based encoding for several internal Samba
+messages (MSG_DEBUG, MSG_PING/PONG, MSG_PROFILE, MSG_DEBUGLEVEL,
+MSG_REQ_DEBUGLEVEL, MSG_PROFILELEVEL, MSG_REQ_PROFILELEVEL, MSG_SHUTDOWN).
+
+The new format is gated on the cluster functional level.  When the level is
+below 1.0, daemons use the legacy plain-data format.  Once the cluster is
+upgraded to level 1.0, daemons switch to the NDR-encoded V1 variants
+(MSG_PING_V1, MSG_PONG_V1, etc.).
+
+The test added here covers the mixed-messaging window: a running 3-node
+cluster is upgraded from level 0.1 to 1.0, and both messaging formats are
+exercised before and after the transition.
+
+
+Changes
+-------
+
+source3/lib/cluster_support.c
+  - Added CFL_RANGE(0, 1, 1) to CFL_ALL_RANGES.
+    The current build now declares compatibility with level 0.1 so that smbd
+    can join a cluster whose cluster_level.tdb was seeded at 0.1 without
+    exiting with NT_STATUS_UNKNOWN_REVISION.
+
+  - Lowered the assertion in cluster_level_activate() from
+    CLUSTER_LEVEL_ACTIVE(1, 0) to CLUSTER_LEVEL_ACTIVE(0, 1).
+    The function no longer aborts when the active level is 0.1; it only
+    requires that the level is at least the lowest supported one.
+
+selftest/target/Samba3.pm
+  - setup_clusteredmember() accepts a new optional pre_smbd_hook coderef.
+    The hook is called after ctdbd is running but before smbd starts,
+    allowing the caller to pre-seed persistent databases.
+
+  - setup_clusteredmember() now exports CONFIGURATION_NODE<N> env vars
+    (one per node) so test scripts can address individual nodes with
+    smbcontrol or net without relying on the merged node-0 config.
+
+  - Added setup_clusteredmember_msg_upgrade().
+    Starts a normal 3-node cluster using the current build, then uses
+    the pre_smbd_hook to inject a level 0.1 record into cluster_level.tdb
+    via "ctdb pstore" before any smbd process connects.  When smbd starts
+    it reads 0.1 from the DB and operates in legacy messaging mode.
+    The clusteredmember_msg_upgrade environment is registered in ENV_DEPS.
+
+source3/script/tests/test_messaging_upgrade.sh  (new file)
+  Three-step blackbox test:
+
+  Step 1 - Verify baseline at level 0.1
+    net clusterlevel show    -> must report "0.1"
+    smbclient ls on nodes 0/1/2  -> must succeed
+    smbcontrol smbd ping     -> exercises legacy MSG_PING / MSG_PONG
+
+  Step 2 - Upgrade cluster level
+    net clusterlevel upgrade --apply  -> raises DB record from 0.1 to 1.0
+    sleep 2s to let MSG_CLUSTER_LEVEL_UPGRADED propagate
+    net clusterlevel show    -> must report "1.0"
+
+  Step 3 - Verify NDR messaging at level 1.0
+    smbcontrol smbd ping     -> exercises NDR MSG_PING_V1 / MSG_PONG_V1
+    smbclient ls on nodes 0/1/2  -> must still succeed
+
+source3/selftest/tests.py
+  Registers samba3.blackbox.messaging_upgrade against the
+  clusteredmember_msg_upgrade:local environment.
+
+
+How to run
+----------
+No second binary tree is required.  A single build is enough.
+
+  make test TESTS="samba3.blackbox.messaging_upgrade"
+
+Or, targeting the environment explicitly:
+
+  make test \
+    TESTS="samba3.blackbox.messaging_upgrade\
+(clusteredmember_msg_upgrade:local)"
+
+The test is entirely self-contained: the selftest harness provisions the
+cluster, seeds level 0.1, starts smbd, and runs the upgrade inside the
+test environment.  No manual ctdb or smbd invocations are needed.
+
+
+How the level seeding works
+---------------------------
+cluster_level.tdb is a CTDB persistent database.  Its global record key is
+the ASCII string "CLUSTER_LEVEL_GLOBAL" (no NUL terminator), stored as:
+
+  key:   0x434c55535445525f4c4556454c5f474c4f42414c
+
+The value is a little-endian NDR blob of struct cluster_level_globalB
+(CLUSTER_LEVEL_DB_VERSION_1) with active_level = { major=0, minor=1 }:
+
+  value: 0x01000000010000000000000000000000000000000000000001000000
+         |--------|--------|----------------|--------|--------|--------|
+          db_ver   union    tv_sec (8 B)    tv_usec   major    minor
+
+setup_clusteredmember_msg_upgrade injects this record with:
+
+  ctdb attach cluster_level.tdb persistent
+  ctdb pstore cluster_level.tdb <key> <value>
+
+This happens after ctdbd is up (so the DB exists) but before smbd connects
+(so smbd's first-connect transaction sees the pre-seeded 0.1 level instead
+of initialising it to 1.0).
+
+
+Upgrade path in the code
+------------------------
+cluster_level_db_upgrade() (called by net clusterlevel upgrade --apply):
+
+  1. Opens a transaction on cluster_level.tdb.
+  2. Iterates every ctdb node and checks that each node's stored
+     supported_ranges matches the local binary's own ranges.
+     With the new CFL_RANGE(0, 1, 1) entry, all nodes advertise
+     { 1.0->1.0, 0.1->0.1 } and the check passes.
+  3. Stores { major=1, minor=0 } as the new active_level.
+  4. Commits the transaction.
+  5. Calls messaging_send_all(MSG_CLUSTER_LEVEL_UPGRADED).
+     Each smbd receives the message, re-reads the DB, and calls
+     cluster_level_activate(&{1,0}), activating the NDR message path.

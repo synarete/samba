@@ -255,8 +255,9 @@ sub check_env($$)
 	ad_member_idmap_nss => ["ad_dc"],
 	ad_member_s3_join   => ["vampire_dc"],
 
-	clusteredmember       => ["ad_dc"],
-	clusteredmember_mixed => ["ad_dc"],
+	clusteredmember             => ["ad_dc"],
+	clusteredmember_mixed       => ["ad_dc"],
+	clusteredmember_msg_upgrade => ["ad_dc"],
 );
 
 %Samba3::ENV_DEPS_POST = ();
@@ -513,6 +514,11 @@ sub setup_clusteredmember
 	# Missing elements or an undef value mean "use the default binary".
 	my $node_binaries = $args{node_binaries} // [];
 
+	# Optional coderef called after ctdbd is up but before smbd starts.
+	# Receives ($ctdb_data) and must return true on success.
+	# Use this to pre-seed cluster_level.tdb with a specific level.
+	my $pre_smbd_hook = $args{pre_smbd_hook};
+
 	print "PROVISIONING CLUSTEREDMEMBER...\n";
 
 	mkdir($prefix, 0777);
@@ -523,6 +529,14 @@ sub setup_clusteredmember
 	if (not $ctdb_data) {
 		print "No ctdb data\n";
 		return undef;
+	}
+
+	if (defined $pre_smbd_hook) {
+		unless ($pre_smbd_hook->($ctdb_data)) {
+			print "pre_smbd_hook failed\n";
+			teardown_env($self, $ctdb_data);
+			return undef;
+		}
 	}
 
 	print "PROVISIONING CLUSTERED SAMBA...\n";
@@ -763,6 +777,15 @@ sub setup_clusteredmember
 	$ret->{REALM} = $dcvars->{REALM};
 	$ret->{DOMAIN} = $dcvars->{DOMAIN};
 
+	# Export per-node smbd configuration paths so test scripts can run
+	# smbcontrol/net against individual nodes.
+	for (my $i = 0; $i < @retvals; $i++) {
+		my $node_provision = $retvals[$i];
+		my $conf = $node_provision->{SERVERCONFFILE};
+
+		$ret->{"CONFIGURATION_NODE${i}"} = "--configfile=$conf";
+	}
+
 	return $ret;
 }
 
@@ -812,6 +835,65 @@ sub setup_clusteredmember_mixed
 
 	return $self->setup_clusteredmember($prefix, $dcvars,
 	    node_binaries => \@node_binaries);
+}
+
+# setup_clusteredmember_msg_upgrade - 3-node cluster that starts at legacy
+# cluster level 0.1 (pre-NDR messaging) and lets the test upgrade it to 1.0.
+#
+# All nodes run the current build.  Before smbd starts, cluster_level.tdb is
+# pre-seeded with level 0.1 via "ctdb pstore" so that every smbd comes up
+# operating in the legacy messaging format.  The test then runs:
+#
+#   net clusterlevel upgrade --apply
+#
+# to raise the level to 1.0 and verify that NDR-based messaging is activated
+# while the cluster continues to serve SMB clients.
+#
+# The binary layout of a level 0.1 record is documented in cluster_level.idl:
+#   key:   CLUSTER_LEVEL_GLOBAL (as hex without the NUL terminator)
+#   value: version(4) union-ver(4) tv_sec(8) tv_usec(4) major(4) minor(4)
+#          01000000 01000000 0000000000000000 00000000 00000000 01000000
+sub setup_clusteredmember_msg_upgrade
+{
+	my ($self, $prefix, $dcvars) = @_;
+
+	# The hex-encoded key "CLUSTER_LEVEL_GLOBAL" (no trailing NUL):
+	my $level_key   = "0x434c55535445525f4c4556454c5f474c4f42414c";
+	# CLUSTER_LEVEL_DB_VERSION_1 record with active_level = { 0, 1 }:
+	my $level_value = "0x01000000010000000000000000000000000000000000000001000000";
+
+	my $hook = sub {
+		my ($ctdb_data) = @_;
+
+		# Use node 0's ctdb socket to inject the level.
+		my $socket = $ctdb_data->{CTDB_SOCKET_NODE0};
+		my $ctdb   = abs_path(Samba::bindir_path($self, "ctdb"));
+
+		print "MSG_UPGRADE: seeding cluster_level.tdb with level 0.1\n";
+
+		# Attach the persistent database (creates it if absent).
+		my $cmd = "CTDB_SOCKET='${socket}' "
+		        . "'${ctdb}' attach cluster_level.tdb persistent";
+		if (system($cmd) != 0) {
+			warn("ctdb attach failed: $cmd");
+			return 0;
+		}
+
+		# Write the 0.1 level record.
+		$cmd = "CTDB_SOCKET='${socket}' "
+		     . "'${ctdb}' pstore cluster_level.tdb "
+		     . "${level_key} ${level_value}";
+		if (system($cmd) != 0) {
+			warn("ctdb pstore failed: $cmd");
+			return 0;
+		}
+
+		print "MSG_UPGRADE: cluster_level.tdb seeded\n";
+		return 1;
+	};
+
+	return $self->setup_clusteredmember($prefix, $dcvars,
+	    pre_smbd_hook => $hook);
 }
 
 sub provision_ad_member

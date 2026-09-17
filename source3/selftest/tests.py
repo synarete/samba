@@ -2099,6 +2099,22 @@ if have_cluster_support:
                    '$CTDB_SERVER_NAME_NODE1',
                    "tmp"])
 
+    # Messaging-format upgrade test: the clusteredmember_msg_upgrade env
+    # pre-seeds cluster_level.tdb with level 0.1 (legacy, pre-NDR) before
+    # smbd starts.  The test verifies that all three nodes serve SMB traffic
+    # at 0.1, then upgrades the cluster level to 1.0 and verifies that NDR
+    # messaging (MSG_PING_V1) is active while SMB service continues.
+    plantestsuite("samba3.blackbox.messaging_upgrade",
+                  "clusteredmember_msg_upgrade:local",
+                  [os.path.join(samba3srcdir,
+                                "script/tests/"
+                                "test_messaging_upgrade.sh"),
+                   configuration,
+                   '$CTDB_SERVER_NAME_NODE0',
+                   '$CTDB_SERVER_NAME_NODE1',
+                   '$CTDB_SERVER_NAME_NODE2',
+                   "tmp"])
+
 planpythontestsuite("fileserver_smb1", "samba.tests.smb3unix")
 planpythontestsuite("fileserver_smb1", "samba.tests.reparsepoints")
 planpythontestsuite("fileserver_smb1", "samba.tests.smb2symlink")
