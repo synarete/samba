@@ -2136,6 +2136,18 @@ if have_cluster_support:
          "$CTDB_PREFIX",
          dbwrap_tool])
 
+    # Messaging-format upgrade test
+    plantestsuite("samba3.blackbox.messaging_upgrade",
+                  "clusteredmember_msg_upgrade:local",
+                  [os.path.join(samba3srcdir,
+                                "script/tests/"
+                                "test_messaging_upgrade.sh"),
+                   configuration,
+                   '$CTDB_SERVER_NAME_NODE0',
+                   '$CTDB_SERVER_NAME_NODE1',
+                   '$CTDB_SERVER_NAME_NODE2',
+                   "tmp"])
+
 #
 # The cluster tests, planned in cfl_upgrade against the selftest
 # cluster.
