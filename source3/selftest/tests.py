@@ -2117,6 +2117,18 @@ if have_cluster_support:
          "$CTDB_PREFIX",
          dbwrap_tool])
 
+    # Messaging-format upgrade test
+    plantestsuite("samba3.blackbox.messaging_upgrade",
+                  "clusteredmember_msg_upgrade:local",
+                  [os.path.join(samba3srcdir,
+                                "script/tests/"
+                                "test_messaging_upgrade.sh"),
+                   configuration,
+                   '$CTDB_SERVER_NAME_NODE0',
+                   '$CTDB_SERVER_NAME_NODE1',
+                   '$CTDB_SERVER_NAME_NODE2',
+                   "tmp"])
+
 if have_cluster_support and have_mixed_cluster_support:
     #
     # The cluster in cfl_upgrade starts on the stable build at level 1.0
