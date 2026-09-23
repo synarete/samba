@@ -42,7 +42,7 @@ void cluster_level_global_reset_preliminary(void);
 const struct cluster_level_active *cluster_level_global_active(void);
 
 /*
- * We use checks like 'if (CLUSTER_LEVEL_ACTIVE(1, 0))' in
+ * We use checks like 'if (CLUSTER_LEVEL_ACTIVE(2, 0))' in
  * order to avoid long lines when using the
  * define explicitly.
  *

@@ -382,8 +382,8 @@ void cluster_level_activate(const struct cluster_level_active *level)
 	global_level_standalone = false;
 
 	/*
-	 * We should have at least the oldest version we support
-	 * for the clustered case.
+	 * We should have at least the lowest version we support,
+	 * which is 1.0 (the legacy pre-NDR level).
 	 */
 	SMB_ASSERT(CLUSTER_LEVEL_ACTIVE(LOWEST, MIN));
 }
@@ -479,10 +479,10 @@ const struct cluster_level_active *cluster_level_global_active(void)
  *    // handle 5.2
  * } else if (CLUSTER_LEVEL_ACTIVE(3, 0)) {
  *    // handle 3.0
+ * } else if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+ *    // handle 2.0
  * } else if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
  *    // handle 1.0
- * } else if (CLUSTER_LEVEL_ACTIVE(0, 1)) {
- *    // handle 0.1
  * } else {
  *    // error!!! 0.0 should never be active
  * }
