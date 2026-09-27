@@ -5,15 +5,17 @@
 # SMB service.
 #
 # The clusteredmember_msg_upgrade environment starts all three nodes with
-# cluster_level.tdb pre-seeded to level 0.1 so that smbd operates in legacy
-# mode. Then test:
+# cluster_level.tdb pre-seeded to level 0.1 so that smbd operates in
+# legacy mode. Then test:
 #
 #  1. Verifies that all three nodes serve SMB traffic at level 0.1.
-#  2. Verifies that legacy messages works at level 0.1.
-#  3. Runs "net clusterlevel upgrade --apply" to raise the level to 1.0.
-#  4. Verifies the new level is reported by "net clusterlevel show".
-#  5. Verifies that new NDR messages works fine
-#  6. Verifies that all three nodes still serve SMB traffic after the upgrade.
+#  2. Verifies file I/O (put/get/rm) on each node at level 0.1.
+#  3. Verifies that legacy messages works at level 0.1.
+#  4. Runs "net clusterlevel upgrade --apply" to raise the level to 1.0.
+#  5. Verifies the new level is reported by "net clusterlevel show".
+#  6. Verifies that new NDR messages works fine.
+#  7. Verifies file I/O (put/get/rm) on each node at level 1.0.
+#  8. Verifies that all three nodes still serve SMB traffic after upgrade.
 #
 # Expected arguments:
 #   $1  CONFIGURATION  – --configfile=... for node 0 (used by net/smbcontrol)
@@ -42,6 +44,8 @@ incdir=$(dirname "$0")/../../../testprogs/blackbox
 
 failed=0
 
+cd "$SELFTEST_TMPDIR" || exit 1
+
 # Run a command with uid_wrapper posing as root (ruid=0, euid=0).
 run_as_root()
 {
@@ -65,6 +69,35 @@ smbclient_ls()
 	else
 		echo "$out" | subunit_fail_test "$name"
 	fi
+	return $st
+}
+
+# Write a small file to the share, read it back, compare, and delete it.
+# This verifies actual file I/O (write + read) works on the given node.
+smbclient_put_get_rm()
+{
+	local name="$1"
+	local server="$2"
+	subunit_start_test "$name"
+
+	local src="msg_upgrade_io_$$.tmp"
+	local dst="${src}.got"
+	echo "messaging upgrade I/O test" >"$src"
+
+	local out
+	out=$(run_as_root "$SMBCLIENT" "//$server/$SHARE" \
+		-U"${DC_USERNAME}%${DC_PASSWORD}" \
+		-c "put $src $src; get $src $dst; rm $src" \
+		2>&1)
+	local st=$?
+
+	if [ $st -eq 0 ] && diff -q "$src" "$dst" >/dev/null 2>&1; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+		st=1
+	fi
+	rm -f "$src" "$dst"
 	return $st
 }
 
@@ -241,6 +274,16 @@ smbclient_ls "step1: smbclient node1 (level 0.1)" "$NODE1" \
 smbclient_ls "step1: smbclient node2 (level 0.1)" "$NODE2" \
 	|| failed=$((failed + 1))
 
+smbclient_put_get_rm \
+	"step1: I/O node0 put/get/rm (level 0.1)" "$NODE0" \
+	|| failed=$((failed + 1))
+smbclient_put_get_rm \
+	"step1: I/O node1 put/get/rm (level 0.1)" "$NODE1" \
+	|| failed=$((failed + 1))
+smbclient_put_get_rm \
+	"step1: I/O node2 put/get/rm (level 0.1)" "$NODE2" \
+	|| failed=$((failed + 1))
+
 # At level 0.1 smbcontrol sends legacy messages (non NDR)
 smbcontrol_ping "step1: smbcontrol ping (legacy MSG_PING at level 0.1)" \
 	|| failed=$((failed + 1))
@@ -300,12 +343,22 @@ smbcontrol_profilelevel \
 	"step3: smbcontrol profilelevel (NDR MSG_REQ_PROFILELEVEL_V1 at level 1.0)" \
 	|| failed=$((failed + 1))
 
-# Verify smbd is alive
+# Verify smbd is alive and file I/O works
 smbclient_ls "step3: smbclient node0 (level 1.0)" "$NODE0" \
 	|| failed=$((failed + 1))
 smbclient_ls "step3: smbclient node1 (level 1.0)" "$NODE1" \
 	|| failed=$((failed + 1))
 smbclient_ls "step3: smbclient node2 (level 1.0)" "$NODE2" \
+	|| failed=$((failed + 1))
+
+smbclient_put_get_rm \
+	"step3: I/O node0 put/get/rm (level 1.0)" "$NODE0" \
+	|| failed=$((failed + 1))
+smbclient_put_get_rm \
+	"step3: I/O node1 put/get/rm (level 1.0)" "$NODE1" \
+	|| failed=$((failed + 1))
+smbclient_put_get_rm \
+	"step3: I/O node2 put/get/rm (level 1.0)" "$NODE2" \
 	|| failed=$((failed + 1))
 
 testok "$0" "$failed"
