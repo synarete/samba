@@ -25,7 +25,7 @@
 #include "librpc/gen_ndr/messaging.h"
 
 enum ndr_err_code messaging_debug_push_v1(TALLOC_CTX *mem_ctx,
-					  struct messaging_debug *msg,
+					  const struct messaging_debug *msg,
 					  DATA_BLOB *blob);
 
 enum ndr_err_code messaging_debug_pull(TALLOC_CTX *mem_ctx,

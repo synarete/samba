@@ -24,10 +24,9 @@
 #include "librpc/ndr/ndr_messaging.h"
 
 enum ndr_err_code messaging_debug_push_v1(TALLOC_CTX *mem_ctx,
-					  struct messaging_debug *msg,
+					  const struct messaging_debug *msg,
 					  DATA_BLOB *blob)
 {
-	msg->version = MESSAGING_DEBUG_VERSION_1;
 	return ndr_push_struct_blob(blob,
 				    mem_ctx,
 				    msg,
@@ -40,6 +39,8 @@ enum ndr_err_code messaging_debug_pull(TALLOC_CTX *mem_ctx,
 				       struct messaging_debug *msg)
 {
 	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_debug){0};
 
 	ndr_err = ndr_pull_struct_blob(blob,
 				       mem_ctx,
