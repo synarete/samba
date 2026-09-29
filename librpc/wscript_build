@@ -819,3 +819,14 @@ bld.SAMBA_BINARY(
     ''',
     for_selftest=True,
 )
+
+bld.SAMBA_BINARY(
+    'test_ndr_messaging',
+    source='tests/test_ndr_messaging.c',
+    deps='''
+        cmocka
+        talloc
+        NDR_MESSAGING
+    ''',
+    for_selftest=True,
+)
