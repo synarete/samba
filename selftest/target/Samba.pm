@@ -79,6 +79,21 @@ sub cleanup_pcap($$$)
 	unlink($pcap_file);
 }
 
+#
+# Forget a torn down environment, so that a later setup_env() provisions
+# it again instead of returning the vars it had while it was running.
+#
+sub forget_env($$)
+{
+	my ($self, $envname) = @_;
+
+	foreach my $targetname ("samba3", "samba4") {
+		my $target = $self->{$targetname};
+		next unless defined($target);
+		delete $target->{vars}->{$envname};
+	}
+}
+
 sub setup_env($$$)
 {
 	my ($self, $envname, $path) = @_;

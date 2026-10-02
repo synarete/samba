@@ -920,10 +920,18 @@ sub check_env($)
 sub teardown_env($)
 {
 	my ($envname) = @_;
+
+	#
+	# The testsuite list carries "envname:option", the environment
+	# itself is registered under the bare name.
+	#
+	$envname =~ s/:.*//;
+
 	return if ($envname eq "none");
 	print STDERR "teardown_env($envname)\n";
 	my $env = get_running_env($envname);
 	$env->{target}->teardown_env($env);
+	$target->forget_env($envname);
 	delete $running_envs{$envname};
 }
 
