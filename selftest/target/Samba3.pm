@@ -496,13 +496,57 @@ sub setup_nt4_member
 	return $ret;
 }
 
+#
+# The latest stable build, which a mixed version environment runs some of
+# its nodes from, taken from SELFTEST_LATEST_STABLE_BINDIR.
+#
+sub latest_stable_samba3($)
+{
+	my ($self) = @_;
+
+	my $bindir = $ENV{SELFTEST_LATEST_STABLE_BINDIR};
+	if (not defined($bindir)) {
+		warn("a mixed version cluster needs SELFTEST_LATEST_STABLE_BINDIR " .
+		     "pointing at the other build's bin directory\n");
+		return undef;
+	}
+
+	my $abs_bindir = abs_path($bindir);
+	my $srcdir = abs_path("$bindir/..");
+
+	if (not defined($abs_bindir) or not -x "$abs_bindir/smbd") {
+		warn("SELFTEST_LATEST_STABLE_BINDIR=$bindir " .
+		     "has no smbd\n");
+		return undef;
+	}
+
+	return new Samba3($self->{SambaCtx},
+			  $abs_bindir,
+			  $srcdir,
+			  $self->{server_maxtime});
+}
+
 sub setup_clusteredmember
 {
 	my ($self, $prefix, $dcvars) = @_;
+
+	return setup_clustered_samba($self, $prefix, $dcvars, undef, 0);
+}
+
+sub setup_clustered_samba
+{
+	my ($self, $prefix, $dcvars, $mixed, $node_base) = @_;
 	my $count = 0;
 	my $rc;
 	my @retvals = ();
+	my @node_objs = ();
 	my $ret;
+
+	#
+	# The build each node runs: this one, except for the nodes $mixed
+	# lists, which run the stable build.
+	#
+	my @node_builds = ($self) x 3;
 
 	# If we didn't build with ADS, pretend this env was never available
 	if (not $self->have_ads()) {
@@ -511,9 +555,42 @@ sub setup_clusteredmember
 
 	print "PROVISIONING CLUSTEREDMEMBER...\n";
 
+	# Environment changes below are for this cluster's daemons only, not
+	# for selftest.pl and the environments set up after this one.
+	local %ENV = %ENV;
+
+	if ($mixed) {
+		if (grep { m{^bin/shared(/private)?$} }
+		    split(/:/, $ENV{LD_LIBRARY_PATH} // "")) {
+			warn("a mixed version cluster needs a build with " .
+			     "rpath, not --disable-rpath-build\n");
+			return undef;
+		}
+
+		#
+		# libquic-ko-wrapper.so is LD_PRELOADed from this tree and pulls
+		# in this tree's libngtcp2-private-samba.so and
+		# libngtcp2-crypto-gnutls-private-samba.so through its own
+		# RUNPATH. Those sonames are then already loaded when the other
+		# build loads libauthkrb5, so it binds to the wrong version and
+		# the process dies.  Drop it, a mixed version cluster does not
+		# test QUIC.
+		#
+		my @preload = grep { !m{/libquic-ko-wrapper\.so$} }
+			      split(/:/, $ENV{LD_PRELOAD} // "");
+		$ENV{LD_PRELOAD} = join(":", @preload);
+		delete $ENV{QUIC_KO_WRAPPER};
+
+		my $stable = latest_stable_samba3($self);
+		if (not defined($stable)) {
+			return undef;
+		}
+		$node_builds[$_] = $stable foreach (@{$mixed});
+	}
+
 	mkdir($prefix, 0777);
 
-	my $ctdb_data = $self->setup_ctdb($prefix);
+	my $ctdb_data = $self->setup_ctdb($prefix, $node_base);
 
 	if (not $ctdb_data) {
 		print "No ctdb data\n";
@@ -534,9 +611,11 @@ sub setup_clusteredmember
 		my $server_name = $node->{SERVER_NAME};
 		my $pub_iface = $node->{SOCKET_WRAPPER_DEFAULT_IFACE};
 		my $node_prefix = $node->{NODE_PREFIX};
+		my $node_self = $node_builds[$i];
 
 		print "CTDB_BASE=${node_prefix}\n";
 		print "CTDB_SOCKET=${socket}\n";
+		print "BINDIR=$node_self->{bindir}\n";
 
 		my $require_mutexes = "dbwrap_tdb_require_mutexes:* = yes";
 		if ($ENV{SELFTEST_DONT_REQUIRE_TDB_MUTEX_SUPPORT} // '' eq "1") {
@@ -577,7 +656,7 @@ sub setup_clusteredmember
 	posix locking = no
 ";
 
-		my $node_ret = $self->provision(
+		my $node_ret = $node_self->provision(
 		    prefix => "$node_prefix",
 		    domain => $dcvars->{DOMAIN},
 		    server => "$server_name",
@@ -608,7 +687,7 @@ sub setup_clusteredmember
 
 		close(REGISTRYCONF);
 
-		my $net = Samba::bindir_path($self, "net");
+		my $net = Samba::bindir_path($node_self, "net");
 		my $cmd = "";
 
 		$cmd .= "UID_WRAPPER_ROOT=1 ";
@@ -622,7 +701,7 @@ sub setup_clusteredmember
 			return undef;
 		}
 
-		my $nmblookup = Samba::bindir_path($self, "nmblookup");
+		my $nmblookup = Samba::bindir_path($node_self, "nmblookup");
 		$count = 0;
 		do {
 			print "Waiting for the LOGON SERVER registration ...\n";
@@ -642,6 +721,7 @@ sub setup_clusteredmember
 		}
 
 		push(@retvals, $node_ret);
+		push(@node_objs, $node_self);
 	}
 
 	$ret = {%$ctdb_data, %{$retvals[0]}};
@@ -663,7 +743,7 @@ sub setup_clusteredmember
 
 	$ret->{KRB5_CONFIG} = $ctx->{krb5_conf};
 
-	my $net = Samba::bindir_path($self, "net");
+	my $net = Samba::bindir_path($node_objs[0], "net");
 	my $cmd = "NSS_WRAPPER_HOSTS='$ret->{NSS_WRAPPER_HOSTS}' ";
 	$cmd .= "UID_WRAPPER_ROOT=1 ";
 	$cmd .= "SOCKET_WRAPPER_DEFAULT_IFACE=\"$ret->{SOCKET_WRAPPER_DEFAULT_IFACE}\" ";
@@ -688,7 +768,7 @@ sub setup_clusteredmember
 		# between the nodes via ctdb.
 		my $finish_setup = ($i == 0) ? "yes" : "no";
 
-		$ok = $self->check_or_start(
+		$ok = $node_objs[$i]->check_or_start(
 		    env_vars => $node_provision,
 		    samba_dcerpcd => "yes",
 		    winbindd => "yes",
@@ -4390,12 +4470,12 @@ sub finish_setup_after_start($$)
 ##
 ## provision and start of ctdb
 ##
-sub setup_ctdb($$)
+sub setup_ctdb($$$)
 {
-	my ($self, $prefix) = @_;
+	my ($self, $prefix, $node_base) = @_;
 	my $num_nodes = 3;
 
-	my $data = $self->provision_ctdb($prefix, $num_nodes);
+	my $data = $self->provision_ctdb($prefix, $num_nodes, $node_base);
 	$data or return undef;
 
 	my $rc = $self->check_or_start_ctdb($data);
@@ -4415,7 +4495,7 @@ sub setup_ctdb($$)
 
 sub provision_ctdb($$$$)
 {
-	my ($self, $prefix, $num_nodes) = @_;
+	my ($self, $prefix, $num_nodes, $node_base) = @_;
 	my $rc;
 	my $abs_prefix = abs_path($prefix);
 	my $ctdb = abs_path(Samba::bindir_path($self, "ctdb"));
@@ -4448,7 +4528,7 @@ sub provision_ctdb($$$$)
 	my @nodes = ();
 	for (my $i = 0; $i < $num_nodes; $i++) {
 		my %node = ();
-		my $server_name = "ctdb${i}";
+		my $server_name = "ctdb" . ($node_base + $i);
 		my $pub_iface = Samba::get_interface($server_name);
 		my $ip = Samba::get_ipv4_addr($server_name);
 
