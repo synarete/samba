@@ -158,6 +158,67 @@ smbcontrol_debuglevel()
 	return 0
 }
 
+# Send "smbcontrol <pid> pool-usage" to a smbd process on a given node.
+# Because pool-usage requires a specific PID (it passes an fd) and smbstatus
+# only lists processes that have active sessions, we open a background
+# smbclient connection to guarantee at least one session exists while we
+# query smbstatus AND while smbcontrol sends the message.
+smbcontrol_pool_usage()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	# Open a persistent smbclient connection in interactive mode via a
+	# fifo so that smbstatus sees at least one active session.
+	local fifo_in
+	fifo_in="$SELFTEST_TMPDIR/pool_usage_in_$$"
+	mkfifo "$fifo_in"
+
+	# smbclient reads commands from $fifo_in; we hold the write end open
+	# (fd 9) so it blocks waiting for input and keeps the session alive.
+	run_as_root "$SMBCLIENT" "//$NODE0/$SHARE" \
+		-U"${DC_USERNAME}%${DC_PASSWORD}" \
+		< "$fifo_in" >/dev/null 2>&1 &
+	local client_pid=$!
+	exec 9>"$fifo_in"
+
+	# Give smbd a moment to register the session.
+	sleep 1
+
+	# Discover a smbd PID on the target node via smbstatus.
+	local smbd_pid
+	smbd_pid=$(run_as_root "$BINDIR/smbstatus" "$CONF" \
+		-p 2>/dev/null | awk '/^[0-9]/{print $1; exit}')
+
+	if [ -z "$smbd_pid" ]; then
+		# Close our end of the fifo before failing.
+		exec 9>&-
+		wait "$client_pid" 2>/dev/null
+		rm -f "$fifo_in"
+		echo "Could not find a smbd PID via smbstatus" |
+			subunit_fail_test "$name"
+		return 1
+	fi
+
+	# Send pool-usage while the smbclient session is still alive so that
+	# smbd is guaranteed to be running when the message arrives.
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" "$smbd_pid" pool-usage 2>&1)
+	local st=$?
+
+	# Now close our end of the fifo; smbclient will get EOF and exit.
+	exec 9>&-
+	wait "$client_pid" 2>/dev/null
+	rm -f "$fifo_in"
+
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
 # Helper: send "smbcontrol smbd profile <cmd>" (fire-and-forget).
 smbcontrol_profile()
 {
@@ -303,6 +364,10 @@ smbcontrol_profilelevel \
 	"step1: smbcontrol profilelevel (legacy MSG_REQ_PROFILELEVEL at level 0.1)" \
 	|| failed=$((failed + 1))
 
+smbcontrol_pool_usage \
+	"step1: smbcontrol pool-usage (legacy MSG_REQ_POOL_USAGE at level 0.1)" \
+	|| failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 0.1 to 1.0
 # ===========================================================================
@@ -341,6 +406,10 @@ smbcontrol_profile \
 
 smbcontrol_profilelevel \
 	"step3: smbcontrol profilelevel (NDR MSG_REQ_PROFILELEVEL_V1 at level 1.0)" \
+	|| failed=$((failed + 1))
+
+smbcontrol_pool_usage \
+	"step3: smbcontrol pool-usage (NDR MSG_REQ_POOL_USAGE_V1 at level 1.0)" \
 	|| failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
