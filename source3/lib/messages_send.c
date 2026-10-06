@@ -348,3 +348,50 @@ NTSTATUS messaging_send_shutdown(struct messaging_context *msg_ctx,
 	}
 	return messaging_send_shutdown_legacy(msg_ctx, dst);
 }
+
+/* MSG_REQ_POOL_USAGE */
+
+static NTSTATUS messaging_send_req_pool_usage_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	int fd)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_pool_usage msg = {};
+	DATA_BLOB blob = data_blob_null;
+	struct iovec iov;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_req_pool_usage_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	iov = (struct iovec){.iov_base = blob.data, .iov_len = blob.length};
+	status = messaging_send_iov(
+		msg_ctx, dst, MSG_REQ_POOL_USAGE_V1, &iov, 1, &fd, 1);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_req_pool_usage_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	int fd)
+{
+	return messaging_send_iov(
+		msg_ctx, dst, MSG_REQ_POOL_USAGE, NULL, 0, &fd, 1);
+}
+
+NTSTATUS messaging_send_req_pool_usage(struct messaging_context *msg_ctx,
+				       struct server_id dst,
+				       int fd)
+{
+	if (messaging_use_ndr_v1()) {
+		return messaging_send_req_pool_usage_v1(msg_ctx, dst, fd);
+	}
+	return messaging_send_req_pool_usage_legacy(msg_ctx, dst, fd);
+}
