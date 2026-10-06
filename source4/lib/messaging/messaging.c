@@ -169,6 +169,43 @@ static void pool_message(struct imessaging_context *msg,
 	fclose(f);
 }
 
+static void pool_message_v1(struct imessaging_context *msg,
+			    void *private_data,
+			    uint32_t msg_type,
+			    struct server_id src,
+			    size_t num_fds,
+			    int *fds,
+			    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_pool_usage req = {};
+	enum ndr_err_code ndr_err;
+	FILE *f = NULL;
+
+	if (num_fds != 1) {
+		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
+		goto out;
+	}
+
+	ndr_err = messaging_req_pool_usage_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_REQ_POOL_USAGE_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	f = fdopen(fds[0], "w");
+	if (f == NULL) {
+		DBG_DEBUG("fopen failed: %s\n", strerror(errno));
+		goto out;
+	}
+
+	talloc_full_report_printf(NULL, f);
+	fclose(f);
+out:
+	TALLOC_FREE(frame);
+}
+
 static void ringbuf_log_msg(struct imessaging_context *msg,
 			    void *private_data,
 			    uint32_t msg_type,
@@ -729,6 +766,13 @@ static struct imessaging_context *imessaging_init_internal(
 	}
 	status = imessaging_register(msg, NULL, MSG_REQ_POOL_USAGE,
 				     pool_message);
+	if (!NT_STATUS_IS_OK(status)) {
+		goto fail;
+	}
+	status = imessaging_register(msg,
+				     NULL,
+				     MSG_REQ_POOL_USAGE_V1,
+				     pool_message_v1);
 	if (!NT_STATUS_IS_OK(status)) {
 		goto fail;
 	}
