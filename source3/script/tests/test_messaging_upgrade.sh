@@ -41,6 +41,7 @@ SHARE=$5
 
 SMBCLIENT="$BINDIR/smbclient"
 SMBCONTROL="$BINDIR/smbcontrol"
+SMBSTATUS="$BINDIR/smbstatus"
 NET="$BINDIR/net"
 
 CREDS="-U${DC_USERNAME}%${DC_PASSWORD}"
@@ -223,6 +224,59 @@ smbcontrol_profilelevel()
 	subunit_report "$name" "$st" "$out"
 }
 
+# Send "smbcontrol <pid> pool-usage" to a smbd process.
+# Because pool-usage requires a specific PID (it passes an fd) and smbstatus
+# only lists processes that have active sessions, we open a background
+# smbclient connection to guarantee at least one session exists while we
+# query smbstatus AND while smbcontrol sends the message.
+smbcontrol_pool_usage()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	# Open a persistent smbclient connection in interactive mode via a
+	# fifo so that smbstatus sees at least one active session.
+	local fifo_in="$SELFTEST_TMPDIR/pool_usage_in_$$"
+	rm -f "$fifo_in"
+	mkfifo "$fifo_in"
+
+	# smbclient reads commands from $fifo_in; we hold the write end open
+	# (fd 9) so it blocks waiting for input and keeps the session alive.
+	"${AS_ROOT[@]}" "$SMBCLIENT" "//$NODE0/$SHARE" "$CREDS" \
+		<"$fifo_in" >/dev/null 2>&1 &
+	local client_pid=$!
+	exec 9>"$fifo_in"
+
+	# Give smbd a moment to register the session.
+	sleep 1
+
+	# Discover a smbd PID via smbstatus.
+	local smbd_pid
+	smbd_pid=$("${AS_ROOT[@]}" "$SMBSTATUS" "$CONF" -p 2>/dev/null |
+		awk '/^[0-9]/{print $1; exit}')
+
+	local out
+	local st
+	if [ -z "$smbd_pid" ]; then
+		out="Could not find a smbd PID via smbstatus"
+		st=1
+	else
+		# Send pool-usage while the smbclient session is still alive
+		# so that smbd is guaranteed to be running when the message
+		# arrives.
+		out=$("${AS_ROOT[@]}" "$SMBCONTROL" "$CONF" "$smbd_pid" \
+			pool-usage 2>&1)
+		st=$?
+	fi
+
+	# Now close our end of the fifo; smbclient will get EOF and exit.
+	exec 9>&-
+	wait "$client_pid" 2>/dev/null
+	rm -f "$fifo_in"
+
+	subunit_report "$name" "$st" "$out"
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -335,6 +389,9 @@ run_messaging_tests()
 
 	run_msg_test "smbcontrol profilelevel" "MSG_REQ_PROFILELEVEL" \
 		smbcontrol_profilelevel
+
+	run_msg_test "smbcontrol pool-usage" "MSG_REQ_POOL_USAGE" \
+		smbcontrol_pool_usage
 }
 
 # ===========================================================================
