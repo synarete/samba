@@ -1054,7 +1054,6 @@ static bool do_poolusage(struct tevent_context *ev_ctx,
 			 const int argc, const char **argv)
 {
 	pid_t pid = procid_to_pid(&dst);
-	int stdout_fd = 1;
 
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> pool-usage\n");
@@ -1066,16 +1065,8 @@ static bool do_poolusage(struct tevent_context *ev_ctx,
 		return false;
 	}
 
-	messaging_send_iov(
-		msg_ctx,
-		dst,
-		MSG_REQ_POOL_USAGE,
-		NULL,
-		0,
-		&stdout_fd,
-		1);
-
-	return true;
+	return NT_STATUS_IS_OK(
+		messaging_send_req_pool_usage(msg_ctx, dst, 1));
 }
 
 static bool do_worker_dump(struct tevent_context *ev_ctx,

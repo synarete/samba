@@ -54,4 +54,8 @@ NTSTATUS messaging_send_ping(struct messaging_context *msg_ctx,
 NTSTATUS messaging_send_shutdown(struct messaging_context *msg_ctx,
 				 struct server_id dst);
 
+NTSTATUS messaging_send_req_pool_usage(struct messaging_context *msg_ctx,
+				       struct server_id dst,
+				       int fd);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
