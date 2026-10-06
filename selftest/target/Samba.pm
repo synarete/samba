@@ -633,14 +633,17 @@ sub get_interface($)
 	# Note that when adding a DC with a new realm, also update
 	# get_realm_ip_mappings() above.
 	my %testenv_iface_mapping = (
+		# 1 is socket_wrapper's default, which every wrapped process
+		# without SOCKET_WRAPPER_DEFAULT_IFACE gets, so leave it alone.
+		ctdb3             => 2,
 		localnt4dc2       => 3,
 		localnt4member3   => 4,
 		localshare4       => 5,
-		# 6 is spare
+		ctdb4             => 6,
 		localktest6       => 7,
 		maptoguest        => 8,
 		localnt4dc9       => 9,
-		# 10 is spare
+		ctdb5             => 10,
 
 		# 11-16 are used by selftest.pl for the client.conf. Most tests only
 		# use the first .11 IP. However, some tests (like winsreplication) rely
@@ -694,6 +697,7 @@ sub get_interface($)
 		localadmember2    => 61,
 		admemautorid      => 62,
 
+		# 63 is the host side address in selftest/ns/README
 		rootdnsforwarder  => 64,
 
 		# Note: that you also need to update dns_hub.py when adding a new
