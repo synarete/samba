@@ -20,6 +20,8 @@ root messaging_profilelevel
 root messaging_ping_version_values
 root messaging_ping
 root messaging_pong
+root messaging_pool_usage_version_values
+root messaging_req_pool_usage
 root messaging_shutdown_version_values
 root messaging_shutdown
 root messaging_rec
@@ -94,6 +96,10 @@ struct messaging_pong align(4) {
 	[value(0)] scalar:uint32	# reserved
 }
 
+enum messaging_pool_usage_version_values base(uint32) {
+	0x00000001	# MESSAGING_POOL_USAGE_VERSION_1
+}
+
 struct messaging_profile align(4) {
 	[value(MESSAGING_PROFILE_VERSION_1)] enum:messaging_profile_version_values	# version
 	[value(0)] scalar:uint32	# reserved
@@ -153,6 +159,11 @@ struct messaging_req_debuglevel align(4) {
 	[value(0)] scalar:uint32	# reserved
 }
 
+struct messaging_req_pool_usage align(4) {
+	[value(MESSAGING_POOL_USAGE_VERSION_1)] enum:messaging_pool_usage_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+}
+
 struct messaging_req_profilelevel align(4) {
 	[value(MESSAGING_PROFILELEVEL_VERSION_1)] enum:messaging_profilelevel_version_values	# version
 	[value(0)] scalar:uint32	# reserved
@@ -194,6 +205,7 @@ enum messaging_type base(uint32) {
 	0x0008	# MSG_PROFILELEVEL
 	0x1008	# MSG_PROFILELEVEL_V1
 	0x0009	# MSG_REQ_POOL_USAGE
+	0x1009	# MSG_REQ_POOL_USAGE_V1
 	0x000B	# MSG_REQ_DMALLOC_MARK
 	0x000C	# MSG_REQ_DMALLOC_LOG_CHANGED
 	0x000D	# MSG_SHUTDOWN
@@ -349,6 +361,13 @@ sample messaging_pong length(8) {
 }
 #	    messaging_pong: struct messaging_pong
 #	        version                  : MESSAGING_PING_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+
+sample messaging_req_pool_usage length(8) {
+	[0000] 01 00 00 00 00 00 00 00
+}
+#	    messaging_req_pool_usage: struct messaging_req_pool_usage
+#	        version                  : MESSAGING_POOL_USAGE_VERSION_1 (1)
 #	        reserved                 : 0x00000000 (0)
 
 sample messaging_shutdown length(12) {

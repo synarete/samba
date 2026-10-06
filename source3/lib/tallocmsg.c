@@ -20,18 +20,53 @@
 #include "source3/include/messages.h"
 #include "source3/lib/tallocmsg.h"
 #include "lib/util/talloc_report_printf.h"
+#include "lib/util/talloc_stack.h"
 #include "lib/util/debug.h"
 #include "lib/util/util_file.h"
+#include "librpc/ndr/ndr_messaging.h"
+
+static bool pool_usage_filter_v1(struct messaging_rec *rec)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_pool_usage req = {};
+	enum ndr_err_code ndr_err;
+	DATA_BLOB blob = {
+		.data = rec->buf.data,
+		.length = rec->buf.length,
+	};
+	bool ok = false;
+
+	DBG_DEBUG("Got MSG_REQ_POOL_USAGE_V1\n");
+
+	ndr_err = messaging_req_pool_usage_pull(frame, &blob, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_REQ_POOL_USAGE_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+	ok = true;
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
 
 static bool pool_usage_filter(struct messaging_rec *rec, void *private_data)
 {
 	FILE *f = NULL;
 
-	if (rec->msg_type != MSG_REQ_POOL_USAGE) {
+	if (rec->msg_type != MSG_REQ_POOL_USAGE &&
+	    rec->msg_type != MSG_REQ_POOL_USAGE_V1)
+	{
 		return false;
 	}
 
-	DBG_DEBUG("Got MSG_REQ_POOL_USAGE\n");
+	if (rec->msg_type == MSG_REQ_POOL_USAGE) {
+		DBG_DEBUG("Got MSG_REQ_POOL_USAGE\n");
+	} else {
+		if (!pool_usage_filter_v1(rec)) {
+			return false;
+		}
+	}
 
 	if (rec->num_fds != 1) {
 		DBG_DEBUG("Got %"PRIu8" fds, expected one\n", rec->num_fds);
