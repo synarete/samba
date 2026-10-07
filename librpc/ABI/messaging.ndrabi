@@ -25,6 +25,9 @@ root messaging_req_pool_usage
 root messaging_dmalloc_version_values
 root messaging_req_dmalloc_mark
 root messaging_req_dmalloc_log_changed
+root messaging_id_cache_version_values
+root messaging_id_cache_delete
+root messaging_id_cache_kill
 root messaging_shutdown_version_values
 root messaging_shutdown
 root messaging_rec
@@ -77,6 +80,31 @@ enum messaging_dmalloc_version_values base(uint32) {
 	struct:server_id	# dest
 	struct:server_id	# src
 	scalar:uint32	# msg_type
+}
+
+union messaging_id_cacheU align(4) switch_type(enum:messaging_id_cache_version_values) {
+	case(MESSAGING_ID_CACHE_VERSION_1): struct:messaging_id_cache_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_id_cache_delete align(4) {
+	[value(MESSAGING_ID_CACHE_VERSION_1)] enum:messaging_id_cache_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_id_cacheU	# info
+}
+
+struct messaging_id_cache_kill align(4) {
+	[value(MESSAGING_ID_CACHE_VERSION_1)] enum:messaging_id_cache_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_id_cacheU	# info
+}
+
+struct messaging_id_cache_v1 align(4) {
+	[flag(LIBNDR_FLAG_STR_UTF8|LIBNDR_FLAG_STR_NULLTERM)] scalar:string	# id_string
+}
+
+enum messaging_id_cache_version_values base(uint32) {
+	0x00000001	# MESSAGING_ID_CACHE_VERSION_1
 }
 
 struct messaging_ping align(4) {
@@ -230,7 +258,9 @@ enum messaging_type base(uint32) {
 	0x000D	# MSG_SHUTDOWN
 	0x100D	# MSG_SHUTDOWN_V1
 	0x000F	# ID_CACHE_DELETE
+	0x100F	# ID_CACHE_DELETE_V1
 	0x0010	# ID_CACHE_KILL
+	0x1010	# ID_CACHE_KILL_V1
 	0x0021	# MSG_SMB_CONF_UPDATED
 	0x0022	# MSG_RELOAD_TLS_CERTIFICATES
 	0x0033	# MSG_REQ_RINGBUF_LOG
@@ -402,6 +432,28 @@ sample messaging_req_dmalloc_log_changed length(8) {
 #	    messaging_req_dmalloc_log_changed: struct messaging_req_dmalloc_log_changed
 #	        version                  : MESSAGING_DMALLOC_VERSION_1 (1)
 #	        reserved                 : 0x00000000 (0)
+
+sample messaging_id_cache_delete length(27) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 73 74 72 69
+	[0010] 6e 67 30 30 30 30 30 30  30 31 00
+}
+#	    messaging_id_cache_delete: struct messaging_id_cache_delete
+#	        version                  : MESSAGING_ID_CACHE_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_id_cacheU(case 1)
+#	        info1: struct messaging_id_cache_v1
+#	            id_string                : 'string00000001'
+
+sample messaging_id_cache_kill length(27) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 73 74 72 69
+	[0010] 6e 67 30 30 30 30 30 30  30 31 00
+}
+#	    messaging_id_cache_kill: struct messaging_id_cache_kill
+#	        version                  : MESSAGING_ID_CACHE_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_id_cacheU(case 1)
+#	        info1: struct messaging_id_cache_v1
+#	            id_string                : 'string00000001'
 
 sample messaging_shutdown length(12) {
 	[0000] 01 00 00 00 00 00 00 00  01 00 00 00
