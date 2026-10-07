@@ -1289,6 +1289,228 @@ static void test_ndr_messaging_req_pool_usage_bad_version(void **state)
 
 	talloc_free(mem_ctx);
 }
+/* MSG_REQ_DMALLOC_MARK */
+/*
+ * Wire encoding of messaging_req_dmalloc_mark:
+ *
+ *   01 00 00 00  - version (MESSAGING_DMALLOC_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *
+ * No payload: this message is a request with no body.
+ */
+static const uint8_t req_dmalloc_mark_blob[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+};
+
+static void test_ndr_messaging_req_dmalloc_mark_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_dmalloc_mark msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, req_dmalloc_mark_blob),
+		.length = sizeof(req_dmalloc_mark_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_dmalloc_mark_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_DMALLOC_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_req_dmalloc_mark_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_dmalloc_mark msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, req_dmalloc_mark_blob),
+		.length = sizeof(req_dmalloc_mark_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_dmalloc_mark_push(mem_ctx, &msg, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_req_dmalloc_mark_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_dmalloc_mark orig = {};
+	struct messaging_req_dmalloc_mark decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_req_dmalloc_mark_push(mem_ctx, &orig, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(req_dmalloc_mark_blob), blob.length);
+	assert_memory_equal(req_dmalloc_mark_blob,
+			    blob.data,
+			    sizeof(req_dmalloc_mark_blob));
+
+	err = messaging_req_dmalloc_mark_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_DMALLOC_VERSION_1, decoded.version);
+	assert_int_equal(0, decoded.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_req_dmalloc_mark_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_dmalloc_mark msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_dmalloc_mark_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
+/* MSG_REQ_DMALLOC_LOG_CHANGED */
+/*
+ * Wire encoding of messaging_req_dmalloc_log_changed:
+ *
+ *   01 00 00 00  - version (MESSAGING_DMALLOC_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *
+ * No payload: this message is a request with no body.
+ */
+static const uint8_t req_dmalloc_log_changed_blob[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+};
+
+static void test_ndr_messaging_req_dmalloc_log_changed_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_dmalloc_log_changed msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, req_dmalloc_log_changed_blob),
+		.length = sizeof(req_dmalloc_log_changed_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_dmalloc_log_changed_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_DMALLOC_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_req_dmalloc_log_changed_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_dmalloc_log_changed msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, req_dmalloc_log_changed_blob),
+		.length = sizeof(req_dmalloc_log_changed_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_dmalloc_log_changed_push(mem_ctx, &msg, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_req_dmalloc_log_changed_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_dmalloc_log_changed orig = {};
+	struct messaging_req_dmalloc_log_changed decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_req_dmalloc_log_changed_push(mem_ctx, &orig, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(req_dmalloc_log_changed_blob), blob.length);
+	assert_memory_equal(req_dmalloc_log_changed_blob,
+			    blob.data,
+			    sizeof(req_dmalloc_log_changed_blob));
+
+	err = messaging_req_dmalloc_log_changed_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_DMALLOC_VERSION_1, decoded.version);
+	assert_int_equal(0, decoded.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_req_dmalloc_log_changed_bad_version(
+	void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_dmalloc_log_changed msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_dmalloc_log_changed_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
 
 int main(void)
 {
@@ -1333,6 +1555,20 @@ int main(void)
 		cmocka_unit_test(test_ndr_messaging_req_pool_usage_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_req_pool_usage_bad_version),
+		cmocka_unit_test(test_ndr_messaging_req_dmalloc_mark_pull),
+		cmocka_unit_test(test_ndr_messaging_req_dmalloc_mark_push),
+		cmocka_unit_test(
+			test_ndr_messaging_req_dmalloc_mark_roundtrip),
+		cmocka_unit_test(
+			test_ndr_messaging_req_dmalloc_mark_bad_version),
+		cmocka_unit_test(
+			test_ndr_messaging_req_dmalloc_log_changed_pull),
+		cmocka_unit_test(
+			test_ndr_messaging_req_dmalloc_log_changed_push),
+		cmocka_unit_test(
+			test_ndr_messaging_req_dmalloc_log_changed_roundtrip),
+		cmocka_unit_test(
+			test_ndr_messaging_req_dmalloc_log_changed_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);
