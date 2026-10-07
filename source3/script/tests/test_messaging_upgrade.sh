@@ -219,6 +219,41 @@ smbcontrol_pool_usage()
 	return $st
 }
 
+# Send "smbcontrol smbd dmalloc-mark" to all smbd processes (fire-and-forget).
+smbcontrol_dmalloc_mark()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" smbd dmalloc-mark 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
+# Send "smbcontrol smbd dmalloc-log-changed" to all smbd processes
+# (fire-and-forget).
+smbcontrol_dmalloc_log_changed()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" smbd dmalloc-log-changed 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
 # Helper: send "smbcontrol smbd profile <cmd>" (fire-and-forget).
 smbcontrol_profile()
 {
@@ -368,6 +403,14 @@ smbcontrol_pool_usage \
 	"step1: smbcontrol pool-usage (legacy MSG_REQ_POOL_USAGE at level 0.1)" \
 	|| failed=$((failed + 1))
 
+smbcontrol_dmalloc_mark \
+	"step1: smbcontrol dmalloc-mark (legacy MSG_REQ_DMALLOC_MARK at level 0.1)" \
+	|| failed=$((failed + 1))
+
+smbcontrol_dmalloc_log_changed \
+	"step1: smbcontrol dmalloc-log-changed (legacy MSG_REQ_DMALLOC_LOG_CHANGED at level 0.1)" \
+	|| failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 0.1 to 1.0
 # ===========================================================================
@@ -410,6 +453,14 @@ smbcontrol_profilelevel \
 
 smbcontrol_pool_usage \
 	"step3: smbcontrol pool-usage (NDR MSG_REQ_POOL_USAGE_V1 at level 1.0)" \
+	|| failed=$((failed + 1))
+
+smbcontrol_dmalloc_mark \
+	"step3: smbcontrol dmalloc-mark (NDR MSG_REQ_DMALLOC_MARK_V1 at level 1.0)" \
+	|| failed=$((failed + 1))
+
+smbcontrol_dmalloc_log_changed \
+	"step3: smbcontrol dmalloc-log-changed (NDR MSG_REQ_DMALLOC_LOG_CHANGED_V1 at level 1.0)" \
 	|| failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
