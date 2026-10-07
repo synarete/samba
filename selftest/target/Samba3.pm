@@ -73,6 +73,16 @@ sub new($$) {
 	return $self;
 }
 
+#
+# The daemons a clustered node runs, by binary name.
+#
+# check_or_start() starts these three for every node, see
+# setup_clustered_samba(); nmbd is not one of them. respawn.sh and
+# upgrade_node.sh keep the same list, so that an upgrade replaces
+# exactly what was started.
+#
+my @cluster_node_daemons = ("samba-dcerpcd", "winbindd", "smbd");
+
 sub teardown_env($$)
 {
 	my ($self, $envvars) = @_;
@@ -168,6 +178,104 @@ sub teardown_env_ctdb($$)
 		for (my $i = 0; $i < $num_nodes; $i++) {
 			if (defined($nodes->[$i])) {
 				$self->teardown_env_samba($nodes->[$i]);
+			}
+		}
+	}
+
+	#
+	# A node which was upgraded runs a ctdbd started by
+	# upgrade_node.sh rather than by check_or_start_ctdb(), and that
+	# one does not hold the pipe below, so closing it would leave the
+	# node running. Ask them all to shut down first; closing the pipe
+	# still covers whatever did not hear it.
+	#
+	my $prefix = $data->{CTDB_PREFIX};
+	if (defined($prefix)) {
+		my $cmd = "ctdb/tests/local_daemons.sh $prefix stop all";
+
+		print STDERR "STOPPING CTDBD (all nodes)\n";
+
+		#
+		# local_daemons.sh works CTDB_SOCKET and CTDB_BASE out per
+		# node and does not like them set already, and
+		# Samba::export_envvars() leaves node 0's in our own
+		# environment after a test has run.
+		#
+		delete local $ENV{CTDB_SOCKET};
+		delete local $ENV{CTDB_BASE};
+
+		my $rc = system($cmd);
+		if ($rc != 0) {
+			warn("\"$cmd\" failed: $rc");
+		}
+
+		#
+		# "ctdb shutdown" hands the control over and returns, and
+		# the shutdown itself can get stuck when the cluster is
+		# already broken: ctdb_shutdown_takeover() waits for a
+		# takeover run which a dead cluster never completes. A node
+		# left behind would take its databases and sockets into the
+		# next environment, which RESETUP_ENV and
+		# --resetup-environment both make a real possibility, so
+		# make sure of it.
+		#
+		my $nodes = $data->{CTDB_NODES};
+		my $num_nodes = $data->{NUM_NODES} // 0;
+
+		for (my $i = 0; $i < $num_nodes; $i++) {
+			my $node_prefix = "$prefix/node.$i";
+			if (defined($nodes) and defined($nodes->[$i])) {
+				$node_prefix = $nodes->[$i]->{NODE_PREFIX};
+			}
+
+			#
+			# The Samba daemons too: respawn.sh gives each of
+			# them a process group of its own, so an orphan is
+			# possible if the wrapper ever goes away first.
+			#
+			my @leftovers = (
+				{
+					name => "ctdbd",
+					pidfile => "$node_prefix/run/ctdbd.pid",
+					group => 0,
+				},
+			);
+			foreach my $daemon (@cluster_node_daemons) {
+				push(@leftovers, {
+					name => $daemon,
+					pidfile => "$node_prefix/respawn/" .
+						   "$daemon.pid",
+					group => 1,
+				});
+			}
+
+			foreach my $l (@leftovers) {
+				my $pidfile = $l->{pidfile};
+				next unless (-e $pidfile);
+
+				open(PIDFILE, "<$pidfile") or next;
+				my $pid = <PIDFILE>;
+				close(PIDFILE);
+
+				next unless (defined($pid));
+				chomp($pid);
+				next unless ($pid =~ /^\d+$/);
+				next unless (kill(0, $pid));
+
+				warn("$l->{name} pid $pid on node $i did " .
+				     "not stop, terminating it");
+
+				my $target = $l->{group} ? -$pid : $pid;
+				kill("TERM", $target);
+				for (my $t = 0; $t < 10; $t++) {
+					last unless (kill(0, $pid));
+					sleep(1);
+				}
+				if (kill(0, $pid)) {
+					warn("$l->{name} pid $pid still " .
+					     "there, killing");
+					kill("KILL", $target);
+				}
 			}
 		}
 	}
@@ -596,7 +704,7 @@ sub setup_clustered_samba
 
 	mkdir($prefix, 0777);
 
-	my $ctdb_data = $self->setup_ctdb($prefix, $node_base);
+	my $ctdb_data = $self->setup_ctdb($prefix, $node_base, $mixed);
 
 	if (not $ctdb_data) {
 		print "No ctdb data\n";
@@ -831,19 +939,20 @@ sub setup_clustered_samba
 
 	for (my $i=0; $i<@retvals; $i++) {
 		my $node_provision = $retvals[$i];
+		my $node = $nodes->[$i];
 		my $ok;
 
 		# The one-time setup is only needed on node 0,
 		# as the group mapping database is shared
 		# between the nodes via ctdb.
 		my $finish_setup = ($i == 0) ? "yes" : "no";
-
 		$ok = $node_objs[$i]->check_or_start(
 		    env_vars => $node_provision,
 		    samba_dcerpcd => "yes",
 		    winbindd => "yes",
 		    smbd => "yes",
 		    finish_setup => $finish_setup,
+		    respawn_script => $node->{RESPAWN_SCRIPT},
 		    child_cleanup => sub {
 			map {
 			    my $fh = $_->{STDIN_PIPE};
@@ -2715,7 +2824,8 @@ sub read_pid($$)
 # builds up the cmd args to run an s3 binary (i.e. smbd, nmbd, etc)
 sub make_bin_cmd
 {
-	my ($self, $binary, $env_vars, $options, $valgrind, $dont_log_stdout) = @_;
+	my ($self, $binary, $env_vars, $options, $valgrind, $dont_log_stdout,
+	    $respawn) = @_;
 
 	my @optargs = ();
 	if (defined($options)) {
@@ -2733,7 +2843,19 @@ sub make_bin_cmd
 	if (not defined($dont_log_stdout)) {
 		push(@args, "--debug-stdout");
 	}
-	return (@preargs, $binary, @args, @optargs);
+
+	my @bin = ($binary);
+	if (defined($respawn)) {
+		#
+		# Name the daemon instead of giving its path, so that
+		# respawn.sh resolves it against the build the node runs
+		# now rather than the one it was provisioned with.
+		#
+		my ($name) = $binary =~ m{([^/]+)$};
+		@bin = ($respawn, $name);
+	}
+
+	return (@preargs, @bin, @args, @optargs);
 }
 
 sub check_or_start($$) {
@@ -2745,6 +2867,7 @@ sub check_or_start($$) {
 	my $samba_dcerpcd = $args{samba_dcerpcd} // "no";
 	my $finish_setup = $args{finish_setup} // "yes";
 	my $child_cleanup = $args{child_cleanup};
+	my $respawn = $args{respawn_script};
 
 	my $STDIN_READER;
 
@@ -2759,7 +2882,8 @@ sub check_or_start($$) {
 	    $env_vars,
 	    $ENV{SAMBA_DCERPCD_OPTIONS},
 	    $ENV{SAMBA_DCERPCD_VALGRIND},
-	    $ENV{SAMBA_DCERPCD_DONT_LOG_STDOUT});
+	    $ENV{SAMBA_DCERPCD_DONT_LOG_STDOUT},
+	    $respawn);
 	push(@full_cmd, '--libexec-rpcds');
 
 	my $samba_dcerpcd_envs = Samba::get_env_for_process(
@@ -2814,7 +2938,8 @@ sub check_or_start($$) {
 	@full_cmd = $self->make_bin_cmd($binary, $env_vars,
 					 $ENV{WINBINDD_OPTIONS},
 					 $ENV{WINBINDD_VALGRIND},
-					 $ENV{WINBINDD_DONT_LOG_STDOUT});
+					 $ENV{WINBINDD_DONT_LOG_STDOUT},
+					 $respawn);
 
 	# fork and exec() winbindd in the child process
 	$daemon_ctx = {
@@ -2837,7 +2962,8 @@ sub check_or_start($$) {
 	$binary = Samba::bindir_path($self, "smbd");
 	@full_cmd = $self->make_bin_cmd($binary, $env_vars,
 					 $ENV{SMBD_OPTIONS}, $ENV{SMBD_VALGRIND},
-					 $ENV{SMBD_DONT_LOG_STDOUT});
+					 $ENV{SMBD_DONT_LOG_STDOUT},
+					 $respawn);
 
 	# fork and exec() smbd in the child process
 	$daemon_ctx = {
@@ -4551,12 +4677,13 @@ sub finish_setup_after_start($$)
 ##
 ## provision and start of ctdb
 ##
-sub setup_ctdb($$$)
+sub setup_ctdb($$$$)
 {
-	my ($self, $prefix, $node_base) = @_;
+	my ($self, $prefix, $node_base, $mixed) = @_;
 	my $num_nodes = 3;
 
-	my $data = $self->provision_ctdb($prefix, $num_nodes, $node_base);
+	my $data = $self->provision_ctdb($prefix, $num_nodes, $node_base,
+					 $mixed);
 	$data or return undef;
 
 	my $rc = $self->check_or_start_ctdb($data);
@@ -4574,9 +4701,9 @@ sub setup_ctdb($$$)
 	return $data;
 }
 
-sub provision_ctdb($$$$)
+sub provision_ctdb($$$$$)
 {
-	my ($self, $prefix, $num_nodes, $node_base) = @_;
+	my ($self, $prefix, $num_nodes, $node_base, $mixed) = @_;
 	my $rc;
 	my $abs_prefix = abs_path($prefix);
 	my $ctdb = abs_path(Samba::bindir_path($self, "ctdb"));
@@ -4697,6 +4824,177 @@ sub provision_ctdb($$$$)
 	my $srcdir_abs = abs_path($self->{srcdir});
 
 	#
+	# A node's daemons are started as
+	#
+	#   timelimit <maxtime> <node>/respawn.sh <daemon> <args...>
+	#
+	# rather than with the daemon's path, so that the build a node runs
+	# can be changed while the environment is up, see upgrade_node.sh.
+	#
+	# The wrapper takes the place the daemon used to have, which is what
+	# makes a restart invisible to the rest of selftest: it is
+	# timelimit's child, so it is the process group leader timelimit
+	# signals, and it is the pid recorded as <DAEMON>_TL_PID, so
+	# teardown_env_samba() keeps working across a restart. It passes its
+	# own stdin on, which is the pipe selftest closes to make the
+	# daemons exit, and it starts nothing new once that pipe is gone.
+	#
+	my $respawn_tmpl = <<'RESPAWN_END';
+#!/bin/bash
+#
+# Run one node daemon, from the build named in @STATE@/bindir.
+#
+# Exit with the daemon when it exits, unless a restart was asked for by
+# creating <daemon>.respawn, in which case wait for <daemon>.hold to go
+# away and then start whichever build bindir names by then.
+# upgrade_node.sh uses the hold to keep the daemon down until the node has
+# rejoined the cluster.
+#
+
+state="@STATE@"
+
+name="$1"
+if [ -z "$name" ]; then
+	echo "usage: $0 <daemon> [args...]" >&2
+	exit 1
+fi
+shift
+
+#
+# Hold on to our stdin and hand it to the daemon explicitly.
+#
+# It is the pipe selftest closes to make the daemons exit, but a shell
+# gives a background command /dev/null unless it is redirected, and smbd
+# only watches stdin for EOF when it is a pipe or a socket, see
+# smbd_main(). Without this the daemons would never notice the pipe
+# going away.
+#
+exec 3<&0
+
+#
+# Job control, so that the daemon runs in a process group of its own.
+#
+# smbd's killkids() does kill(0, SIGTERM) when the parent goes down, see
+# source3/smbd/server.c, and --no-process-group leaves smbd in our group,
+# so without this taking smbd down takes this script with it and there is
+# nothing left to start the next one.
+#
+set -m
+
+#
+# Which also means a signal meant for us no longer reaches the daemon, so
+# pass it on. That is the path teardown takes: timelimit signals our
+# process group, which now holds only us.
+#
+pid=
+forward_signal()
+{
+	if [ -n "$pid" ]; then
+		kill -TERM "-$pid" 2>/dev/null
+	fi
+	exit 0
+}
+trap forward_signal TERM INT QUIT
+
+while : ; do
+	bindir=$(cat "$state/bindir") || exit 1
+
+	MAKE_TEST_BINARY="$bindir/$name"
+	export MAKE_TEST_BINARY
+
+	"$bindir/$name" "$@" <&3 &
+	pid=$!
+	echo "$pid" >"$state/$name.pid"
+
+	wait "$pid"
+	rc=$?
+
+	if [ ! -e "$state/$name.respawn" ]; then
+		exit $rc
+	fi
+	rm -f "$state/$name.respawn"
+
+	while [ -e "$state/$name.hold" ]; do
+		sleep 1
+	done
+
+	echo "respawn.sh: restarting $name from $(cat "$state/bindir")" >&2
+done
+RESPAWN_END
+
+
+	for (my $i = 0; $i < $num_nodes; $i++) {
+		my $node_prefix = $nodes[$i]->{NODE_PREFIX};
+		my $state = "$node_prefix/respawn";
+
+		unless (mkdir($state) or -d $state) {
+			warn("Unable to create '$state'");
+			return undef;
+		}
+
+		#
+		# The build this node starts from. upgrade_node.sh rewrites
+		# it; everything which starts a daemon on the node reads it
+		# back, so ctdbd and smbd never disagree about the version.
+		#
+		my $node_self = $self->cluster_node_samba3($mixed, $i);
+		if (not defined($node_self)) {
+			return undef;
+		}
+
+		my $bindir_file = "$state/bindir";
+		unless (open(BINDIR, ">$bindir_file")) {
+			warn("Unable to open '$bindir_file'");
+			return undef;
+		}
+		print BINDIR abs_path($node_self->{bindir}) . "\n";
+		close(BINDIR);
+
+		#
+		# ctdb refuses to run a cluster whose nodes do not agree on
+		# their major.minor version: ctdb_request_keepalive() shuts
+		# the newcomer down with
+		#
+		#   Keepalive version mismatch 0x0004001a != 0x00040019
+		#   CTDB Cluster with mixed versions, cannot continue
+		#
+		# which is exactly what a node coming back on a new build
+		# is. AllowMixedVersions turns that off, the way 'allow
+		# unsafe cluster upgrade' turns off smbd's version claim,
+		# and an upgrade is what both are for.
+		#
+		# Only for a mixed environment. Everywhere else the check is
+		# worth keeping.
+		#
+		if ($mixed) {
+			my $tunables = "$node_prefix/ctdb.tunables";
+
+			unless (open(TUNABLES, ">$tunables")) {
+				warn("Unable to open '$tunables'");
+				return undef;
+			}
+			print TUNABLES "AllowMixedVersions = 1\n";
+			close(TUNABLES);
+		}
+
+		my $path = "$node_prefix/respawn.sh";
+		my $script = $respawn_tmpl;
+
+		$script =~ s/\@STATE\@/$state/g;
+
+		unless (open(SCRIPT, ">$path")) {
+			warn("Unable to open '$path'");
+			return undef;
+		}
+		print SCRIPT $script;
+		close(SCRIPT);
+		chmod 0755, $path;
+
+		$nodes[$i]->{RESPAWN_SCRIPT} = $path;
+		$nodes[$i]->{RESPAWN_STATE} = $state;
+	}
+
+	#
 	# Helpers used by smbd:FSCTL_SMBTORTURE, see
 	# smbd_fsctl_torture_[start|stop]_ctdb_node() in source3/smbd/.
 	#
@@ -4798,6 +5096,198 @@ NODE_SCRIPT_END
 		chmod 0755, $path;
 	}
 
+	#
+	# Rolling upgrade of one node, for a test which wants to watch a
+	# cluster change the Samba version it runs while it is serving.
+	#
+	# The daemons have to come back up after the node has rejoined, not
+	# while it is stopped: a stopped node is inactive and a daemon
+	# starting against it cannot attach to its databases. That is what
+	# respawn.sh's hold file is for.
+	#
+	my $upgrade_tmpl = <<'UPGRADE_SCRIPT_END';
+#!/bin/sh
+#
+# Upgrade ctdb node $1 to the build in $2, default the build under test.
+#
+# What a real node upgrade does: stop the services, change the build,
+# start them again. Shutting ctdbd down is the drain -- it hands its
+# records over and the remaining nodes re-form without it -- so this does
+# not use stop_node.sh and start_node.sh, which only flip the node flags
+# of a ctdbd that stays up.
+#
+# Clients have to be off this node first. There are no public addresses
+# in this cluster, see provision_ctdb(), so nothing fails over and a
+# connection to this node just breaks.
+#
+
+prefix="@PREFIX@"
+srcdir="@SRCDIR@"
+daemons="@DAEMONS@"
+timeout=90
+
+pnn="$1"
+if [ -z "$pnn" ]; then
+	echo "usage: $0 <pnn> [bindir]" >&2
+	exit 1
+fi
+new_bindir="${2:-@NEW_BINDIR@}"
+
+if [ ! -x "$new_bindir/smbd" ] || [ ! -x "$new_bindir/ctdbd" ]; then
+	echo "$0: '$new_bindir' has no smbd or no ctdbd" >&2
+	exit 1
+fi
+
+node="$prefix/node.$pnn"
+state="$node/respawn"
+conf="$node/lib/server.conf"
+local_daemons="$srcdir/ctdb/tests/local_daemons.sh"
+old_bindir=$(cat "$state/bindir")
+
+#
+# A test runs with these pointing at node 0, and local_daemons.sh works
+# out both for itself from the node it is asked about. With CTDB_SOCKET
+# already set it talks to the wrong node.
+#
+unset CTDB_SOCKET
+unset CTDB_BASE
+
+daemon_pid()
+{
+	cat "$state/$1.pid" 2>/dev/null
+}
+
+# Wait for a condition, $1 seconds, $2 a description, rest the test.
+wait_for()
+{
+	_t="$1"
+	_desc="$2"
+	shift 2
+
+	_limit="$_t"
+	while [ "$_t" -gt 0 ]; do
+		if "$@"; then
+			return 0
+		fi
+		sleep 1
+		_t=$((_t - 1))
+	done
+
+	echo "Timed out after ${_limit}s waiting for $_desc" >&2
+	return 1
+}
+
+# ctdbd writes this while it runs and removes it when it exits; it is
+# what local_daemons.sh itself tests for.
+node_is_gone()
+{
+	_pidfile="$node/run/ctdbd.pid"
+
+	[ -e "$_pidfile" ] || return 0
+	_p=$(cat "$_pidfile" 2>/dev/null) || return 0
+	[ -n "$_p" ] || return 0
+
+	! kill -0 "$_p" 2>/dev/null
+}
+
+# Every node healthy, the way wait_for_start_ctdb() checks it.
+cluster_ok()
+{
+	"$local_daemons" "$prefix" onnode all \
+		"$new_bindir/ctdb" nodestatus all >/dev/null 2>&1
+}
+
+#
+# common.sh works out where to find ctdbd and friends from $(pwd)/bin, so
+# run from the tree rather than from wherever the test left us.
+#
+cd "$srcdir" || exit 1
+
+#
+# 1. Stop the Samba daemons and keep them down.
+#
+for d in $daemons; do
+	touch "$state/$d.hold" "$state/$d.respawn"
+done
+
+for d in $daemons; do
+	pid=$(daemon_pid "$d")
+	[ -n "$pid" ] || continue
+
+	kill -TERM "$pid" 2>/dev/null
+	wait_for "$timeout" "$d on node $pnn to exit" \
+		sh -c "! kill -0 $pid 2>/dev/null" || exit 1
+done
+
+#
+# 2. Shut ctdbd down, which drains the node.
+#
+CTDB="$old_bindir/ctdb" "$local_daemons" "$prefix" stop "$pnn" || exit 1
+wait_for "$timeout" "ctdbd on node $pnn to go away" node_is_gone || exit 1
+
+#
+# 3. Change the build. respawn.sh reads this when it starts a daemon, and
+#    so does check_or_start_ctdb() for a node it starts itself.
+#
+echo "$new_bindir" >"$state/bindir" || exit 1
+
+#
+# 4. Bring ctdbd back and wait for the cluster to be whole again.
+#
+# From /dev/null, deliberately. ctdbd in test mode exits when stdin
+# closes, and selftest's end of that pipe is not reachable from here; our
+# own stdin belongs to the test and would take the node down with it.
+# setup_stdin_handler() only watches a pipe, so /dev/null means ctdbd
+# stays up until it is told to stop, and teardown_env_ctdb() tells it.
+#
+CTDBD="$new_bindir/ctdbd" CTDB="$new_bindir/ctdb" \
+	"$local_daemons" "$prefix" start "$pnn" </dev/null || exit 1
+
+wait_for "$timeout" "node $pnn to rejoin the cluster" cluster_ok || {
+	"$local_daemons" "$prefix" print-log "$pnn" >&2
+	exit 1
+}
+
+#
+# 5. And the Samba daemons, with smbd answering, which is what says it
+#    got past cluster_level_db_check() and has a messaging context.
+#
+for d in $daemons; do
+	rm -f "$state/$d.hold"
+done
+
+smbd_answers()
+{
+	UID_WRAPPER_INITIAL_RUID=0 UID_WRAPPER_INITIAL_EUID=0 \
+		"$new_bindir/smbcontrol" "--configfile=$conf" smbd ping \
+		>/dev/null 2>&1
+}
+
+wait_for "$timeout" "smbd on node $pnn" smbd_answers || {
+	tail -n 50 "$node/smbd_test.log" >&2 2>/dev/null
+	exit 1
+}
+
+exit 0
+UPGRADE_SCRIPT_END
+
+	my $new_bindir = abs_path(Samba::bindir_path($self, "."));
+	my $daemons = join(" ", @cluster_node_daemons);
+	my $upgrade_path = "$abs_prefix/upgrade_node.sh";
+
+	$upgrade_tmpl =~ s/\@PREFIX\@/$abs_prefix/g;
+	$upgrade_tmpl =~ s/\@SRCDIR\@/$srcdir_abs/g;
+	$upgrade_tmpl =~ s/\@DAEMONS\@/$daemons/g;
+	$upgrade_tmpl =~ s/\@NEW_BINDIR\@/$new_bindir/g;
+
+	unless (open(SCRIPT, ">$upgrade_path")) {
+		warn("Unable to open '$upgrade_path'");
+		return undef;
+	}
+	print SCRIPT $upgrade_tmpl;
+	close(SCRIPT);
+	chmod 0755, $upgrade_path;
+
 	my %ret = ();
 
 	$ret{CTDB_PREFIX} = "$prefix";
@@ -4827,6 +5317,30 @@ NODE_SCRIPT_END
 	return \%ret;
 }
 
+#
+# The build a node runs now, as upgrade_node.sh last left it.
+#
+sub read_respawn_bindir($)
+{
+	my ($node) = @_;
+	my $path = "$node->{RESPAWN_STATE}/bindir";
+
+	unless (open(BINDIR, "<$path")) {
+		warn("Unable to open '$path'");
+		return undef;
+	}
+	my $bindir = <BINDIR>;
+	close(BINDIR);
+
+	if (not defined($bindir)) {
+		warn("'$path' is empty");
+		return undef;
+	}
+	chomp($bindir);
+
+	return $bindir;
+}
+
 sub check_or_start_ctdb($$) {
 	my ($self, $data) = @_;
 
@@ -4843,6 +5357,20 @@ sub check_or_start_ctdb($$) {
 
 		$node->{STDIN_PIPE} = $data->{CTDB_STDIN_PIPE};
 
+		#
+		# ctdbd needs no wrapper: in test mode it forks and keeps
+		# only stdin, see ctdb_start_daemon(), so local_daemons.sh
+		# returns as soon as it is up and there is nothing to wait
+		# on. Name the build in the environment instead, which is
+		# all that is needed to start the right one; upgrade_node.sh
+		# starts a replacement the same way.
+		#
+		my $bindir = read_respawn_bindir($node);
+		if (not defined($bindir)) {
+			teardown_env_ctdb($self, $data);
+			return 0;
+		}
+
 		my $cmd = "ctdb/tests/local_daemons.sh";
 		my @full_cmd = ("$cmd", "$prefix", "start", "$i");
 		my $daemon_ctx = {
@@ -4851,7 +5379,10 @@ sub check_or_start_ctdb($$) {
 			FULL_CMD => [ @full_cmd ],
 			TEE_STDOUT => 1,
 			LOG_FILE => "/dev/null",
-			ENV_VARS => {},
+			ENV_VARS => {
+				CTDBD => "$bindir/ctdbd",
+				CTDB => "$bindir/ctdb",
+			},
 		};
 
 		print "STARTING CTDBD (node ${i})\n";
