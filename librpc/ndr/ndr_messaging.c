@@ -425,6 +425,84 @@ enum ndr_err_code messaging_req_dmalloc_log_changed_pull(
 	return NDR_ERR_SUCCESS;
 }
 
+enum ndr_err_code messaging_id_cache_delete_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_id_cache_delete *msg,
+	const char *id_string,
+	DATA_BLOB *blob)
+{
+	msg->info.info1.id_string = id_string;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_id_cache_delete);
+}
+
+enum ndr_err_code messaging_id_cache_delete_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_id_cache_delete *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_id_cache_delete){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_id_cache_delete);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_ID_CACHE_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_id_cache_kill_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_id_cache_kill *msg,
+	const char *id_string,
+	DATA_BLOB *blob)
+{
+	msg->info.info1.id_string = id_string;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_id_cache_kill);
+}
+
+enum ndr_err_code messaging_id_cache_kill_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_id_cache_kill *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_id_cache_kill){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_id_cache_kill);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_ID_CACHE_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_shutdown_push(TALLOC_CTX *mem_ctx,
 					  struct messaging_shutdown *msg,
 					  DATA_BLOB *blob)

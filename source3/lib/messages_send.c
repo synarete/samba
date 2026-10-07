@@ -434,3 +434,105 @@ NTSTATUS messaging_send_req_dmalloc_log_changed(
 	}
 	return messaging_send_req_dmalloc_log_changed_legacy(msg_ctx, dst);
 }
+
+/* ID_CACHE_DELETE */
+
+static NTSTATUS messaging_send_id_cache_delete_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	const char *id_string)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_id_cache_delete msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_id_cache_delete_push(frame, &msg, id_string, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_one_or_all(
+		msg_ctx, dst, ID_CACHE_DELETE_V1, blob.data, blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_id_cache_delete_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	const char *id_string)
+{
+	size_t len = (id_string != NULL) ? strlen(id_string) + 1 : 0;
+
+	return messaging_send_one_or_all(msg_ctx,
+					 dst,
+					 ID_CACHE_DELETE,
+					 (const uint8_t *)id_string,
+					 len);
+}
+
+NTSTATUS messaging_send_id_cache_delete(struct messaging_context *msg_ctx,
+					struct server_id dst,
+					const char *id_string)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_id_cache_delete_v1(msg_ctx,
+							 dst,
+							 id_string);
+	}
+	return messaging_send_id_cache_delete_legacy(msg_ctx, dst, id_string);
+}
+
+/* ID_CACHE_KILL */
+
+static NTSTATUS messaging_send_id_cache_kill_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	const char *id_string)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_id_cache_kill msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_id_cache_kill_push(frame, &msg, id_string, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_one_or_all(
+		msg_ctx, dst, ID_CACHE_KILL_V1, blob.data, blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_id_cache_kill_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	const char *id_string)
+{
+	size_t len = (id_string != NULL) ? strlen(id_string) + 1 : 0;
+
+	return messaging_send_one_or_all(msg_ctx,
+					 dst,
+					 ID_CACHE_KILL,
+					 (const uint8_t *)id_string,
+					 len);
+}
+
+NTSTATUS messaging_send_id_cache_kill(struct messaging_context *msg_ctx,
+				      struct server_id dst,
+				      const char *id_string)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_id_cache_kill_v1(msg_ctx,
+						       dst,
+						       id_string);
+	}
+	return messaging_send_id_cache_kill_legacy(msg_ctx, dst, id_string);
+}
