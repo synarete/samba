@@ -193,7 +193,6 @@ static bool do_debug(struct tevent_context *ev_ctx,
 	return NT_STATUS_IS_OK(messaging_send_debug(msg_ctx, pid, argv[1]));
 }
 
-
 static bool do_idmap(struct tevent_context *ev,
 		     struct messaging_context *msg_ctx,
 		     const struct server_id pid,
@@ -205,15 +204,12 @@ static bool do_idmap(struct tevent_context *ev,
 		"\tdelete \"UID <uid>\"|\"GID <gid>\"|<sid>\n"
 		"\t\tkill \"UID <uid>\"|\"GID <gid>\"|<sid>\n";
 	const char* arg = NULL;
-	int arglen = 0;
-	int msg_type;
 
 	switch (argc) {
 	case 2:
 		break;
 	case 3:
 		arg = argv[2];
-		arglen = strlen(arg) + 1;
 		break;
 	default:
 		fprintf(stderr, "%s", usage);
@@ -221,10 +217,12 @@ static bool do_idmap(struct tevent_context *ev,
 	}
 
 	if (strcmp(argv[1], "delete") == 0) {
-		msg_type = ID_CACHE_DELETE;
+		return NT_STATUS_IS_OK(
+			messaging_send_id_cache_delete(msg_ctx, pid, arg));
 	}
 	else if (strcmp(argv[1], "kill") == 0) {
-		msg_type = ID_CACHE_KILL;
+		return NT_STATUS_IS_OK(
+			messaging_send_id_cache_kill(msg_ctx, pid, arg));
 	}
 	else if (strcmp(argv[1], "help") == 0) {
 		fprintf(stdout, "%s", usage);
@@ -234,8 +232,6 @@ static bool do_idmap(struct tevent_context *ev,
 		fprintf(stderr, "%s", usage);
 		return false;
 	}
-
-	return send_message(msg_ctx, pid, msg_type, arg, arglen);
 }
 
 

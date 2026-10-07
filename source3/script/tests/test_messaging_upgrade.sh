@@ -399,6 +399,12 @@ run_messaging_tests()
 	run_msg_test "smbcontrol dmalloc-log-changed" \
 		"MSG_REQ_DMALLOC_LOG_CHANGED" \
 		smbcontrol_ok smbd dmalloc-log-changed
+
+	run_msg_test "smbcontrol idmap delete" "ID_CACHE_DELETE" \
+		smbcontrol_ok smbd idmap delete "UID 0"
+
+	run_msg_test "smbcontrol idmap kill" "ID_CACHE_KILL" \
+		smbcontrol_ok smbd idmap kill "UID 0"
 }
 
 # ===========================================================================

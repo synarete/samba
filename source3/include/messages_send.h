@@ -65,4 +65,12 @@ NTSTATUS messaging_send_req_dmalloc_log_changed(
 	struct messaging_context *msg_ctx,
 	struct server_id dst);
 
+NTSTATUS messaging_send_id_cache_delete(struct messaging_context *msg_ctx,
+					struct server_id dst,
+					const char *id_string);
+
+NTSTATUS messaging_send_id_cache_kill(struct messaging_context *msg_ctx,
+				      struct server_id dst,
+				      const char *id_string);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
