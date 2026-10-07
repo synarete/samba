@@ -254,6 +254,44 @@ smbcontrol_dmalloc_log_changed()
 	return $st
 }
 
+# Send "smbcontrol smbd idmap delete <id>" to all smbd processes
+# (fire-and-forget).
+smbcontrol_idmap_delete()
+{
+	local name="$1"
+	local id="$2"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" smbd idmap delete "$id" 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
+# Send "smbcontrol smbd idmap kill <id>" to all smbd processes
+# (fire-and-forget).
+smbcontrol_idmap_kill()
+{
+	local name="$1"
+	local id="$2"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" smbd idmap kill "$id" 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
 # Helper: send "smbcontrol smbd profile <cmd>" (fire-and-forget).
 smbcontrol_profile()
 {
@@ -411,6 +449,14 @@ smbcontrol_dmalloc_log_changed \
 	"step1: smbcontrol dmalloc-log-changed (legacy MSG_REQ_DMALLOC_LOG_CHANGED at level 0.1)" \
 	|| failed=$((failed + 1))
 
+smbcontrol_idmap_delete \
+	"step1: smbcontrol idmap delete (legacy ID_CACHE_DELETE at level 0.1)" \
+	"UID 0" || failed=$((failed + 1))
+
+smbcontrol_idmap_kill \
+	"step1: smbcontrol idmap kill (legacy ID_CACHE_KILL at level 0.1)" \
+	"UID 0" || failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 0.1 to 1.0
 # ===========================================================================
@@ -462,6 +508,14 @@ smbcontrol_dmalloc_mark \
 smbcontrol_dmalloc_log_changed \
 	"step3: smbcontrol dmalloc-log-changed (NDR MSG_REQ_DMALLOC_LOG_CHANGED_V1 at level 1.0)" \
 	|| failed=$((failed + 1))
+
+smbcontrol_idmap_delete \
+	"step3: smbcontrol idmap delete (NDR ID_CACHE_DELETE_V1 at level 1.0)" \
+	"UID 0" || failed=$((failed + 1))
+
+smbcontrol_idmap_kill \
+	"step3: smbcontrol idmap kill (NDR ID_CACHE_KILL_V1 at level 1.0)" \
+	"UID 0" || failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
 smbclient_ls "step3: smbclient node0 (level 1.0)" "$NODE0" \
