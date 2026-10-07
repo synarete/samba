@@ -1360,6 +1360,27 @@ static bool do_ringbuflog(struct tevent_context *ev_ctx,
 
 /* Perform a dmalloc mark */
 
+static bool do_dmalloc_mark_v1(struct messaging_context *msg_ctx,
+			       const struct server_id pid)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_dmalloc_mark msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	ndr_err = messaging_req_dmalloc_mark_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_REQ_DMALLOC_MARK_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_dmalloc_mark(struct tevent_context *ev_ctx,
 			    struct messaging_context *msg_ctx,
 			    const struct server_id pid,
@@ -1370,10 +1391,38 @@ static bool do_dmalloc_mark(struct tevent_context *ev_ctx,
 		return False;
 	}
 
+	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		return do_dmalloc_mark_v1(msg_ctx, pid);
+	}
+
 	return send_message(msg_ctx, pid, MSG_REQ_DMALLOC_MARK, NULL, 0);
 }
 
 /* Perform a dmalloc changed */
+
+static bool do_dmalloc_changed_v1(struct messaging_context *msg_ctx,
+				  const struct server_id pid)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_dmalloc_log_changed msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	ndr_err = messaging_req_dmalloc_log_changed_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(msg_ctx,
+			  pid,
+			  MSG_REQ_DMALLOC_LOG_CHANGED_V1,
+			  blob.data,
+			  blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
 
 static bool do_dmalloc_changed(struct tevent_context *ev_ctx,
 			       struct messaging_context *msg_ctx,
@@ -1384,6 +1433,10 @@ static bool do_dmalloc_changed(struct tevent_context *ev_ctx,
 		fprintf(stderr, "Usage: smbcontrol <dest> "
 			"dmalloc-log-changed\n");
 		return False;
+	}
+
+	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		return do_dmalloc_changed_v1(msg_ctx, pid);
 	}
 
 	return send_message(msg_ctx, pid, MSG_REQ_DMALLOC_LOG_CHANGED,
