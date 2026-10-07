@@ -392,6 +392,13 @@ run_messaging_tests()
 
 	run_msg_test "smbcontrol pool-usage" "MSG_REQ_POOL_USAGE" \
 		smbcontrol_pool_usage
+
+	run_msg_test "smbcontrol dmalloc-mark" "MSG_REQ_DMALLOC_MARK" \
+		smbcontrol_ok smbd dmalloc-mark
+
+	run_msg_test "smbcontrol dmalloc-log-changed" \
+		"MSG_REQ_DMALLOC_LOG_CHANGED" \
+		smbcontrol_ok smbd dmalloc-log-changed
 }
 
 # ===========================================================================

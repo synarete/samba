@@ -58,4 +58,11 @@ NTSTATUS messaging_send_req_pool_usage(struct messaging_context *msg_ctx,
 				       struct server_id dst,
 				       int fd);
 
+NTSTATUS messaging_send_req_dmalloc_mark(struct messaging_context *msg_ctx,
+					 struct server_id dst);
+
+NTSTATUS messaging_send_req_dmalloc_log_changed(
+	struct messaging_context *msg_ctx,
+	struct server_id dst);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
