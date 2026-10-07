@@ -1177,7 +1177,7 @@ static bool do_dmalloc_mark(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_REQ_DMALLOC_MARK, NULL, 0);
+	return NT_STATUS_IS_OK(messaging_send_req_dmalloc_mark(msg_ctx, pid));
 }
 
 /* Perform a dmalloc changed */
@@ -1193,8 +1193,8 @@ static bool do_dmalloc_changed(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_REQ_DMALLOC_LOG_CHANGED,
-			    NULL, 0);
+	return NT_STATUS_IS_OK(
+		messaging_send_req_dmalloc_log_changed(msg_ctx, pid));
 }
 
 static void print_uint32_cb(struct messaging_context *msg, void *private_data,
