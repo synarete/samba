@@ -344,3 +344,93 @@ NTSTATUS messaging_send_req_pool_usage(struct messaging_context *msg_ctx,
 	}
 	return messaging_send_req_pool_usage_legacy(msg_ctx, dst, fd);
 }
+
+/* MSG_REQ_DMALLOC_MARK */
+
+static NTSTATUS messaging_send_req_dmalloc_mark_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_dmalloc_mark msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_req_dmalloc_mark_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_one_or_all(msg_ctx,
+					   dst,
+					   MSG_REQ_DMALLOC_MARK_V1,
+					   blob.data,
+					   blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_req_dmalloc_mark_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	return messaging_send_one_or_all(
+		msg_ctx, dst, MSG_REQ_DMALLOC_MARK, NULL, 0);
+}
+
+NTSTATUS messaging_send_req_dmalloc_mark(struct messaging_context *msg_ctx,
+					 struct server_id dst)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_req_dmalloc_mark_v1(msg_ctx, dst);
+	}
+	return messaging_send_req_dmalloc_mark_legacy(msg_ctx, dst);
+}
+
+/* MSG_REQ_DMALLOC_LOG_CHANGED */
+
+static NTSTATUS messaging_send_req_dmalloc_log_changed_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_dmalloc_log_changed msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_req_dmalloc_log_changed_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_one_or_all(msg_ctx,
+					   dst,
+					   MSG_REQ_DMALLOC_LOG_CHANGED_V1,
+					   blob.data,
+					   blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_req_dmalloc_log_changed_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	return messaging_send_one_or_all(
+		msg_ctx, dst, MSG_REQ_DMALLOC_LOG_CHANGED, NULL, 0);
+}
+
+NTSTATUS messaging_send_req_dmalloc_log_changed(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_req_dmalloc_log_changed_v1(msg_ctx,
+								 dst);
+	}
+	return messaging_send_req_dmalloc_log_changed_legacy(msg_ctx, dst);
+}
