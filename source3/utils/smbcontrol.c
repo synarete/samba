@@ -220,6 +220,52 @@ static bool do_debug(struct tevent_context *ev_ctx,
 			    strlen(argv[1]) + 1);
 }
 
+static bool do_idmap_delete_v1(struct messaging_context *msg_ctx,
+			       const struct server_id pid,
+			       const char *id_string)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_id_cache_delete msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	ndr_err = messaging_id_cache_delete_push(frame,
+						 &msg,
+						 id_string,
+						 &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, ID_CACHE_DELETE_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
+static bool do_idmap_kill_v1(struct messaging_context *msg_ctx,
+			     const struct server_id pid,
+			     const char *id_string)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_id_cache_kill msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	ndr_err = messaging_id_cache_kill_push(frame, &msg, id_string, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, ID_CACHE_KILL_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
 
 static bool do_idmap(struct tevent_context *ev,
 		     struct messaging_context *msg_ctx,
@@ -248,9 +294,15 @@ static bool do_idmap(struct tevent_context *ev,
 	}
 
 	if (strcmp(argv[1], "delete") == 0) {
+		if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+			return do_idmap_delete_v1(msg_ctx, pid, arg);
+		}
 		msg_type = ID_CACHE_DELETE;
 	}
 	else if (strcmp(argv[1], "kill") == 0) {
+		if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+			return do_idmap_kill_v1(msg_ctx, pid, arg);
+		}
 		msg_type = ID_CACHE_KILL;
 	}
 	else if (strcmp(argv[1], "help") == 0) {

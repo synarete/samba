@@ -1512,6 +1512,318 @@ static void test_ndr_messaging_req_dmalloc_log_changed_bad_version(
 	talloc_free(mem_ctx);
 }
 
+/* ID_CACHE_DELETE */
+/*
+ * Wire encoding of messaging_id_cache_delete with id_string = "UID 1234":
+ *
+ *   01 00 00 00  - version (MESSAGING_ID_CACHE_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (version repeated inside union, uint32
+ * LE) 55 49 44 20  - "UID " (UTF-8) 31 32 33 34  - "1234" 00           - "\0"
+ * (no trailing padding; utf8string is not aligned)
+ */
+static const uint8_t id_cache_delete_blob_uid_1234[] = {
+	0x01, 0x00, 0x00, 0x00, /* version */
+	0x00, 0x00, 0x00, 0x00, /* reserved */
+	0x01, 0x00, 0x00, 0x00, /* union discriminant */
+	0x55, 0x49, 0x44, 0x20, /* "UID " */
+	0x31, 0x32, 0x33, 0x34, /* "1234" */
+	0x00,			/* "\0" */
+};
+
+/*
+ * Wire encoding of messaging_id_cache_delete with id_string = "GID 5":
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   47 49 44 20  - "GID "
+ *   35 00        - "5\0"
+ */
+static const uint8_t id_cache_delete_blob_gid_5[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x47,
+	0x49,
+	0x44,
+	0x20, /* "GID " */
+	0x35,
+	0x00, /* "5\0" */
+};
+
+static void test_ndr_messaging_id_cache_delete_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_id_cache_delete msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t,
+					id_cache_delete_blob_uid_1234),
+		.length = sizeof(id_cache_delete_blob_uid_1234),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_id_cache_delete_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_ID_CACHE_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_string_equal("UID 1234", msg.info.info1.id_string);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_id_cache_delete_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_id_cache_delete msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t,
+					id_cache_delete_blob_uid_1234),
+		.length = sizeof(id_cache_delete_blob_uid_1234),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_id_cache_delete_push(mem_ctx, &msg, "UID 1234", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_id_cache_delete_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_id_cache_delete orig = {};
+	struct messaging_id_cache_delete decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_id_cache_delete_push(mem_ctx, &orig, "GID 5", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(id_cache_delete_blob_gid_5), blob.length);
+	assert_memory_equal(id_cache_delete_blob_gid_5,
+			    blob.data,
+			    sizeof(id_cache_delete_blob_gid_5));
+
+	err = messaging_id_cache_delete_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_ID_CACHE_VERSION_1, decoded.version);
+	assert_string_equal("GID 5", decoded.info.info1.id_string);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_id_cache_delete_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_id_cache_delete msg = {};
+	/*
+	 * Same layout as id_cache_delete_blob_gid_5 but with version =
+	 * 0x00000002 (an unknown version value).
+	 */
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x47,
+		0x49,
+		0x44,
+		0x20, /* "GID " */
+		0x35,
+		0x00, /* "5\0" */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_id_cache_delete_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
+/* ID_CACHE_KILL */
+/*
+ * Wire encoding of messaging_id_cache_kill with id_string = "UID 1234":
+ *
+ *   01 00 00 00  - version (MESSAGING_ID_CACHE_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (version repeated inside union, uint32
+ * LE) 55 49 44 20  - "UID " (UTF-8) 31 32 33 34  - "1234" 00           - "\0"
+ * (no trailing padding; utf8string is not aligned)
+ */
+static const uint8_t id_cache_kill_blob_uid_1234[] = {
+	0x01, 0x00, 0x00, 0x00, /* version */
+	0x00, 0x00, 0x00, 0x00, /* reserved */
+	0x01, 0x00, 0x00, 0x00, /* union discriminant */
+	0x55, 0x49, 0x44, 0x20, /* "UID " */
+	0x31, 0x32, 0x33, 0x34, /* "1234" */
+	0x00,			/* "\0" */
+};
+
+/*
+ * Wire encoding of messaging_id_cache_kill with id_string = "GID 5":
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   47 49 44 20  - "GID "
+ *   35 00        - "5\0"
+ */
+static const uint8_t id_cache_kill_blob_gid_5[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x47,
+	0x49,
+	0x44,
+	0x20, /* "GID " */
+	0x35,
+	0x00, /* "5\0" */
+};
+
+static void test_ndr_messaging_id_cache_kill_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_id_cache_kill msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, id_cache_kill_blob_uid_1234),
+		.length = sizeof(id_cache_kill_blob_uid_1234),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_id_cache_kill_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_ID_CACHE_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_string_equal("UID 1234", msg.info.info1.id_string);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_id_cache_kill_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_id_cache_kill msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, id_cache_kill_blob_uid_1234),
+		.length = sizeof(id_cache_kill_blob_uid_1234),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_id_cache_kill_push(mem_ctx, &msg, "UID 1234", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_id_cache_kill_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_id_cache_kill orig = {};
+	struct messaging_id_cache_kill decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_id_cache_kill_push(mem_ctx, &orig, "GID 5", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(id_cache_kill_blob_gid_5), blob.length);
+	assert_memory_equal(id_cache_kill_blob_gid_5,
+			    blob.data,
+			    sizeof(id_cache_kill_blob_gid_5));
+
+	err = messaging_id_cache_kill_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_ID_CACHE_VERSION_1, decoded.version);
+	assert_string_equal("GID 5", decoded.info.info1.id_string);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_id_cache_kill_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_id_cache_kill msg = {};
+	/*
+	 * Same layout as id_cache_kill_blob_gid_5 but with version =
+	 * 0x00000002 (an unknown version value).
+	 */
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x47,
+		0x49,
+		0x44,
+		0x20, /* "GID " */
+		0x35,
+		0x00, /* "5\0" */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_id_cache_kill_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -1569,6 +1881,15 @@ int main(void)
 			test_ndr_messaging_req_dmalloc_log_changed_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_req_dmalloc_log_changed_bad_version),
+		cmocka_unit_test(test_ndr_messaging_id_cache_delete_pull),
+		cmocka_unit_test(test_ndr_messaging_id_cache_delete_push),
+		cmocka_unit_test(test_ndr_messaging_id_cache_delete_roundtrip),
+		cmocka_unit_test(
+			test_ndr_messaging_id_cache_delete_bad_version),
+		cmocka_unit_test(test_ndr_messaging_id_cache_kill_pull),
+		cmocka_unit_test(test_ndr_messaging_id_cache_kill_push),
+		cmocka_unit_test(test_ndr_messaging_id_cache_kill_roundtrip),
+		cmocka_unit_test(test_ndr_messaging_id_cache_kill_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);

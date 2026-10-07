@@ -126,6 +126,28 @@ enum ndr_err_code messaging_req_dmalloc_log_changed_pull(
 	const DATA_BLOB *blob,
 	struct messaging_req_dmalloc_log_changed *msg);
 
+enum ndr_err_code messaging_id_cache_delete_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_id_cache_delete *msg,
+	const char *id_string,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_id_cache_delete_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_id_cache_delete *msg);
+
+enum ndr_err_code messaging_id_cache_kill_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_id_cache_kill *msg,
+	const char *id_string,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_id_cache_kill_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_id_cache_kill *msg);
+
 enum ndr_err_code messaging_shutdown_push(TALLOC_CTX *mem_ctx,
 					  struct messaging_shutdown *msg,
 					  DATA_BLOB *blob);

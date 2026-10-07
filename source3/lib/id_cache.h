@@ -38,3 +38,9 @@ void id_cache_delete_message(struct messaging_context *msg_ctx,
 			     uint32_t msg_type,
 			     struct server_id server_id,
 			     DATA_BLOB* data);
+
+void id_cache_delete_message_v1(struct messaging_context *msg_ctx,
+				void *private_data,
+				uint32_t msg_type,
+				struct server_id server_id,
+				DATA_BLOB *data);
