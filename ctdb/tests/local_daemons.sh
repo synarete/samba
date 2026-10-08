@@ -442,7 +442,15 @@ local_daemons_start()
 
 	onnode_common
 
-	onnode -i "$_nodes" "${VALGRIND:-} ctdbd"
+	# A named ctdbd runs with the helpers of its own build.  In the
+	# command, as onnode runs it through this script again, which sets
+	# CTDB_TEST_HELPER_BINDIR to this tree's.
+	_helpers=""
+	if [ -n "${CTDBD:-}" ]; then
+		_helpers="CTDB_TEST_HELPER_BINDIR=$(dirname "$CTDBD")"
+	fi
+
+	onnode -i "$_nodes" "${_helpers} ${VALGRIND:-} ${CTDBD:-ctdbd}"
 }
 
 local_daemons_stop()
