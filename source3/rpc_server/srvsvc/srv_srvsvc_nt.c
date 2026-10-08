@@ -1941,6 +1941,33 @@ static char *valid_share_pathname(TALLOC_CTX *ctx, const char *dos_pathname)
 	return ptr;
 }
 
+static void srvsvc_smb_conf_updated_send_all_v1(
+	struct messaging_context *msg_ctx)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_conf_updated_push(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send_all(msg_ctx,
+				   MSG_SMB_CONF_UPDATED_V1,
+				   blob.data,
+				   blob.length);
+	}
+	TALLOC_FREE(frame);
+}
+
+static void srvsvc_smb_conf_updated_send_all(struct messaging_context *msg_ctx)
+{
+	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		srvsvc_smb_conf_updated_send_all_v1(msg_ctx);
+	} else {
+		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+	}
+}
+
 /*******************************************************************
  _srvsvc_NetShareSetInfo. Modify share details.
 ********************************************************************/
@@ -2157,8 +2184,7 @@ WERROR _srvsvc_NetShareSetInfo(struct pipes_struct *p,
 			reload_services(NULL, NULL, false);
 
 			/* Tell everyone we updated smb.conf. */
-			messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED,
-					   NULL, 0);
+			srvsvc_smb_conf_updated_send_all(p->msg_ctx);
 		}
 
 		if ( is_disk_op )
@@ -2370,7 +2396,7 @@ WERROR _srvsvc_NetShareAdd(struct pipes_struct *p,
 	ret = smbrun(command, NULL, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		srvsvc_smb_conf_updated_send_all(p->msg_ctx);
 	}
 
 	if ( is_disk_op )
@@ -2486,7 +2512,7 @@ WERROR _srvsvc_NetShareDel(struct pipes_struct *p,
 	ret = smbrun(command, NULL, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		srvsvc_smb_conf_updated_send_all(p->msg_ctx);
 	}
 
 	if ( is_disk_op )

@@ -20,6 +20,8 @@
 #include "includes.h"
 #include "ntdomain.h"
 #include "include/messages.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 #include "serverid.h"
 #include "include/auth.h"
 #include "../libcli/security/security.h"
@@ -36,6 +38,32 @@
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_RPC_SRV
+
+static void fss_smb_conf_updated_send_all_v1(struct messaging_context *msg_ctx)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_conf_updated_push(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send_all(msg_ctx,
+				   MSG_SMB_CONF_UPDATED_V1,
+				   blob.data,
+				   blob.length);
+	}
+	TALLOC_FREE(frame);
+}
+
+static void fss_smb_conf_updated_send_all(struct messaging_context *msg_ctx)
+{
+	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		fss_smb_conf_updated_send_all_v1(msg_ctx);
+	} else {
+		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+	}
+}
 
 static struct fss_global fss_global;
 
@@ -1221,7 +1249,7 @@ uint32_t _fss_ExposeShadowCopySet(struct pipes_struct *p,
 	}
 	unbecome_root();
 
-	messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+	fss_smb_conf_updated_send_all(p->msg_ctx);
 	for (sc = sc_set->scs; sc; sc = sc->next) {
 		struct fss_sc_smap *sm;
 		for (sm = sc->smaps; sm; sm = sm->next)
@@ -1555,7 +1583,7 @@ static NTSTATUS sc_smap_unexpose(struct messaging_context *msg_ctx,
 			ret = NT_STATUS_UNSUCCESSFUL;
 			goto err_cancel;
 		}
-		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		fss_smb_conf_updated_send_all(msg_ctx);
 	} else {
 		ret = NT_STATUS_OK;
 		goto err_cancel;
