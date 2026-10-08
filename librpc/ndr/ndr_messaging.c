@@ -541,6 +541,46 @@ enum ndr_err_code messaging_smb_conf_updated_pull(
 	return NDR_ERR_SUCCESS;
 }
 
+enum ndr_err_code messaging_reload_tls_certificates_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_reload_tls_certificates *msg,
+	DATA_BLOB *blob)
+{
+	msg->info.info1 = (struct messaging_reload_tls_certificates_v1){};
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)
+			ndr_push_messaging_reload_tls_certificates);
+}
+
+enum ndr_err_code messaging_reload_tls_certificates_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_reload_tls_certificates *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_reload_tls_certificates){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)
+			ndr_pull_messaging_reload_tls_certificates);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_RELOAD_TLS_CERTIFICATES_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
 enum ndr_err_code messaging_shutdown_push(TALLOC_CTX *mem_ctx,
 					  struct messaging_shutdown *msg,
 					  DATA_BLOB *blob)

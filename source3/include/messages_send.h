@@ -79,4 +79,8 @@ NTSTATUS messaging_send_smb_conf_updated(struct messaging_context *msg_ctx,
 NTSTATUS messaging_send_all_smb_conf_updated(
 	struct messaging_context *msg_ctx);
 
+NTSTATUS messaging_send_reload_tls_certificates(
+	struct messaging_context *msg_ctx,
+	struct server_id dst);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */

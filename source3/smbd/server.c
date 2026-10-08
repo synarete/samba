@@ -346,11 +346,7 @@ static NTSTATUS smb_parent_load_tls_certificates(struct smbd_parent_context *par
 	return NT_STATUS_OK;
 }
 
-static void smb_parent_reload_tls_certificates(struct messaging_context *ctx,
-					       void *private_data,
-					       uint32_t msg_type,
-					       struct server_id srv_id,
-					       DATA_BLOB* msg_data)
+static void smb_parent_reload_tls_certificates_impl(void)
 {
 	struct smbd_parent_context *parent = am_parent;
 	struct loadparm_context *lp_ctx = NULL;
@@ -375,6 +371,38 @@ static void smb_parent_reload_tls_certificates(struct messaging_context *ctx,
 
 	DBG_DEBUG("smb_parent_load_tls_certificates(): %s\n",
 		  nt_errstr(status));
+}
+
+static void smb_parent_reload_tls_certificates(struct messaging_context *ctx,
+					       void *private_data,
+					       uint32_t msg_type,
+					       struct server_id srv_id,
+					       DATA_BLOB *msg_data)
+{
+	smb_parent_reload_tls_certificates_impl();
+}
+
+static void smb_parent_reload_tls_certificates_v1(
+	struct messaging_context *ctx,
+	void *private_data,
+	uint32_t msg_type,
+	struct server_id srv_id,
+	DATA_BLOB *msg_data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_reload_tls_certificates m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_reload_tls_certificates_pull(frame, msg_data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_RELOAD_TLS_CERTIFICATES_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	smb_parent_reload_tls_certificates_impl();
+out:
+	TALLOC_FREE(frame);
 }
 
 /*
@@ -1803,6 +1831,10 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 				   NULL,
 				   MSG_RELOAD_TLS_CERTIFICATES,
 				   smb_parent_reload_tls_certificates);
+		messaging_register(msg_ctx,
+				   NULL,
+				   MSG_RELOAD_TLS_CERTIFICATES_V1,
+				   smb_parent_reload_tls_certificates_v1);
 	}
 
 	if (lp_interfaces() && lp_bind_interfaces_only()) {

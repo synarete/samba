@@ -22,6 +22,7 @@
 */
 
 #include "includes.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "system/network.h"
 #include "lib/events/events.h"
 #include "auth/auth.h"
@@ -1300,18 +1301,12 @@ static NTSTATUS add_socket(struct task_server *task,
 	return NT_STATUS_OK;
 }
 
-static void ldap_reload_certs(struct imessaging_context *msg_ctx,
-			      void *private_data,
-			      uint32_t msg_type,
-			      struct server_id server_id,
-			      size_t num_fds,
-			      int *fds,
-			      DATA_BLOB *data)
+static void ldap_reload_certs_impl(struct imessaging_context *msg_ctx,
+				   struct ldapsrv_service *ldap_service,
+				   uint32_t child_msg_type,
+				   const DATA_BLOB *child_blob)
 {
 	TALLOC_CTX *frame = talloc_stackframe();
-	struct ldapsrv_service *ldap_service =
-		talloc_get_type_abort(private_data,
-		struct ldapsrv_service);
 	int default_children;
 	int num_children;
 	int i;
@@ -1319,8 +1314,6 @@ static void ldap_reload_certs(struct imessaging_context *msg_ctx,
 	struct server_id ldap_master_id;
 	NTSTATUS status;
 	struct tstream_tls_params *new_tls_params = NULL;
-
-	SMB_ASSERT(msg_ctx == ldap_service->current_msg);
 
 	/* reload certificates */
 	status = tstream_tls_params_server_lpcfg(ldap_service,
@@ -1378,8 +1371,10 @@ static void ldap_reload_certs(struct imessaging_context *msg_ctx,
 			continue;
 		}
 
-		status = imessaging_send(msg_ctx, ldap_worker_id,
-				         MSG_RELOAD_TLS_CERTIFICATES, NULL);
+		status = imessaging_send(msg_ctx,
+					 ldap_worker_id,
+					 child_msg_type,
+					 child_blob);
 		if (!NT_STATUS_IS_OK(status)) {
 			struct server_id_buf id_buf;
 			DBG_ERR("ldapsrv failed imessaging_send(%s, %s) - %s\n",
@@ -1390,6 +1385,61 @@ static void ldap_reload_certs(struct imessaging_context *msg_ctx,
 		}
 	}
 
+	TALLOC_FREE(frame);
+}
+
+static void ldap_reload_certs(struct imessaging_context *msg_ctx,
+			      void *private_data,
+			      uint32_t msg_type,
+			      struct server_id server_id,
+			      size_t num_fds,
+			      int *fds,
+			      DATA_BLOB *data)
+{
+	struct ldapsrv_service *ldap_service = talloc_get_type_abort(
+		private_data, struct ldapsrv_service);
+
+	SMB_ASSERT(msg_ctx == ldap_service->current_msg);
+
+	ldap_reload_certs_impl(msg_ctx,
+			       ldap_service,
+			       MSG_RELOAD_TLS_CERTIFICATES,
+			       NULL);
+}
+
+static void ldap_reload_certs_v1(struct imessaging_context *msg_ctx,
+				 void *private_data,
+				 uint32_t msg_type,
+				 struct server_id server_id,
+				 size_t num_fds,
+				 int *fds,
+				 DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct ldapsrv_service *ldap_service = talloc_get_type_abort(
+		private_data, struct ldapsrv_service);
+	struct messaging_reload_tls_certificates m = {};
+	enum ndr_err_code ndr_err;
+
+	SMB_ASSERT(msg_ctx == ldap_service->current_msg);
+
+	if (num_fds != 0) {
+		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
+		goto out;
+	}
+
+	ndr_err = messaging_reload_tls_certificates_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_RELOAD_TLS_CERTIFICATES_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	ldap_reload_certs_impl(msg_ctx,
+			       ldap_service,
+			       MSG_RELOAD_TLS_CERTIFICATES_V1,
+			       data);
+out:
 	TALLOC_FREE(frame);
 }
 
@@ -1615,6 +1665,17 @@ static void ldapsrv_before_loop(struct task_server *task)
 				     ldap_reload_certs);
 	if (!NT_STATUS_IS_OK(status)) {
 		task_server_terminate(task, "Cannot register ldap_reload_certs",
+				      true);
+		return;
+	}
+
+	status = imessaging_register(ldap_service->current_msg,
+				     ldap_service,
+				     MSG_RELOAD_TLS_CERTIFICATES_V1,
+				     ldap_reload_certs_v1);
+	if (!NT_STATUS_IS_OK(status)) {
+		task_server_terminate(task,
+				      "Cannot register ldap_reload_certs_v1",
 				      true);
 		return;
 	}
