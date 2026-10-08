@@ -411,6 +411,9 @@ run_messaging_tests()
 
 	run_msg_test "smbcontrol reload-certs" "MSG_RELOAD_TLS_CERTIFICATES" \
 		smbcontrol_ok smbd reload-certs
+
+	run_msg_test "smbcontrol ringbuf-log" "MSG_REQ_RINGBUF_LOG" \
+		smbcontrol_reply "." smbd ringbuf-log
 }
 
 # ===========================================================================
