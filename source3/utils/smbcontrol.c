@@ -1136,22 +1136,59 @@ static void print_ringbuf_log_cb(struct messaging_context *msg,
 	num_replies++;
 }
 
+static void print_ringbuf_log_v1_cb(struct messaging_context *msg,
+				    void *private_data,
+				    uint32_t msg_type,
+				    struct server_id pid,
+				    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_ringbuf_log reply = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_ringbuf_log_pull(frame, data, &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		struct server_id_buf pidstr;
+		fprintf(stderr,
+			"Invalid MSG_RINGBUF_LOG from PID %s: %s\n",
+			server_id_str_buf(pid, &pidstr),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	printf("%s", reply.info.info1.log_string);
+	num_replies++;
+out:
+	TALLOC_FREE(frame);
+}
+
 static bool do_ringbuflog(struct tevent_context *ev_ctx,
 			  struct messaging_context *msg_ctx,
 			  const struct server_id pid,
 			  const int argc, const char **argv)
 {
+	const bool v1 = CLUSTER_LEVEL_ACTIVE(2, 0);
+	const uint32_t reply_type = v1 ? MSG_RINGBUF_LOG_V1 : MSG_RINGBUF_LOG;
+	NTSTATUS status;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> ringbuf-log\n");
 		return false;
 	}
 
-	messaging_register(msg_ctx, NULL, MSG_RINGBUF_LOG,
-			   print_ringbuf_log_cb);
+	if (v1) {
+		messaging_register(msg_ctx, NULL, reply_type,
+				   print_ringbuf_log_v1_cb);
+	} else {
+		messaging_register(msg_ctx, NULL, reply_type,
+				   print_ringbuf_log_cb);
+	}
 
 	/* Send a message and register our interest in a reply */
 
-	if (!send_message(msg_ctx, pid, MSG_REQ_RINGBUF_LOG, NULL, 0)) {
+	status = messaging_send_req_ringbuf_log(msg_ctx, pid);
+	if (!NT_STATUS_IS_OK(status)) {
+		messaging_deregister(msg_ctx, reply_type, NULL);
 		return false;
 	}
 
@@ -1163,7 +1200,7 @@ static bool do_ringbuflog(struct tevent_context *ev_ctx,
 		printf("No replies received\n");
 	}
 
-	messaging_deregister(msg_ctx, MSG_RINGBUF_LOG, NULL);
+	messaging_deregister(msg_ctx, reply_type, NULL);
 
 	return num_replies != 0;
 }
