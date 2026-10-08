@@ -55,6 +55,7 @@ interface messaging
 
 		/* Changes to smb.conf are really of general interest */
 		MSG_SMB_CONF_UPDATED		= 0x0021,
+		MSG_SMB_CONF_UPDATED_V1		= 0x1021,
 		MSG_RELOAD_TLS_CERTIFICATES	= 0x0022,
 
 		/* MSG_PREFORK_CHILD_EVENT	= 0x0031,  Obsoleted */
@@ -371,6 +372,25 @@ interface messaging
 		[value(0)] uint32                  reserved;
 		[switch_is(version)] messaging_id_cacheU info;
 	} messaging_id_cache_kill;
+
+	/* MSG_SMB_CONF_UPDATED */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_CONF_UPDATED_VERSION_1 = 0x00000001
+	} messaging_smb_conf_updated_version_values;
+
+	typedef struct {
+	} messaging_smb_conf_updated_v1;
+
+	typedef [switch_type(messaging_smb_conf_updated_version_values)] union {
+		[case(MESSAGING_SMB_CONF_UPDATED_VERSION_1)] messaging_smb_conf_updated_v1 info1;
+		[default] ;
+	} messaging_smb_conf_updatedU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_CONF_UPDATED_VERSION_1)] messaging_smb_conf_updated_version_values version;
+		[value(0)] uint32                            reserved;
+		[switch_is(version)] messaging_smb_conf_updatedU info;
+	} messaging_smb_conf_updated;
 
 	/* MSG_SHUTDOWN */
 	typedef [public, v1_enum] enum {

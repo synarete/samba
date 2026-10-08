@@ -28,6 +28,7 @@
  */
 
 #include "includes.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "winbindd.h"
 #include "rpc_client/rpc_client.h"
 #include "nsswitch/wb_reqtrans.h"
@@ -960,7 +961,9 @@ static bool winbindd_child_msg_filter(struct messaging_rec *rec,
 	struct winbindd_child *child = talloc_get_type_abort(private_data,
 			struct winbindd_child);
 
-	if (rec->msg_type == MSG_SMB_CONF_UPDATED) {
+	if (rec->msg_type == MSG_SMB_CONF_UPDATED ||
+	    rec->msg_type == MSG_SMB_CONF_UPDATED_V1)
+	{
 		DBG_DEBUG("Got reload-config message\n");
 		winbindd_reload_services_file(child->logfilename);
 	}
@@ -1002,6 +1005,54 @@ void winbindd_msg_reload_services_parent(struct messaging_context *msg,
 	}
 
 	forall_children(winbind_msg_relay_fn, &state);
+}
+
+void winbindd_msg_reload_services_parent_v1(struct messaging_context *msg,
+					    void *private_data,
+					    uint32_t msg_type,
+					    struct server_id server_id,
+					    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated m = {};
+	struct winbind_msg_relay_state state = {
+		.msg_ctx = msg,
+		.msg_type = msg_type,
+		.data = data,
+	};
+	enum ndr_err_code ndr_err;
+	bool ok;
+
+	ndr_err = messaging_smb_conf_updated_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_CONF_UPDATED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	DBG_DEBUG("Got reload-config message\n");
+
+	/* Flush various caches */
+	winbindd_flush_caches();
+
+	winbindd_reload_services_file((const char *)private_data);
+
+	/* Set tevent_thread_call_depth_set_callback according to debug level
+	 */
+	if (lp_winbind_debug_traceid() && debuglevel_get() > 1) {
+		tevent_thread_call_depth_set_callback(winbind_call_flow, NULL);
+	} else {
+		tevent_thread_call_depth_set_callback(NULL, NULL);
+	}
+
+	ok = update_trusted_domains_dc();
+	if (!ok) {
+		DBG_ERR("update_trusted_domains_dc() failed\n");
+	}
+
+	forall_children(winbind_msg_relay_fn, &state);
+out:
+	TALLOC_FREE(frame);
 }
 
 /* Set our domains as offline and forward the offline message to our children. */
@@ -1604,6 +1655,9 @@ NTSTATUS winbindd_reinit_after_fork(const struct winbindd_child *myself,
 	/* Don't handle the same messages as our parent. */
 	messaging_deregister(global_messaging_context(),
 			     MSG_SMB_CONF_UPDATED, NULL);
+	messaging_deregister(global_messaging_context(),
+			     MSG_SMB_CONF_UPDATED_V1,
+			     NULL);
 	messaging_deregister(global_messaging_context(),
 			     MSG_SHUTDOWN, NULL);
 	messaging_deregister(global_messaging_context(),

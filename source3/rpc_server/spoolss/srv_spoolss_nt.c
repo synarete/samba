@@ -67,6 +67,8 @@
 #include "printing/nt_printing_migrate_internal.h"
 #include "lib/util/string_wrappers.h"
 #include "lib/global_contexts.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 
 /* macros stolen from s4 spoolss server */
 #define SPOOLSS_BUFFER_UNION(fn,info,level) \
@@ -82,6 +84,33 @@
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_RPC_SRV
+
+static void spoolss_smb_conf_updated_send_all_v1(
+	struct messaging_context *msg_ctx)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_conf_updated_push(frame, &msg, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send_all(msg_ctx,
+				   MSG_SMB_CONF_UPDATED_V1,
+				   blob.data,
+				   blob.length);
+	}
+	TALLOC_FREE(frame);
+}
+
+static void spoolss_smb_conf_updated_send_all(struct messaging_context *msg_ctx)
+{
+	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		spoolss_smb_conf_updated_send_all_v1(msg_ctx);
+	} else {
+		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+	}
+}
 
 #ifndef MAX_OPEN_PRINTER_EXS
 #define MAX_OPEN_PRINTER_EXS 50
@@ -392,7 +421,7 @@ static WERROR delete_printer_hook(TALLOC_CTX *ctx, struct security_token *token,
 	ret = smbrun(command, NULL, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		spoolss_smb_conf_updated_send_all(msg_ctx);
 	}
 
 	if ( is_print_op )
@@ -6560,7 +6589,7 @@ static bool add_printer_hook(TALLOC_CTX *ctx, struct security_token *token,
 	ret = smbrun(command, &fd, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		spoolss_smb_conf_updated_send_all(msg_ctx);
 	}
 
 	if ( is_print_op )
