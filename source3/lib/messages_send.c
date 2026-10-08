@@ -536,3 +536,83 @@ NTSTATUS messaging_send_id_cache_kill(struct messaging_context *msg_ctx,
 	}
 	return messaging_send_id_cache_kill_legacy(msg_ctx, dst, id_string);
 }
+
+/* MSG_SMB_CONF_UPDATED */
+
+static NTSTATUS messaging_send_smb_conf_updated_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_conf_updated_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_one_or_all(msg_ctx,
+					   dst,
+					   MSG_SMB_CONF_UPDATED_V1,
+					   blob.data,
+					   blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_smb_conf_updated_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	return messaging_send_one_or_all(
+		msg_ctx, dst, MSG_SMB_CONF_UPDATED, NULL, 0);
+}
+
+NTSTATUS messaging_send_smb_conf_updated(struct messaging_context *msg_ctx,
+					 struct server_id dst)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_smb_conf_updated_v1(msg_ctx, dst);
+	}
+	return messaging_send_smb_conf_updated_legacy(msg_ctx, dst);
+}
+
+static NTSTATUS messaging_send_all_smb_conf_updated_v1(
+	struct messaging_context *msg_ctx)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_conf_updated_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	messaging_send_all(
+		msg_ctx, MSG_SMB_CONF_UPDATED_V1, blob.data, blob.length);
+	TALLOC_FREE(frame);
+	return NT_STATUS_OK;
+}
+
+static NTSTATUS messaging_send_all_smb_conf_updated_legacy(
+	struct messaging_context *msg_ctx)
+{
+	messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+	return NT_STATUS_OK;
+}
+
+NTSTATUS messaging_send_all_smb_conf_updated(
+	struct messaging_context *msg_ctx)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_all_smb_conf_updated_v1(msg_ctx);
+	}
+	return messaging_send_all_smb_conf_updated_legacy(msg_ctx);
+}

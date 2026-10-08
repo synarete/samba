@@ -20,6 +20,9 @@
 #include "includes.h"
 #include "ntdomain.h"
 #include "include/messages.h"
+#include "include/messages_send.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 #include "serverid.h"
 #include "include/auth.h"
 #include "../libcli/security/security.h"
@@ -1221,7 +1224,7 @@ uint32_t _fss_ExposeShadowCopySet(struct pipes_struct *p,
 	}
 	unbecome_root();
 
-	messaging_send_all(p->msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+	messaging_send_all_smb_conf_updated(p->msg_ctx);
 	for (sc = sc_set->scs; sc; sc = sc->next) {
 		struct fss_sc_smap *sm;
 		for (sm = sc->smaps; sm; sm = sm->next)
@@ -1555,7 +1558,7 @@ static NTSTATUS sc_smap_unexpose(struct messaging_context *msg_ctx,
 			ret = NT_STATUS_UNSUCCESSFUL;
 			goto err_cancel;
 		}
-		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		messaging_send_all_smb_conf_updated(msg_ctx);
 	} else {
 		ret = NT_STATUS_OK;
 		goto err_cancel;
