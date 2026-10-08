@@ -1523,17 +1523,20 @@ static bool do_winbind_validate_cache(struct tevent_context *ev_ctx,
 }
 
 static bool do_reload_certs(struct tevent_context *ev_ctx,
-					struct messaging_context *msg_ctx,
-					const struct server_id pid,
-					const int argc, const char **argv)
+			    struct messaging_context *msg_ctx,
+			    const struct server_id pid,
+			    const int argc,
+			    const char **argv)
 {
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol ldap_server reload-certs \n");
 		return false;
 	}
 
-	return send_message(msg_ctx, pid, MSG_RELOAD_TLS_CERTIFICATES, NULL, 0);
+	return NT_STATUS_IS_OK(
+		messaging_send_reload_tls_certificates(msg_ctx, pid));
 }
+
 static bool do_reload_config(struct tevent_context *ev_ctx,
 			     struct messaging_context *msg_ctx,
 			     const struct server_id pid,
