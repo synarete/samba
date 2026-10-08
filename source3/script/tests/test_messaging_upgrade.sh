@@ -366,6 +366,26 @@ smbcontrol_reload_certs()
 	return $st
 }
 
+# Send "smbcontrol smbd ringbuf-log" to all smbd processes; expects at least
+# one reply with log content.
+smbcontrol_ringbuf_log()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" smbd ringbuf-log 2>&1)
+	local st=$?
+	# success requires both a zero exit status and at least one reply line
+	if [ $st -eq 0 ] && echo "$out" | grep -q .; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+		return 1
+	fi
+	return 0
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -499,6 +519,10 @@ smbcontrol_reload_certs \
 	"step1: smbcontrol reload-certs (legacy MSG_RELOAD_TLS_CERTIFICATES at level 0.1)" \
 	|| failed=$((failed + 1))
 
+smbcontrol_ringbuf_log \
+	"step1: smbcontrol ringbuf-log (legacy MSG_REQ_RINGBUF_LOG at level 0.1)" \
+	|| failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 0.1 to 1.0
 # ===========================================================================
@@ -565,6 +589,10 @@ smbcontrol_reload_config \
 
 smbcontrol_reload_certs \
 	"step3: smbcontrol reload-certs (NDR MSG_RELOAD_TLS_CERTIFICATES_V1 at level 1.0)" \
+	|| failed=$((failed + 1))
+
+smbcontrol_ringbuf_log \
+	"step3: smbcontrol ringbuf-log (NDR MSG_REQ_RINGBUF_LOG_V1 at level 1.0)" \
 	|| failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
