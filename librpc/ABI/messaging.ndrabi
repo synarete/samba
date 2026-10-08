@@ -28,6 +28,8 @@ root messaging_req_dmalloc_log_changed
 root messaging_id_cache_version_values
 root messaging_id_cache_delete
 root messaging_id_cache_kill
+root messaging_smb_conf_updated_version_values
+root messaging_smb_conf_updated
 root messaging_shutdown_version_values
 root messaging_shutdown
 root messaging_rec
@@ -232,6 +234,24 @@ enum messaging_shutdown_version_values base(uint32) {
 	0x00000001	# MESSAGING_SHUTDOWN_VERSION_1
 }
 
+struct messaging_smb_conf_updated align(4) {
+	[value(MESSAGING_SMB_CONF_UPDATED_VERSION_1)] enum:messaging_smb_conf_updated_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_smb_conf_updatedU	# info
+}
+
+union messaging_smb_conf_updatedU align(1) switch_type(enum:messaging_smb_conf_updated_version_values) {
+	case(MESSAGING_SMB_CONF_UPDATED_VERSION_1): struct:messaging_smb_conf_updated_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_smb_conf_updated_v1 align(1) {
+}
+
+enum messaging_smb_conf_updated_version_values base(uint32) {
+	0x00000001	# MESSAGING_SMB_CONF_UPDATED_VERSION_1
+}
+
 enum messaging_type base(uint32) {
 	0x0001	# MSG_DEBUG
 	0x1001	# MSG_DEBUG_V1
@@ -262,6 +282,7 @@ enum messaging_type base(uint32) {
 	0x0010	# ID_CACHE_KILL
 	0x1010	# ID_CACHE_KILL_V1
 	0x0021	# MSG_SMB_CONF_UPDATED
+	0x1021	# MSG_SMB_CONF_UPDATED_V1
 	0x0022	# MSG_RELOAD_TLS_CERTIFICATES
 	0x0033	# MSG_REQ_RINGBUF_LOG
 	0x0034	# MSG_RINGBUF_LOG
@@ -454,6 +475,15 @@ sample messaging_id_cache_kill length(27) {
 #	        info                     : union messaging_id_cacheU(case 1)
 #	        info1: struct messaging_id_cache_v1
 #	            id_string                : 'string00000001'
+
+sample messaging_smb_conf_updated length(12) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00
+}
+#	    messaging_smb_conf_updated: struct messaging_smb_conf_updated
+#	        version                  : MESSAGING_SMB_CONF_UPDATED_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_smb_conf_updatedU(case 1)
+#	        info1: struct messaging_smb_conf_updated_v1
 
 sample messaging_shutdown length(12) {
 	[0000] 01 00 00 00 00 00 00 00  01 00 00 00
