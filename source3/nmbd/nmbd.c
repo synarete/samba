@@ -461,6 +461,33 @@ static void msg_reload_nmbd_services(struct messaging_context *msg,
 	nmbd_init_my_netbios_names();
 }
 
+static void msg_reload_nmbd_services_v1(struct messaging_context *msg,
+					void *private_data,
+					uint32_t msg_type,
+					struct server_id server_id,
+					DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_conf_updated m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_conf_updated_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_CONF_UPDATED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	write_browse_list(0, True);
+	dump_all_namelists();
+	reload_nmbd_services(True);
+	reopen_logs();
+	reload_interfaces(0);
+	nmbd_init_my_netbios_names();
+out:
+	TALLOC_FREE(frame);
+}
+
 static void msg_nmbd_send_packet(struct messaging_context *msg,
 				 void *private_data,
 				 uint32_t msg_type,
@@ -1046,6 +1073,10 @@ static bool open_sockets(bool isdaemon, int port)
 	messaging_register(msg, NULL, MSG_SHUTDOWN_V1, nmbd_terminate_v1);
 	messaging_register(msg, NULL, MSG_SMB_CONF_UPDATED,
 			   msg_reload_nmbd_services);
+	messaging_register(msg,
+			   NULL,
+			   MSG_SMB_CONF_UPDATED_V1,
+			   msg_reload_nmbd_services_v1);
 	messaging_register(msg, NULL, MSG_SEND_PACKET,
 			   msg_nmbd_send_packet);
 
