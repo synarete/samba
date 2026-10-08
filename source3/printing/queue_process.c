@@ -21,6 +21,7 @@
 */
 
 #include "includes.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include <spawn.h>
 #include "smbd/globals.h"
 #include "include/messages.h"
@@ -270,6 +271,36 @@ static void bq_smb_conf_updated(struct messaging_context *msg_ctx,
 	printing_subsystem_queue_tasks(state);
 }
 
+static void bq_smb_conf_updated_v1(struct messaging_context *msg_ctx,
+				   void *private_data,
+				   uint32_t msg_type,
+				   struct server_id server_id,
+				   DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct bq_state *state;
+	struct messaging_smb_conf_updated m = {};
+	enum ndr_err_code ndr_err;
+
+	state = talloc_get_type_abort(private_data, struct bq_state);
+
+	ndr_err = messaging_smb_conf_updated_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_CONF_UPDATED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	DEBUG(10,("smb_conf_updated: Got message saying smb.conf was "
+		  "updated. Reloading.\n"));
+	change_to_root_user();
+	lp_load_with_shares(get_dyn_CONFIGFILE());
+	pcap_cache_reload(state->ev, msg_ctx, reload_pcap_change_notify);
+	printing_subsystem_queue_tasks(state);
+out:
+	TALLOC_FREE(frame);
+}
+
 static int bq_state_destructor(struct bq_state *s)
 {
 	struct messaging_context *msg_ctx = s->msg;
@@ -278,6 +309,7 @@ static int bq_state_destructor(struct bq_state *s)
 	messaging_deregister(msg_ctx, MSG_PRINTER_DRVUPGRADE, NULL);
 	messaging_deregister(msg_ctx, MSG_PRINTER_UPDATE, NULL);
 	messaging_deregister(msg_ctx, MSG_SMB_CONF_UPDATED, s);
+	messaging_deregister(msg_ctx, MSG_SMB_CONF_UPDATED_V1, s);
 	return 0;
 }
 
@@ -301,10 +333,19 @@ struct bq_state *register_printing_bq_handlers(
 	if (!NT_STATUS_IS_OK(status)) {
 		goto fail;
 	}
-	status = messaging_register(
-		msg_ctx, NULL, MSG_PRINTER_UPDATE, print_queue_receive);
+	status = messaging_register(msg_ctx,
+				    state,
+				    MSG_SMB_CONF_UPDATED_V1,
+				    bq_smb_conf_updated_v1);
 	if (!NT_STATUS_IS_OK(status)) {
 		goto fail_dereg_smb_conf_updated;
+	}
+	status = messaging_register(msg_ctx,
+				    NULL,
+				    MSG_PRINTER_UPDATE,
+				    print_queue_receive);
+	if (!NT_STATUS_IS_OK(status)) {
+		goto fail_dereg_smb_conf_updated_v1;
 	}
 	status = messaging_register(
 		msg_ctx, NULL, MSG_PRINTER_DRVUPGRADE, do_drv_upgrade_printer);
@@ -344,6 +385,8 @@ fail_dereg_printer_drvupgrade:
 	messaging_deregister(msg_ctx, MSG_PRINTER_DRVUPGRADE, NULL);
 fail_dereg_printer_update:
 	messaging_deregister(msg_ctx, MSG_PRINTER_UPDATE, NULL);
+fail_dereg_smb_conf_updated_v1:
+	messaging_deregister(msg_ctx, MSG_SMB_CONF_UPDATED_V1, state);
 fail_dereg_smb_conf_updated:
 	messaging_deregister(msg_ctx, MSG_SMB_CONF_UPDATED, state);
 fail:

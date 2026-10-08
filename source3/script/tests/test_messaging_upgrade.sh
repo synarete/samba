@@ -405,6 +405,9 @@ run_messaging_tests()
 
 	run_msg_test "smbcontrol idmap kill" "ID_CACHE_KILL" \
 		smbcontrol_ok smbd idmap kill "UID 0"
+
+	run_msg_test "smbcontrol reload-config" "MSG_SMB_CONF_UPDATED" \
+		smbcontrol_ok smbd reload-config
 }
 
 # ===========================================================================

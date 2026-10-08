@@ -52,6 +52,7 @@
 #include "smbd/globals.h"
 #include "auth.h"
 #include "messages.h"
+#include "messages_send.h"
 #include "rpc_server/spoolss/srv_spoolss_nt.h"
 #include "util_tdb.h"
 #include "source3/include/client.h"
@@ -67,6 +68,8 @@
 #include "printing/nt_printing_migrate_internal.h"
 #include "lib/util/string_wrappers.h"
 #include "lib/global_contexts.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 
 /* macros stolen from s4 spoolss server */
 #define SPOOLSS_BUFFER_UNION(fn,info,level) \
@@ -392,7 +395,7 @@ static WERROR delete_printer_hook(TALLOC_CTX *ctx, struct security_token *token,
 	ret = smbrun(command, NULL, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		messaging_send_all_smb_conf_updated(msg_ctx);
 	}
 
 	if ( is_print_op )
@@ -6560,7 +6563,7 @@ static bool add_printer_hook(TALLOC_CTX *ctx, struct security_token *token,
 	ret = smbrun(command, &fd, NULL);
 	if (ret == 0) {
 		/* Tell everyone we updated smb.conf. */
-		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);
+		messaging_send_all_smb_conf_updated(msg_ctx);
 	}
 
 	if ( is_print_op )
