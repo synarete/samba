@@ -30,6 +30,8 @@ root messaging_id_cache_delete
 root messaging_id_cache_kill
 root messaging_smb_conf_updated_version_values
 root messaging_smb_conf_updated
+root messaging_reload_tls_certificates_version_values
+root messaging_reload_tls_certificates
 root messaging_shutdown_version_values
 root messaging_shutdown
 root messaging_rec
@@ -252,6 +254,24 @@ enum messaging_smb_conf_updated_version_values base(uint32) {
 	0x00000001	# MESSAGING_SMB_CONF_UPDATED_VERSION_1
 }
 
+struct messaging_reload_tls_certificates align(4) {
+	[value(MESSAGING_RELOAD_TLS_CERTIFICATES_VERSION_1)] enum:messaging_reload_tls_certificates_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_reload_tls_certificatesU	# info
+}
+
+union messaging_reload_tls_certificatesU align(1) switch_type(enum:messaging_reload_tls_certificates_version_values) {
+	case(MESSAGING_RELOAD_TLS_CERTIFICATES_VERSION_1): struct:messaging_reload_tls_certificates_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_reload_tls_certificates_v1 align(1) {
+}
+
+enum messaging_reload_tls_certificates_version_values base(uint32) {
+	0x00000001	# MESSAGING_RELOAD_TLS_CERTIFICATES_VERSION_1
+}
+
 enum messaging_type base(uint32) {
 	0x0001	# MSG_DEBUG
 	0x1001	# MSG_DEBUG_V1
@@ -284,6 +304,7 @@ enum messaging_type base(uint32) {
 	0x0021	# MSG_SMB_CONF_UPDATED
 	0x1021	# MSG_SMB_CONF_UPDATED_V1
 	0x0022	# MSG_RELOAD_TLS_CERTIFICATES
+	0x1022	# MSG_RELOAD_TLS_CERTIFICATES_V1
 	0x0033	# MSG_REQ_RINGBUF_LOG
 	0x0034	# MSG_RINGBUF_LOG
 	0x0035	# MSG_DAEMON_READY_FD
@@ -484,6 +505,15 @@ sample messaging_smb_conf_updated length(12) {
 #	        reserved                 : 0x00000000 (0)
 #	        info                     : union messaging_smb_conf_updatedU(case 1)
 #	        info1: struct messaging_smb_conf_updated_v1
+
+sample messaging_reload_tls_certificates length(12) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00
+}
+#	    messaging_reload_tls_certificates: struct messaging_reload_tls_certificates
+#	        version                  : MESSAGING_RELOAD_TLS_CERTIFICATES_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_reload_tls_certificatesU(case 1)
+#	        info1: struct messaging_reload_tls_certificates_v1
 
 sample messaging_shutdown length(12) {
 	[0000] 01 00 00 00 00 00 00 00  01 00 00 00
