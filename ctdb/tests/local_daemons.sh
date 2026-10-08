@@ -361,7 +361,7 @@ local_daemons_start()
 
 	onnode_common
 
-	onnode -i "$_nodes" "${VALGRIND:-} ctdbd"
+	onnode -i "$_nodes" "${VALGRIND:-} ${CTDBD:-ctdbd}"
 }
 
 local_daemons_stop()
