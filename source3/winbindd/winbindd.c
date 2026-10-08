@@ -1167,6 +1167,10 @@ static void winbindd_register_handlers(struct messaging_context *msg_ctx,
 	messaging_register(msg_ctx, NULL,
 			   MSG_SMB_CONF_UPDATED,
 			   winbindd_msg_reload_services_parent);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_CONF_UPDATED_V1,
+			   winbindd_msg_reload_services_parent_v1);
 	messaging_register(msg_ctx, NULL,
 			   MSG_SHUTDOWN, msg_shutdown);
 	messaging_register(msg_ctx, NULL, MSG_SHUTDOWN_V1, msg_shutdown_v1);
