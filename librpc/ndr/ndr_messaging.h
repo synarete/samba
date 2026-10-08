@@ -168,6 +168,27 @@ enum ndr_err_code messaging_reload_tls_certificates_pull(
 	const DATA_BLOB *blob,
 	struct messaging_reload_tls_certificates *msg);
 
+enum ndr_err_code messaging_req_ringbuf_log_push(
+	TALLOC_CTX *mem_ctx,
+	const struct messaging_req_ringbuf_log *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_req_ringbuf_log_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_req_ringbuf_log *msg);
+
+enum ndr_err_code messaging_ringbuf_log_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_ringbuf_log *msg,
+	const char *log_string,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_ringbuf_log_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_ringbuf_log *msg);
+
 enum ndr_err_code messaging_shutdown_push(TALLOC_CTX *mem_ctx,
 					  struct messaging_shutdown *msg,
 					  DATA_BLOB *blob);

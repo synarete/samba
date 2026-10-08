@@ -63,7 +63,9 @@ interface messaging
 		/* MSG_PREFORK_PARENT_EVENT	= 0x0032,  Obsoleted */
 
 		MSG_REQ_RINGBUF_LOG		= 0x0033,
+		MSG_REQ_RINGBUF_LOG_V1		= 0x1033,
 		MSG_RINGBUF_LOG			= 0x0034,
+		MSG_RINGBUF_LOG_V1		= 0x1034,
 
 		MSG_DAEMON_READY_FD             = 0x0035,
 
@@ -411,6 +413,31 @@ interface messaging
 		[value(0)] uint32                                    reserved;
 		[switch_is(version)] messaging_reload_tls_certificatesU info;
 	} messaging_reload_tls_certificates;
+
+	/* MSG_REQ_RINGBUF_LOG / MSG_RINGBUF_LOG */
+	typedef [public, v1_enum] enum {
+		MESSAGING_RINGBUF_LOG_VERSION_1 = 0x00000001
+	} messaging_ringbuf_log_version_values;
+
+	typedef [public] struct {
+		[value(MESSAGING_RINGBUF_LOG_VERSION_1)] messaging_ringbuf_log_version_values version;
+		[value(0)] uint32                        reserved;
+	} messaging_req_ringbuf_log;
+
+	typedef struct {
+		utf8string log_string;
+	} messaging_ringbuf_log_v1;
+
+	typedef [switch_type(messaging_ringbuf_log_version_values)] union {
+		[case(MESSAGING_RINGBUF_LOG_VERSION_1)] messaging_ringbuf_log_v1 info1;
+		[default] ;
+	} messaging_ringbuf_logU;
+
+	typedef [public] struct {
+		[value(MESSAGING_RINGBUF_LOG_VERSION_1)] messaging_ringbuf_log_version_values version;
+		[value(0)] uint32                        reserved;
+		[switch_is(version)] messaging_ringbuf_logU info;
+	} messaging_ringbuf_log;
 
 	/* MSG_SHUTDOWN */
 	typedef [public, v1_enum] enum {

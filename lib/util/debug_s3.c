@@ -216,6 +216,45 @@ static void debug_ringbuf_log(struct messaging_context *msg_ctx,
 			   logsize);
 }
 
+static void debug_ringbuf_log_v1(struct messaging_context *msg_ctx,
+				 void *private_data,
+				 uint32_t msg_type,
+				 struct server_id src,
+				 DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_ringbuf_log req = {};
+	struct messaging_ringbuf_log reply = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	struct server_id_buf tmp;
+	char *log = NULL;
+	const char *log_string = NULL;
+
+	ndr_err = messaging_req_ringbuf_log_pull(frame, data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("Invalid MSG_REQ_RINGBUF_LOG from PID %s: %s\n",
+			  server_id_str_buf(src, &tmp),
+			  ndr_errstr(ndr_err)));
+		goto out;
+	}
+
+	log = debug_get_ringbuf();
+	if (log == NULL) {
+		log_string = "*disabled*\n";
+	} else {
+		log_string = log;
+	}
+
+	ndr_err = messaging_ringbuf_log_push(frame, &reply, log_string, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+	messaging_send(msg_ctx, src, MSG_RINGBUF_LOG_V1, &blob);
+out:
+	TALLOC_FREE(frame);
+}
+
 void debug_register_msgs(struct messaging_context *msg_ctx)
 {
 	messaging_register(msg_ctx, NULL, MSG_DEBUG, debug_message);
@@ -228,4 +267,8 @@ void debug_register_msgs(struct messaging_context *msg_ctx)
 			   debuglevel_message_v1);
 	messaging_register(msg_ctx, NULL, MSG_REQ_RINGBUF_LOG,
 			   debug_ringbuf_log);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_REQ_RINGBUF_LOG_V1,
+			   debug_ringbuf_log_v1);
 }

@@ -1378,6 +1378,71 @@ static void print_ringbuf_log_cb(struct messaging_context *msg,
 	num_replies++;
 }
 
+static void print_ringbuf_log_v1_cb(struct messaging_context *msg,
+				    void *private_data,
+				    uint32_t msg_type,
+				    struct server_id pid,
+				    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_ringbuf_log reply = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_ringbuf_log_pull(frame, data, &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		struct server_id_buf pidstr;
+		fprintf(stderr,
+			"Invalid MSG_RINGBUF_LOG from PID %s: %s\n",
+			server_id_str_buf(pid, &pidstr),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	printf("%s", reply.info.info1.log_string);
+	num_replies++;
+out:
+	TALLOC_FREE(frame);
+}
+
+static bool do_ringbuflog_v1(struct tevent_context *ev_ctx,
+			     struct messaging_context *msg_ctx,
+			     const struct server_id pid)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_req_ringbuf_log msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	ndr_err = messaging_req_ringbuf_log_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_REQ_RINGBUF_LOG_V1, blob.data, blob.length);
+	if (!ok) {
+		goto out;
+	}
+
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_RINGBUF_LOG_V1,
+			   print_ringbuf_log_v1_cb);
+
+	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
+
+	/* No replies were received within the timeout period */
+
+	if (num_replies == 0)
+		printf("No replies received\n");
+
+	messaging_deregister(msg_ctx, MSG_RINGBUF_LOG_V1, NULL);
+out:
+	TALLOC_FREE(frame);
+	return ok ? (num_replies > 0) : False;
+}
+
 static bool do_ringbuflog(struct tevent_context *ev_ctx,
 			  struct messaging_context *msg_ctx,
 			  const struct server_id pid,
@@ -1386,6 +1451,10 @@ static bool do_ringbuflog(struct tevent_context *ev_ctx,
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> ringbuf-log\n");
 		return false;
+	}
+
+	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		return do_ringbuflog_v1(ev_ctx, msg_ctx, pid);
 	}
 
 	messaging_register(msg_ctx, NULL, MSG_RINGBUF_LOG,

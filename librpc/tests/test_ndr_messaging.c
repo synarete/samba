@@ -2080,6 +2080,250 @@ static void test_ndr_messaging_reload_tls_certificates_bad_version(
 	talloc_free(mem_ctx);
 }
 
+/* MSG_REQ_RINGBUF_LOG */
+/*
+ * Wire encoding of messaging_req_ringbuf_log:
+ *
+ *   01 00 00 00  - version (MESSAGING_RINGBUF_LOG_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *
+ * No payload: this message is a request with no string body.
+ */
+static const uint8_t req_ringbuf_log_blob[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+};
+
+static void test_ndr_messaging_req_ringbuf_log_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_ringbuf_log msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, req_ringbuf_log_blob),
+		.length = sizeof(req_ringbuf_log_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_ringbuf_log_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_RINGBUF_LOG_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_req_ringbuf_log_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_ringbuf_log msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, req_ringbuf_log_blob),
+		.length = sizeof(req_ringbuf_log_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_ringbuf_log_push(mem_ctx, &msg, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_req_ringbuf_log_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_req_ringbuf_log msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_req_ringbuf_log_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
+/* MSG_RINGBUF_LOG */
+/*
+ * Wire encoding of messaging_ringbuf_log with log_string = "hello\n":
+ *
+ *   01 00 00 00  - version (MESSAGING_RINGBUF_LOG_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (version repeated inside union, uint32
+ * LE) 68 65 6c 6c  - "hell" (UTF-8) 6f 0a 00     - "o\n\0" (no trailing
+ * padding; utf8string is not aligned)
+ */
+static const uint8_t ringbuf_log_blob_hello[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x68,
+	0x65,
+	0x6c,
+	0x6c, /* "hell" */
+	0x6f,
+	0x0a,
+	0x00, /* "o\n\0" */
+};
+
+/*
+ * Wire encoding of messaging_ringbuf_log with log_string = "x":
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   78 00        - "x\0"
+ */
+static const uint8_t ringbuf_log_blob_x[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x78,
+	0x00, /* "x\0" */
+};
+
+static void test_ndr_messaging_ringbuf_log_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_ringbuf_log msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, ringbuf_log_blob_hello),
+		.length = sizeof(ringbuf_log_blob_hello),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_ringbuf_log_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_RINGBUF_LOG_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_string_equal("hello\n", msg.info.info1.log_string);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_ringbuf_log_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_ringbuf_log msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, ringbuf_log_blob_hello),
+		.length = sizeof(ringbuf_log_blob_hello),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_ringbuf_log_push(mem_ctx, &msg, "hello\n", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_ringbuf_log_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_ringbuf_log decoded = {};
+	struct messaging_ringbuf_log msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_ringbuf_log_push(mem_ctx, &msg, "x", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded "x" blob must match the reference vector. */
+	assert_int_equal(sizeof(ringbuf_log_blob_x), blob.length);
+	assert_memory_equal(ringbuf_log_blob_x,
+			    blob.data,
+			    sizeof(ringbuf_log_blob_x));
+
+	err = messaging_ringbuf_log_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_RINGBUF_LOG_VERSION_1, decoded.version);
+	assert_string_equal("x", decoded.info.info1.log_string);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_ringbuf_log_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_ringbuf_log msg = {};
+	/*
+	 * Same layout as ringbuf_log_blob_x but with version = 0x00000002
+	 * (an unknown version value).
+	 */
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x78,
+		0x00, /* "x\0" */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_ringbuf_log_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -2160,6 +2404,14 @@ int main(void)
 			test_ndr_messaging_reload_tls_certificates_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_reload_tls_certificates_bad_version),
+		cmocka_unit_test(test_ndr_messaging_req_ringbuf_log_pull),
+		cmocka_unit_test(test_ndr_messaging_req_ringbuf_log_push),
+		cmocka_unit_test(
+			test_ndr_messaging_req_ringbuf_log_bad_version),
+		cmocka_unit_test(test_ndr_messaging_ringbuf_log_pull),
+		cmocka_unit_test(test_ndr_messaging_ringbuf_log_push),
+		cmocka_unit_test(test_ndr_messaging_ringbuf_log_roundtrip),
+		cmocka_unit_test(test_ndr_messaging_ringbuf_log_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);
