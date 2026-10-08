@@ -1544,7 +1544,7 @@ static bool do_reload_config(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_SMB_CONF_UPDATED, NULL, 0);
+	return NT_STATUS_IS_OK(messaging_send_smb_conf_updated(msg_ctx, pid));
 }
 
 static bool do_reload_printers(struct tevent_context *ev_ctx,

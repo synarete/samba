@@ -97,7 +97,9 @@ static bool idmap_nss_msg_filter(struct messaging_rec *rec, void *private_data)
 	NTSTATUS status;
 	bool ret;
 
-	if (rec->msg_type == MSG_SMB_CONF_UPDATED) {
+	if (rec->msg_type == MSG_SMB_CONF_UPDATED ||
+	    rec->msg_type == MSG_SMB_CONF_UPDATED_V1)
+	{
 		ret = lp_load_global(get_dyn_CONFIGFILE());
 		if (!ret) {
 			DBG_WARNING("Failed to reload configuration\n");
