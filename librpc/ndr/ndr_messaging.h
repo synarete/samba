@@ -158,6 +158,16 @@ enum ndr_err_code messaging_smb_conf_updated_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_conf_updated *msg);
 
+enum ndr_err_code messaging_reload_tls_certificates_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_reload_tls_certificates *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_reload_tls_certificates_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_reload_tls_certificates *msg);
+
 enum ndr_err_code messaging_shutdown_push(TALLOC_CTX *mem_ctx,
 					  struct messaging_shutdown *msg,
 					  DATA_BLOB *blob);

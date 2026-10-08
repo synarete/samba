@@ -408,6 +408,9 @@ run_messaging_tests()
 
 	run_msg_test "smbcontrol reload-config" "MSG_SMB_CONF_UPDATED" \
 		smbcontrol_ok smbd reload-config
+
+	run_msg_test "smbcontrol reload-certs" "MSG_RELOAD_TLS_CERTIFICATES" \
+		smbcontrol_ok smbd reload-certs
 }
 
 # ===========================================================================
