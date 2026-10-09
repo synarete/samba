@@ -2139,6 +2139,21 @@ if have_cluster_support and have_mixed_cluster_support:
                         "samba.tests.blackbox.cluster_rolling_upgrade",
                         name="samba3.blackbox.cluster_rolling_upgrade")
 
+    #
+    # The same environment, a second time from scratch: it sets
+    # RESETUP_ENV, so this one gets its own cluster, all stable again,
+    # and makes it mixed itself.
+    #
+    # Two nodes opening the same file is the one thing a cluster running
+    # more than one Samba version has to get right which a single version
+    # cluster cannot cover. The other clustered tests gain nothing from a
+    # second build and each one would cost another cluster, so they stay
+    # in clusteredmember.
+    #
+    planpythontestsuite("cfl_upgrade:local",
+                        "samba.tests.blackbox.cluster_cross_node_locking",
+                        name="samba3.blackbox.cluster_cross_node_locking")
+
 planpythontestsuite("fileserver_smb1", "samba.tests.smb3unix")
 planpythontestsuite("fileserver_smb1", "samba.tests.reparsepoints")
 planpythontestsuite("fileserver_smb1", "samba.tests.smb2symlink")
