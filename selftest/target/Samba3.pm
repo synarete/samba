@@ -1093,6 +1093,7 @@ sub setup_cfl_upgrade
 					"CFLMEMBER");
 	if (ref($ret) eq "HASH") {
 		$ret->{RESETUP_ENV} = 1;
+		$ret->{SAMBA_CLUSTER_DRIVER} = "selftest";
 	}
 	return $ret;
 }

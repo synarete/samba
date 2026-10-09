@@ -1111,6 +1111,9 @@ my @exported_envvars = (
 	"CTDB_SOCKET_NODE2",
 	"CTDB_SERVER_NAME_NODE2",
 	"CTDB_IFACE_IP_NODE2",
+
+	# samba.tests.cluster_driver
+	"SAMBA_CLUSTER_DRIVER",
 );
 
 sub exported_envvars_str

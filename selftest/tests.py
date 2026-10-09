@@ -43,6 +43,7 @@ have_liblber = "HAVE_LIBLBER" in config_hash
 
 planpythontestsuite("none", "samba.tests.source")
 planpythontestsuite("none", "samba.tests.source_chars")
+planpythontestsuite("none", "samba.tests.cluster_level_parse")
 
 if have_man_pages_support:
     # This is a unit test which doesn't need any wrappers. We unset LD_PRELOAD
