@@ -96,6 +96,15 @@ with_pthreadpool = ("WITH_PTHREADPOOL" in config_hash)
 have_cluster_support = "CLUSTER_SUPPORT" in config_hash
 have_jansson = "HAVE_JANSSON" in config_hash
 
+#
+# cfl_upgrade runs every one of its nodes from the build this names, see
+# get_latest_stable_samba3() in selftest/target/Samba3.pm. Without it the
+# environment cannot come up at all, and selftest errors every testsuite
+# planned for an environment it cannot set up rather than skipping it, so
+# nothing may be planned for it then.
+#
+have_mixed_cluster_support = bool(os.environ.get("SELFTEST_LATEST_STABLE_BINDIR"))
+
 quic_ko_wrapper = ("QUIC_KO_WRAPPER" in config_hash)
 ngtcp2_environ = {'SOCKET_WRAPPER_ALLOW_DGRAM_SEQPACKET_FALLBACK': '1'}
 
@@ -2107,6 +2116,28 @@ if have_cluster_support:
                       "script/tests/test_dbwrap_ctdb_parse_record_send.sh"),
          "$CTDB_PREFIX",
          dbwrap_tool])
+
+if have_cluster_support and have_mixed_cluster_support:
+    #
+    # The cluster in cfl_upgrade starts on the stable build at level 1.0
+    # and the test drives it forward itself, so it needs the second build
+    # the environment runs its nodes from.
+    #
+    # Raising the level is one way, because cluster_level_activate()
+    # refuses to move it back down, so the environment sets RESETUP_ENV
+    # and every testsuite pays for a fresh cluster.
+    # Planning the other clustered tests here as well would buy nothing,
+    # they already run in clusteredmember, and would cost one cluster
+    # provisioning each.
+    #
+    # The environment has ctdb nodes of its own like the others, so it
+    # needs no narrowing to be planned:
+    #
+    #   $ make test TESTS=samba3.blackbox.cluster_rolling_upgrade
+    #
+    planpythontestsuite("cfl_upgrade:local",
+                        "samba.tests.blackbox.cluster_rolling_upgrade",
+                        name="samba3.blackbox.cluster_rolling_upgrade")
 
 planpythontestsuite("fileserver_smb1", "samba.tests.smb3unix")
 planpythontestsuite("fileserver_smb1", "samba.tests.reparsepoints")
