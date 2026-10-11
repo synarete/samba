@@ -2310,6 +2310,131 @@ static void test_ndr_messaging_ringbuf_log_bad_version(void **state)
 	talloc_free(mem_ctx);
 }
 
+/* MSG_FORCE_ELECTION */
+/*
+ * Wire encoding of messaging_force_election:
+ *
+ *   01 00 00 00  - version (MESSAGING_FORCE_ELECTION_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (version repeated inside union, uint32
+ * LE)
+ *
+ * info1 (messaging_force_election_v1) is an empty struct, so there is no body.
+ */
+static const uint8_t force_election_blob[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+};
+
+static void test_ndr_messaging_force_election_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_election msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, force_election_blob),
+		.length = sizeof(force_election_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_force_election_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_FORCE_ELECTION_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_force_election_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_election msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, force_election_blob),
+		.length = sizeof(force_election_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_force_election_push(mem_ctx, &msg, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_force_election_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_election orig = {};
+	struct messaging_force_election decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_force_election_push(mem_ctx, &orig, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(force_election_blob), blob.length);
+	assert_memory_equal(force_election_blob,
+			    blob.data,
+			    sizeof(force_election_blob));
+
+	err = messaging_force_election_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_FORCE_ELECTION_VERSION_1, decoded.version);
+	assert_int_equal(0, decoded.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_force_election_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_election msg = {};
+	/*
+	 * Same layout as force_election_blob but with version = 0x00000002
+	 * (an unknown version value).
+	 */
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_force_election_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -2398,6 +2523,11 @@ int main(void)
 		cmocka_unit_test(test_ndr_messaging_ringbuf_log_push),
 		cmocka_unit_test(test_ndr_messaging_ringbuf_log_roundtrip),
 		cmocka_unit_test(test_ndr_messaging_ringbuf_log_bad_version),
+		cmocka_unit_test(test_ndr_messaging_force_election_pull),
+		cmocka_unit_test(test_ndr_messaging_force_election_push),
+		cmocka_unit_test(test_ndr_messaging_force_election_roundtrip),
+		cmocka_unit_test(
+			test_ndr_messaging_force_election_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);
