@@ -473,7 +473,7 @@ static bool do_election(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_FORCE_ELECTION, NULL, 0);
+	return NT_STATUS_IS_OK(messaging_send_force_election(msg_ctx, pid));
 }
 
 /* Ping a samba daemon process */
