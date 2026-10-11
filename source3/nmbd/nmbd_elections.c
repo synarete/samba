@@ -23,6 +23,7 @@
 #include "includes.h"
 #include "nmbd/nmbd.h"
 #include "lib/util/string_wrappers.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /* Election parameters. */
 extern time_t StartupTime;
@@ -392,4 +393,26 @@ void nmbd_message_election(struct messaging_context *msg,
 			}
 		}
 	}
+}
+
+void nmbd_message_election_v1(struct messaging_context *msg,
+			      void *private_data,
+			      uint32_t msg_type,
+			      struct server_id server_id,
+			      DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_force_election m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_force_election_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_FORCE_ELECTION_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	nmbd_message_election(msg, private_data, msg_type, server_id, data);
+out:
+	TALLOC_FREE(frame);
 }
