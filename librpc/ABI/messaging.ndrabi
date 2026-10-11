@@ -37,6 +37,8 @@ root messaging_req_ringbuf_log
 root messaging_ringbuf_log
 root messaging_shutdown_version_values
 root messaging_shutdown
+root messaging_force_election_version_values
+root messaging_force_election
 root messaging_rec
 root messaging_reclog
 root messaging_hdr
@@ -81,6 +83,24 @@ enum messaging_debuglevel_version_values base(uint32) {
 
 enum messaging_dmalloc_version_values base(uint32) {
 	0x00000001	# MESSAGING_DMALLOC_VERSION_1
+}
+
+struct messaging_force_election align(4) {
+	[value(MESSAGING_FORCE_ELECTION_VERSION_1)] enum:messaging_force_election_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_force_electionU	# info
+}
+
+union messaging_force_electionU align(1) switch_type(enum:messaging_force_election_version_values) {
+	case(MESSAGING_FORCE_ELECTION_VERSION_1): struct:messaging_force_election_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_force_election_v1 align(1) {
+}
+
+enum messaging_force_election_version_values base(uint32) {
+	0x00000001	# MESSAGING_FORCE_ELECTION_VERSION_1
 }
 
 [flag(LIBNDR_FLAG_NOALIGN)] struct messaging_hdr align(8) {
@@ -339,6 +359,7 @@ enum messaging_type base(uint32) {
 	0x0035	# MSG_DAEMON_READY_FD
 	0x0040	# MSG_CLUSTER_LEVEL_UPGRADED
 	0x0101	# MSG_FORCE_ELECTION
+	0x1101	# MSG_FORCE_ELECTION_V1
 	0x0102	# MSG_WINS_NEW_ENTRY
 	0x0103	# MSG_SEND_PACKET
 	0x0202	# MSG_PRINTER_NOTIFY2
@@ -570,6 +591,15 @@ sample messaging_shutdown length(12) {
 #	        reserved                 : 0x00000000 (0)
 #	        info                     : union messaging_shutdownU(case 1)
 #	        info1: struct messaging_shutdown_v1
+
+sample messaging_force_election length(12) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00
+}
+#	    messaging_force_election: struct messaging_force_election
+#	        version                  : MESSAGING_FORCE_ELECTION_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_force_electionU(case 1)
+#	        info1: struct messaging_force_election_v1
 
 sample messaging_rec length(84) {
 	[0000] 01 02 03 04 02 03 04 05  03 04 05 06 07 08 09 0a
