@@ -196,4 +196,14 @@ enum ndr_err_code messaging_shutdown_pull(TALLOC_CTX *mem_ctx,
 					  const DATA_BLOB *blob,
 					  struct messaging_shutdown *msg);
 
+enum ndr_err_code messaging_force_election_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_force_election *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_force_election_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_force_election *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */

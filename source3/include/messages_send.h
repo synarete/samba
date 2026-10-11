@@ -86,4 +86,7 @@ NTSTATUS messaging_send_reload_tls_certificates(
 NTSTATUS messaging_send_req_ringbuf_log(struct messaging_context *msg_ctx,
 					struct server_id dst);
 
+NTSTATUS messaging_send_force_election(struct messaging_context *msg_ctx,
+				       struct server_id dst);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
