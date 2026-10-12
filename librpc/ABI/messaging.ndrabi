@@ -39,6 +39,11 @@ root messaging_shutdown_version_values
 root messaging_shutdown
 root messaging_force_election_version_values
 root messaging_force_election
+root messaging_force_tdis_version_values
+root messaging_force_tdis
+root messaging_force_tdis_denied
+root messaging_kill_client_ip_version_values
+root messaging_kill_client_ip
 root messaging_rec
 root messaging_reclog
 root messaging_hdr
@@ -103,6 +108,31 @@ enum messaging_force_election_version_values base(uint32) {
 	0x00000001	# MESSAGING_FORCE_ELECTION_VERSION_1
 }
 
+struct messaging_force_tdis align(4) {
+	[value(MESSAGING_FORCE_TDIS_VERSION_1)] enum:messaging_force_tdis_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_force_tdisU	# info
+}
+
+union messaging_force_tdisU align(4) switch_type(enum:messaging_force_tdis_version_values) {
+	case(MESSAGING_FORCE_TDIS_VERSION_1): struct:messaging_force_tdis_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_force_tdis_denied align(4) {
+	[value(MESSAGING_FORCE_TDIS_VERSION_1)] enum:messaging_force_tdis_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_force_tdisU	# info
+}
+
+struct messaging_force_tdis_v1 align(4) {
+	[flag(LIBNDR_FLAG_STR_UTF8|LIBNDR_FLAG_STR_NULLTERM)] scalar:string	# sharename
+}
+
+enum messaging_force_tdis_version_values base(uint32) {
+	0x00000001	# MESSAGING_FORCE_TDIS_VERSION_1
+}
+
 [flag(LIBNDR_FLAG_NOALIGN)] struct messaging_hdr align(8) {
 	struct:server_id	# dest
 	struct:server_id	# src
@@ -132,6 +162,25 @@ struct messaging_id_cache_v1 align(4) {
 
 enum messaging_id_cache_version_values base(uint32) {
 	0x00000001	# MESSAGING_ID_CACHE_VERSION_1
+}
+
+struct messaging_kill_client_ip align(4) {
+	[value(MESSAGING_KILL_CLIENT_IP_VERSION_1)] enum:messaging_kill_client_ip_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_kill_client_ipU	# info
+}
+
+union messaging_kill_client_ipU align(4) switch_type(enum:messaging_kill_client_ip_version_values) {
+	case(MESSAGING_KILL_CLIENT_IP_VERSION_1): struct:messaging_kill_client_ip_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_kill_client_ip_v1 align(4) {
+	[flag(LIBNDR_FLAG_STR_UTF8|LIBNDR_FLAG_STR_NULLTERM)] scalar:string	# ip_address
+}
+
+enum messaging_kill_client_ip_version_values base(uint32) {
+	0x00000001	# MESSAGING_KILL_CLIENT_IP_VERSION_1
 }
 
 struct messaging_ping align(4) {
@@ -367,6 +416,7 @@ enum messaging_type base(uint32) {
 	0x0205	# MSG_PRINTER_UPDATE
 	0x0207	# MSG_PRINTER_PCAP
 	0x0302	# MSG_SMB_FORCE_TDIS
+	0x1302	# MSG_SMB_FORCE_TDIS_V1
 	0x0306	# MSG_SMB_BREAK_REQUEST
 	0x030A	# MSG_SMB_KERNEL_BREAK
 	0x030B	# MSG_SMB_FILE_RENAME
@@ -377,6 +427,7 @@ enum messaging_type base(uint32) {
 	0x0314	# MSG_SMB_NOTIFY_CLEANUP
 	0x0315	# MSG_SMB_SCAVENGER
 	0x0316	# MSG_SMB_KILL_CLIENT_IP
+	0x1316	# MSG_SMB_KILL_CLIENT_IP_V1
 	0x0317	# MSG_SMB_TELL_NUM_CHILDREN
 	0x0318	# MSG_SMB_NUM_CHILDREN
 	0x0319	# MSG_SMB_NOTIFY_CANCEL_DELETED
@@ -388,6 +439,7 @@ enum messaging_type base(uint32) {
 	0x031F	# MSG_SMB_NOTIFY_STARTED
 	0x0320	# MSG_SMB_SLEEP
 	0x0321	# MSG_SMB_FORCE_TDIS_DENIED
+	0x1321	# MSG_SMB_FORCE_TDIS_DENIED_V1
 	0x0322	# MSG_SMB_IP_DROPPED
 	0x0403	# MSG_WINBIND_ONLINE
 	0x0404	# MSG_WINBIND_OFFLINE
@@ -600,6 +652,39 @@ sample messaging_force_election length(12) {
 #	        reserved                 : 0x00000000 (0)
 #	        info                     : union messaging_force_electionU(case 1)
 #	        info1: struct messaging_force_election_v1
+
+sample messaging_force_tdis length(27) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 73 74 72 69
+	[0010] 6e 67 30 30 30 30 30 30  30 31 00
+}
+#	    messaging_force_tdis: struct messaging_force_tdis
+#	        version                  : MESSAGING_FORCE_TDIS_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_force_tdisU(case 1)
+#	        info1: struct messaging_force_tdis_v1
+#	            sharename                : 'string00000001'
+
+sample messaging_force_tdis_denied length(27) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 73 74 72 69
+	[0010] 6e 67 30 30 30 30 30 30  30 31 00
+}
+#	    messaging_force_tdis_denied: struct messaging_force_tdis_denied
+#	        version                  : MESSAGING_FORCE_TDIS_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_force_tdisU(case 1)
+#	        info1: struct messaging_force_tdis_v1
+#	            sharename                : 'string00000001'
+
+sample messaging_kill_client_ip length(27) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 73 74 72 69
+	[0010] 6e 67 30 30 30 30 30 30  30 31 00
+}
+#	    messaging_kill_client_ip: struct messaging_kill_client_ip
+#	        version                  : MESSAGING_KILL_CLIENT_IP_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_kill_client_ipU(case 1)
+#	        info1: struct messaging_kill_client_ip_v1
+#	            ip_address               : 'string00000001'
 
 sample messaging_rec length(84) {
 	[0000] 01 02 03 04 02 03 04 05  03 04 05 06 07 08 09 0a
