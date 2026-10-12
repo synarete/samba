@@ -144,6 +144,7 @@ interface messaging
 
 		/* smbd ip dropped message */
 		MSG_SMB_IP_DROPPED		= 0x0322,
+		MSG_SMB_IP_DROPPED_V1		= 0x1322,
 
 		/* winbind messages */
 		/* MSG_WINBIND_FINISHED		= 0x0401,  Obsoleted */
@@ -526,6 +527,26 @@ interface messaging
 		[value(0)] uint32                          reserved;
 		[switch_is(version)] messaging_kill_client_ipU info;
 	} messaging_kill_client_ip;
+
+	/* MSG_SMB_IP_DROPPED */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_IP_DROPPED_VERSION_1 = 0x00000001
+	} messaging_smb_ip_dropped_version_values;
+
+	typedef struct {
+		utf8string ip_address;
+	} messaging_smb_ip_dropped_v1;
+
+	typedef [switch_type(messaging_smb_ip_dropped_version_values)] union {
+		[case(MESSAGING_SMB_IP_DROPPED_VERSION_1)] messaging_smb_ip_dropped_v1 info1;
+		[default] ;
+	} messaging_smb_ip_droppedU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_IP_DROPPED_VERSION_1)] messaging_smb_ip_dropped_version_values version;
+		[value(0)] uint32                           reserved;
+		[switch_is(version)] messaging_smb_ip_droppedU info;
+	} messaging_smb_ip_dropped;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 

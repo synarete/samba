@@ -43,10 +43,12 @@
 #include "passdb.h"
 #include "auth.h"
 #include "messages.h"
+#include "messages_send.h"
 #include "messages_ctdb.h"
 #include "smbprofile.h"
 #include "lib/id_cache.h"
 #include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 #include "lib/param/param.h"
 #include "lib/background.h"
 #include "../lib/util/pidfile.h"
@@ -1854,6 +1856,10 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 				   NULL,
 				   MSG_SMB_IP_DROPPED,
 				   smb_parent_send_to_children);
+		messaging_register(msg_ctx,
+				   NULL,
+				   MSG_SMB_IP_DROPPED_V1,
+				   smb_parent_send_to_children);
 	}
 
 #ifdef DEVELOPER
@@ -2212,7 +2218,6 @@ static void smbd_close_socket_for_ip(struct smbd_parent_context *parent,
 		if (sockaddr_equal(&saddr.u.sa, &addr->u.sa)) {
 			struct ssaddr_buf addrstr_buf;
 			char *addrstr = ssaddr_str_buf(addr, &addrstr_buf);
-			DATA_BLOB blob;
 			NTSTATUS status;
 
 			DLIST_REMOVE(parent->sockets, s);
@@ -2220,11 +2225,10 @@ static void smbd_close_socket_for_ip(struct smbd_parent_context *parent,
 			DBG_NOTICE("smbd: Closed listening socket for %s\n",
 				   addrstr);
 
-			blob = data_blob_const(addrstr, strlen(addrstr)+1);
-			status = messaging_send(msg_ctx,
-						messaging_server_id(msg_ctx),
-						MSG_SMB_IP_DROPPED,
-						&blob);
+			status = messaging_send_ip_dropped(
+				msg_ctx,
+				messaging_server_id(msg_ctx),
+				addrstr);
 			if (!NT_STATUS_IS_OK(status)) {
 				DBG_NOTICE(
 					"messaging_send failed: %s - ignoring\n",

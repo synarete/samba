@@ -104,4 +104,8 @@ NTSTATUS messaging_send_force_tdis_denied(struct messaging_context *msg_ctx,
 					  struct server_id dst,
 					  const char *sharename);
 
+NTSTATUS messaging_send_ip_dropped(struct messaging_context *msg_ctx,
+				   struct server_id dst,
+				   const char *ip_address);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
