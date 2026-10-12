@@ -1638,9 +1638,7 @@ uint32_t _fss_DeleteShareMapping(struct pipes_struct *p,
 		goto err_tmp_free;
 	}
 
-	messaging_send_all(p->msg_ctx, MSG_SMB_FORCE_TDIS,
-			   sc_smap->sc_share_name,
-			   strlen(sc_smap->sc_share_name) + 1);
+	messaging_send_all_force_tdis(p->msg_ctx, sc_smap->sc_share_name);
 
 	if (sc->smaps_count > 1) {
 		/* do not delete the underlying snapshot - still in use */

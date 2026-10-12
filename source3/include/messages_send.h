@@ -89,4 +89,19 @@ NTSTATUS messaging_send_req_ringbuf_log(struct messaging_context *msg_ctx,
 NTSTATUS messaging_send_force_election(struct messaging_context *msg_ctx,
 				       struct server_id dst);
 
+NTSTATUS messaging_send_kill_client_ip(struct messaging_context *msg_ctx,
+				       struct server_id dst,
+				       const char *ip_address);
+
+NTSTATUS messaging_send_force_tdis(struct messaging_context *msg_ctx,
+				   struct server_id dst,
+				   const char *sharename);
+
+NTSTATUS messaging_send_all_force_tdis(struct messaging_context *msg_ctx,
+				       const char *sharename);
+
+NTSTATUS messaging_send_force_tdis_denied(struct messaging_context *msg_ctx,
+					  struct server_id dst,
+					  const char *sharename);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
