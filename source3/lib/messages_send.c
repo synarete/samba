@@ -977,3 +977,51 @@ NTSTATUS messaging_send_force_tdis_denied(struct messaging_context *msg_ctx,
 						       dst,
 						       sharename);
 }
+
+/* MSG_SMB_IP_DROPPED */
+
+static NTSTATUS messaging_send_ip_dropped_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	const char *ip_address)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_ip_dropped msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_ip_dropped_push(frame, &msg, ip_address, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send_one_or_all(
+		msg_ctx, dst, MSG_SMB_IP_DROPPED_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_ip_dropped_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	const char *ip_address)
+{
+	return messaging_send_one_or_all(msg_ctx,
+					 dst,
+					 MSG_SMB_IP_DROPPED,
+					 (const uint8_t *)ip_address,
+					 strlen(ip_address) + 1);
+}
+
+NTSTATUS messaging_send_ip_dropped(struct messaging_context *msg_ctx,
+				   struct server_id dst,
+				   const char *ip_address)
+{
+	if (messaging_use_ndr_v1()) {
+		return messaging_send_ip_dropped_v1(msg_ctx, dst, ip_address);
+	}
+	return messaging_send_ip_dropped_legacy(msg_ctx, dst, ip_address);
+}
