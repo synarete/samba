@@ -487,6 +487,9 @@ run_messaging_tests()
 	run_msg_test "smbcontrol kill-client-ip" "MSG_SMB_KILL_CLIENT_IP" \
 		smbcontrol_ok smbd kill-client-ip "$TEST_NET_1_IP"
 
+	run_msg_test "smbcontrol sleep" "MSG_SMB_SLEEP" \
+		smbcontrol_ok smbd sleep 1
+
 	run_test check_no_error_logs \
 		"$STEP: check no messaging errors in logs (level $LEVEL)"
 }
