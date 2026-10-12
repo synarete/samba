@@ -248,4 +248,13 @@ enum ndr_err_code messaging_smb_ip_dropped_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_ip_dropped *msg);
 
+enum ndr_err_code messaging_smb_sleep_push(TALLOC_CTX *mem_ctx,
+					   struct messaging_smb_sleep *msg,
+					   uint32_t seconds,
+					   DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_sleep_pull(TALLOC_CTX *mem_ctx,
+					   const DATA_BLOB *blob,
+					   struct messaging_smb_sleep *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */

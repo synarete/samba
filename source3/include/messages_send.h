@@ -108,4 +108,8 @@ NTSTATUS messaging_send_ip_dropped(struct messaging_context *msg_ctx,
 				   struct server_id dst,
 				   const char *ip_address);
 
+NTSTATUS messaging_send_smb_sleep(struct messaging_context *msg_ctx,
+				  struct server_id dst,
+				  unsigned int seconds);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
