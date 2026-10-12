@@ -65,6 +65,37 @@ static void fss_smb_conf_updated_send_all(struct messaging_context *msg_ctx)
 	}
 }
 
+static void fss_force_tdis_send_all_v1(struct messaging_context *msg_ctx,
+				       const char *sharename)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_force_tdis msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_force_tdis_push(frame, &msg, sharename, &blob);
+	if (NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		messaging_send_all(msg_ctx,
+				   MSG_SMB_FORCE_TDIS_V1,
+				   blob.data,
+				   blob.length);
+	}
+	TALLOC_FREE(frame);
+}
+
+static void fss_force_tdis_send_all(struct messaging_context *msg_ctx,
+				    const char *sharename)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		fss_force_tdis_send_all_v1(msg_ctx, sharename);
+	} else {
+		messaging_send_all(msg_ctx,
+				   MSG_SMB_FORCE_TDIS,
+				   sharename,
+				   strlen(sharename) + 1);
+	}
+}
+
 static struct fss_global fss_global;
 
 /* errmap NTSTATUS->fsrvp */
@@ -1663,9 +1694,7 @@ uint32_t _fss_DeleteShareMapping(struct pipes_struct *p,
 		goto err_tmp_free;
 	}
 
-	messaging_send_all(p->msg_ctx, MSG_SMB_FORCE_TDIS,
-			   sc_smap->sc_share_name,
-			   strlen(sc_smap->sc_share_name) + 1);
+	fss_force_tdis_send_all(p->msg_ctx, sc_smap->sc_share_name);
 
 	if (sc->smaps_count > 1) {
 		/* do not delete the underlying snapshot - still in use */

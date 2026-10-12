@@ -386,6 +386,69 @@ smbcontrol_ringbuf_log()
 	return 0
 }
 
+# Send "smbcontrol smbd close-share <sharename>" to all smbd processes
+# (fire-and-forget).  A non-existent share name is used so that the
+# connections used by the test are not torn down.
+smbcontrol_close_share()
+{
+	local name="$1"
+	local sharename="$2"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" smbd close-share \
+		"$sharename" 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
+# Send "smbcontrol smbd close-denied-share <sharename>" to all smbd processes
+# (fire-and-forget).  A non-existent share name is used so that the
+# connections used by the test are not torn down.
+smbcontrol_close_denied_share()
+{
+	local name="$1"
+	local sharename="$2"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" smbd close-denied-share \
+		"$sharename" 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
+# Send "smbcontrol smbd kill-client-ip <ip>" to all smbd processes
+# (fire-and-forget).  The address is from the TEST-NET-1 range (RFC 5737) so
+# that no client used by the test is disconnected.
+smbcontrol_kill_client_ip()
+{
+	local name="$1"
+	local ip="$2"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" smbd kill-client-ip \
+		"$ip" 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -523,6 +586,18 @@ smbcontrol_ringbuf_log \
 	"step1: smbcontrol ringbuf-log (legacy MSG_REQ_RINGBUF_LOG at level 0.1)" \
 	|| failed=$((failed + 1))
 
+smbcontrol_close_share \
+	"step1: smbcontrol close-share (legacy MSG_SMB_FORCE_TDIS at level 0.1)" \
+	"msg_upgrade_no_such_share" || failed=$((failed + 1))
+
+smbcontrol_close_denied_share \
+	"step1: smbcontrol close-denied-share (legacy MSG_SMB_FORCE_TDIS_DENIED at level 0.1)" \
+	"msg_upgrade_no_such_share" || failed=$((failed + 1))
+
+smbcontrol_kill_client_ip \
+	"step1: smbcontrol kill-client-ip (legacy MSG_SMB_KILL_CLIENT_IP at level 0.1)" \
+	"192.0.2.1" || failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 0.1 to 1.0
 # ===========================================================================
@@ -594,6 +669,18 @@ smbcontrol_reload_certs \
 smbcontrol_ringbuf_log \
 	"step3: smbcontrol ringbuf-log (NDR MSG_REQ_RINGBUF_LOG_V1 at level 1.0)" \
 	|| failed=$((failed + 1))
+
+smbcontrol_close_share \
+	"step3: smbcontrol close-share (NDR MSG_SMB_FORCE_TDIS_V1 at level 1.0)" \
+	"msg_upgrade_no_such_share" || failed=$((failed + 1))
+
+smbcontrol_close_denied_share \
+	"step3: smbcontrol close-denied-share (NDR MSG_SMB_FORCE_TDIS_DENIED_V1 at level 1.0)" \
+	"msg_upgrade_no_such_share" || failed=$((failed + 1))
+
+smbcontrol_kill_client_ip \
+	"step3: smbcontrol kill-client-ip (NDR MSG_SMB_KILL_CLIENT_IP_V1 at level 1.0)" \
+	"192.0.2.1" || failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
 smbclient_ls "step3: smbclient node0 (level 1.0)" "$NODE0" \
