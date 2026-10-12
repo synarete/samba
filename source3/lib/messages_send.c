@@ -785,7 +785,6 @@ static NTSTATUS messaging_send_force_election_v1(
 
 	status = messaging_send_one_or_all(
 		msg_ctx, dst, MSG_FORCE_ELECTION_V1, blob.data, blob.length);
-
 out:
 	TALLOC_FREE(frame);
 	return status;
@@ -806,4 +805,175 @@ NTSTATUS messaging_send_force_election(struct messaging_context *msg_ctx,
 		return messaging_send_force_election_v1(msg_ctx, dst);
 	}
 	return messaging_send_force_election_legacy(msg_ctx, dst);
+}
+
+/* MSG_SMB_KILL_CLIENT_IP */
+
+static NTSTATUS messaging_send_kill_client_ip_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	const char *ip_address)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_kill_client_ip msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_kill_client_ip_push(frame,
+						&msg,
+						ip_address,
+						&blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send_one_or_all(msg_ctx,
+					   dst,
+					   MSG_SMB_KILL_CLIENT_IP_V1,
+					   blob.data,
+					   blob.length);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_kill_client_ip_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	const char *ip_address)
+{
+	return messaging_send_one_or_all(msg_ctx,
+					 dst,
+					 MSG_SMB_KILL_CLIENT_IP,
+					 (const uint8_t *)ip_address,
+					 strlen(ip_address) + 1);
+}
+
+NTSTATUS messaging_send_kill_client_ip(struct messaging_context *msg_ctx,
+				       struct server_id dst,
+				       const char *ip_address)
+{
+	if (messaging_use_ndr_v1()) {
+		return messaging_send_kill_client_ip_v1(msg_ctx,
+							dst,
+							ip_address);
+	}
+	return messaging_send_kill_client_ip_legacy(msg_ctx, dst, ip_address);
+}
+
+/* MSG_SMB_FORCE_TDIS */
+
+static NTSTATUS messaging_send_force_tdis_v1(struct messaging_context *msg_ctx,
+					     struct server_id dst,
+					     const char *sharename)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_force_tdis msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_force_tdis_push(frame, &msg, sharename, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send_one_or_all(
+		msg_ctx, dst, MSG_SMB_FORCE_TDIS_V1, blob.data, blob.length);
+
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_force_tdis_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	const char *sharename)
+{
+	return messaging_send_one_or_all(msg_ctx,
+					 dst,
+					 MSG_SMB_FORCE_TDIS,
+					 (const uint8_t *)sharename,
+					 strlen(sharename) + 1);
+}
+
+NTSTATUS messaging_send_force_tdis(struct messaging_context *msg_ctx,
+				   struct server_id dst,
+				   const char *sharename)
+{
+	if (messaging_use_ndr_v1()) {
+		return messaging_send_force_tdis_v1(msg_ctx, dst, sharename);
+	}
+	return messaging_send_force_tdis_legacy(msg_ctx, dst, sharename);
+}
+
+NTSTATUS messaging_send_all_force_tdis(struct messaging_context *msg_ctx,
+				       const char *sharename)
+{
+	/* A zero server_id (pid == 0) selects messaging_send_all() */
+	return messaging_send_force_tdis(msg_ctx,
+					 (struct server_id){.pid = 0},
+					 sharename);
+}
+
+/* MSG_SMB_FORCE_TDIS_DENIED */
+
+static NTSTATUS messaging_send_force_tdis_denied_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	const char *sharename)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_force_tdis_denied msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_force_tdis_denied_push(frame,
+						   &msg,
+						   sharename,
+						   &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send_one_or_all(msg_ctx,
+					   dst,
+					   MSG_SMB_FORCE_TDIS_DENIED_V1,
+					   blob.data,
+					   blob.length);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_force_tdis_denied_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	const char *sharename)
+{
+	return messaging_send_one_or_all(msg_ctx,
+					 dst,
+					 MSG_SMB_FORCE_TDIS_DENIED,
+					 (const uint8_t *)sharename,
+					 strlen(sharename) + 1);
+}
+
+NTSTATUS messaging_send_force_tdis_denied(struct messaging_context *msg_ctx,
+					  struct server_id dst,
+					  const char *sharename)
+{
+	if (messaging_use_ndr_v1()) {
+		return messaging_send_force_tdis_denied_v1(msg_ctx,
+							   dst,
+							   sharename);
+	}
+	return messaging_send_force_tdis_denied_legacy(msg_ctx,
+						       dst,
+						       sharename);
 }
