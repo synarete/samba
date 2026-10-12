@@ -969,8 +969,8 @@ static bool do_closeshare(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	return send_message(msg_ctx, pid, MSG_SMB_FORCE_TDIS, argv[1],
-			    strlen(argv[1]) + 1);
+	return NT_STATUS_IS_OK(
+		messaging_send_force_tdis(msg_ctx, pid, argv[1]));
 }
 
 /*
@@ -989,12 +989,8 @@ static bool do_close_denied_share(
 		return False;
 	}
 
-	return send_message(
-		msg_ctx,
-		pid,
-		MSG_SMB_FORCE_TDIS_DENIED,
-		argv[1],
-		strlen(argv[1]) + 1);
+	return NT_STATUS_IS_OK(
+		messaging_send_force_tdis_denied(msg_ctx, pid, argv[1]));
 }
 
 /* Kill a client by IP address */
@@ -1014,8 +1010,8 @@ static bool do_kill_client_by_ip(struct tevent_context *ev_ctx,
 		return false;
 	}
 
-	return send_message(msg_ctx, pid, MSG_SMB_KILL_CLIENT_IP,
-			    argv[1], strlen(argv[1]) + 1);
+	return NT_STATUS_IS_OK(
+		messaging_send_kill_client_ip(msg_ctx, pid, argv[1]));
 }
 
 /* Tell winbindd an IP got dropped */
