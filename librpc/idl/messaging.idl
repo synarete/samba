@@ -137,6 +137,7 @@ interface messaging
 		MSG_SMB_NOTIFY_REC_CHANGES	= 0x031E,
 		MSG_SMB_NOTIFY_STARTED          = 0x031F,
 		MSG_SMB_SLEEP			= 0x0320,
+		MSG_SMB_SLEEP_V1		= 0x1320,
 
 		/* smbd message */
 		MSG_SMB_FORCE_TDIS_DENIED	= 0x0321,
@@ -547,6 +548,26 @@ interface messaging
 		[value(0)] uint32                           reserved;
 		[switch_is(version)] messaging_smb_ip_droppedU info;
 	} messaging_smb_ip_dropped;
+
+	/* MSG_SMB_SLEEP */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_SLEEP_VERSION_1 = 0x00000001
+	} messaging_smb_sleep_version_values;
+
+	typedef struct {
+		uint32 seconds;
+	} messaging_smb_sleep_v1;
+
+	typedef [switch_type(messaging_smb_sleep_version_values)] union {
+		[case(MESSAGING_SMB_SLEEP_VERSION_1)] messaging_smb_sleep_v1 info1;
+		[default] ;
+	} messaging_smb_sleepU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_SLEEP_VERSION_1)] messaging_smb_sleep_version_values version;
+		[value(0)] uint32                          reserved;
+		[switch_is(version)] messaging_smb_sleepU info;
+	} messaging_smb_sleep;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 
