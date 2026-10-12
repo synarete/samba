@@ -46,6 +46,14 @@ NET="$BINDIR/net"
 
 CREDS="-U${DC_USERNAME}%${DC_PASSWORD}"
 
+# A share name which does not exist, so that sending it in close-share and
+# close-denied-share does not tear down the connections used by the test.
+NO_SUCH_SHARE="msg_upgrade_no_such_share"
+
+# An address from the TEST-NET-1 range (RFC 5737), so that kill-client-ip
+# does not disconnect any client used by the test.
+TEST_NET_1_IP="192.0.2.1"
+
 incdir=$(dirname "$0")/../../../testprogs/blackbox
 . "$incdir/subunit.sh"
 
@@ -414,6 +422,16 @@ run_messaging_tests()
 
 	run_msg_test "smbcontrol ringbuf-log" "MSG_REQ_RINGBUF_LOG" \
 		smbcontrol_reply "." smbd ringbuf-log
+
+	run_msg_test "smbcontrol close-share" "MSG_SMB_FORCE_TDIS" \
+		smbcontrol_ok smbd close-share "$NO_SUCH_SHARE"
+
+	run_msg_test "smbcontrol close-denied-share" \
+		"MSG_SMB_FORCE_TDIS_DENIED" \
+		smbcontrol_ok smbd close-denied-share "$NO_SUCH_SHARE"
+
+	run_msg_test "smbcontrol kill-client-ip" "MSG_SMB_KILL_CLIENT_IP" \
+		smbcontrol_ok smbd kill-client-ip "$TEST_NET_1_IP"
 }
 
 # ===========================================================================
