@@ -2435,6 +2435,463 @@ static void test_ndr_messaging_force_election_bad_version(void **state)
 	talloc_free(mem_ctx);
 }
 
+/* MSG_SMB_FORCE_TDIS */
+/*
+ * Wire encoding of messaging_force_tdis with sharename = "homes":
+ *
+ *   01 00 00 00  - version (MESSAGING_FORCE_TDIS_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (version repeated inside union, uint32
+ * LE) 68 6f 6d 65  - "home" (UTF-8) 73 00        - "s\0" (no trailing padding;
+ * utf8string is not aligned)
+ */
+static const uint8_t force_tdis_blob_homes[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x68,
+	0x6f,
+	0x6d,
+	0x65, /* "home" */
+	0x73,
+	0x00, /* "s\0" */
+};
+
+/*
+ * Wire encoding of messaging_force_tdis with sharename = "*":
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   2a 00        - "*\0"
+ */
+static const uint8_t force_tdis_blob_all[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x2a,
+	0x00, /* "*\0" */
+};
+
+static void test_ndr_messaging_force_tdis_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_tdis msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, force_tdis_blob_homes),
+		.length = sizeof(force_tdis_blob_homes),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_force_tdis_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_FORCE_TDIS_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_string_equal("homes", msg.info.info1.sharename);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_force_tdis_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_tdis msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, force_tdis_blob_homes),
+		.length = sizeof(force_tdis_blob_homes),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_force_tdis_push(mem_ctx, &msg, "homes", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_force_tdis_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_tdis orig = {};
+	struct messaging_force_tdis decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_force_tdis_push(mem_ctx, &orig, "*", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(force_tdis_blob_all), blob.length);
+	assert_memory_equal(force_tdis_blob_all,
+			    blob.data,
+			    sizeof(force_tdis_blob_all));
+
+	err = messaging_force_tdis_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_FORCE_TDIS_VERSION_1, decoded.version);
+	assert_string_equal("*", decoded.info.info1.sharename);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_force_tdis_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_tdis msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x2a,
+		0x00, /* "*\0" */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_force_tdis_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
+/* MSG_SMB_FORCE_TDIS_DENIED */
+/*
+ * Wire encoding of messaging_force_tdis_denied with sharename = "homes":
+ *
+ *   01 00 00 00  - version (MESSAGING_FORCE_TDIS_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (version repeated inside union, uint32
+ * LE) 68 6f 6d 65  - "home" (UTF-8) 73 00        - "s\0" (no trailing padding;
+ * utf8string is not aligned)
+ */
+static const uint8_t force_tdis_denied_blob_homes[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x68,
+	0x6f,
+	0x6d,
+	0x65, /* "home" */
+	0x73,
+	0x00, /* "s\0" */
+};
+
+/*
+ * Wire encoding of messaging_force_tdis_denied with sharename = "*":
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   2a 00        - "*\0"
+ */
+static const uint8_t force_tdis_denied_blob_all[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x2a,
+	0x00, /* "*\0" */
+};
+
+static void test_ndr_messaging_force_tdis_denied_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_tdis_denied msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, force_tdis_denied_blob_homes),
+		.length = sizeof(force_tdis_denied_blob_homes),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_force_tdis_denied_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_FORCE_TDIS_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_string_equal("homes", msg.info.info1.sharename);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_force_tdis_denied_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_tdis_denied msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, force_tdis_denied_blob_homes),
+		.length = sizeof(force_tdis_denied_blob_homes),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_force_tdis_denied_push(mem_ctx, &msg, "homes", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_force_tdis_denied_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_tdis_denied orig = {};
+	struct messaging_force_tdis_denied decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_force_tdis_denied_push(mem_ctx, &orig, "*", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(force_tdis_denied_blob_all), blob.length);
+	assert_memory_equal(force_tdis_denied_blob_all,
+			    blob.data,
+			    sizeof(force_tdis_denied_blob_all));
+
+	err = messaging_force_tdis_denied_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_FORCE_TDIS_VERSION_1, decoded.version);
+	assert_string_equal("*", decoded.info.info1.sharename);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_force_tdis_denied_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_force_tdis_denied msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x2a,
+		0x00, /* "*\0" */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_force_tdis_denied_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
+/* MSG_SMB_KILL_CLIENT_IP */
+/*
+ * Wire encoding of messaging_kill_client_ip with ip_address = "192.168.1.1":
+ *
+ *   01 00 00 00  - version (MESSAGING_KILL_CLIENT_IP_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (version repeated inside union, uint32
+ * LE) 31 39 32 2e  - "192." (UTF-8) 31 36 38 2e  - "168." 31 2e 31 00  -
+ * "1.1\0" (no trailing padding; utf8string is not aligned)
+ */
+static const uint8_t kill_client_ip_blob_ipv4[] = {
+	0x01, 0x00, 0x00, 0x00, /* version */
+	0x00, 0x00, 0x00, 0x00, /* reserved */
+	0x01, 0x00, 0x00, 0x00, /* union discriminant */
+	0x31, 0x39, 0x32, 0x2e, /* "192." */
+	0x31, 0x36, 0x38, 0x2e, /* "168." */
+	0x31, 0x2e, 0x31, 0x00, /* "1.1\0" */
+};
+
+/*
+ * Wire encoding of messaging_kill_client_ip with ip_address = "::1":
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   3a 3a 31 00  - "::1\0"
+ */
+static const uint8_t kill_client_ip_blob_ipv6[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x3a,
+	0x3a,
+	0x31,
+	0x00, /* "::1\0" */
+};
+
+static void test_ndr_messaging_kill_client_ip_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_kill_client_ip msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, kill_client_ip_blob_ipv4),
+		.length = sizeof(kill_client_ip_blob_ipv4),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_kill_client_ip_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_KILL_CLIENT_IP_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_string_equal("192.168.1.1", msg.info.info1.ip_address);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_kill_client_ip_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_kill_client_ip msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, kill_client_ip_blob_ipv4),
+		.length = sizeof(kill_client_ip_blob_ipv4),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_kill_client_ip_push(mem_ctx,
+					    &msg,
+					    "192.168.1.1",
+					    &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_kill_client_ip_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_kill_client_ip orig = {};
+	struct messaging_kill_client_ip decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_kill_client_ip_push(mem_ctx, &orig, "::1", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(kill_client_ip_blob_ipv6), blob.length);
+	assert_memory_equal(kill_client_ip_blob_ipv6,
+			    blob.data,
+			    sizeof(kill_client_ip_blob_ipv6));
+
+	err = messaging_kill_client_ip_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_KILL_CLIENT_IP_VERSION_1, decoded.version);
+	assert_string_equal("::1", decoded.info.info1.ip_address);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_kill_client_ip_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_kill_client_ip msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x3a,
+		0x3a,
+		0x31,
+		0x00, /* "::1\0" */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_kill_client_ip_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -2528,6 +2985,21 @@ int main(void)
 		cmocka_unit_test(test_ndr_messaging_force_election_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_force_election_bad_version),
+		cmocka_unit_test(test_ndr_messaging_force_tdis_pull),
+		cmocka_unit_test(test_ndr_messaging_force_tdis_push),
+		cmocka_unit_test(test_ndr_messaging_force_tdis_roundtrip),
+		cmocka_unit_test(test_ndr_messaging_force_tdis_bad_version),
+		cmocka_unit_test(test_ndr_messaging_force_tdis_denied_pull),
+		cmocka_unit_test(test_ndr_messaging_force_tdis_denied_push),
+		cmocka_unit_test(
+			test_ndr_messaging_force_tdis_denied_roundtrip),
+		cmocka_unit_test(
+			test_ndr_messaging_force_tdis_denied_bad_version),
+		cmocka_unit_test(test_ndr_messaging_kill_client_ip_pull),
+		cmocka_unit_test(test_ndr_messaging_kill_client_ip_push),
+		cmocka_unit_test(test_ndr_messaging_kill_client_ip_roundtrip),
+		cmocka_unit_test(
+			test_ndr_messaging_kill_client_ip_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);

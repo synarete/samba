@@ -1574,6 +1574,49 @@ static void msg_kill_client_ip(struct messaging_context *msg_ctx,
 	TALLOC_FREE(client_ip);
 }
 
+static void msg_kill_client_ip_v1(struct messaging_context *msg_ctx,
+				  void *private_data,
+				  uint32_t msg_type,
+				  struct server_id server_id,
+				  DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_kill_client_ip m = {};
+	struct smbd_server_connection *sconn = talloc_get_type_abort(
+		private_data, struct smbd_server_connection);
+	const char *ip = NULL;
+	char *client_ip = NULL;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_kill_client_ip_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_KILL_CLIENT_IP_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	ip = m.info.info1.ip_address;
+
+	DBG_DEBUG("Got kill request for client IP %s\n", ip);
+
+	client_ip = tsocket_address_inet_addr_string(sconn->remote_address,
+						     talloc_tos());
+	if (client_ip == NULL) {
+		goto out;
+	}
+
+	if (strequal(ip, client_ip)) {
+		DBG_WARNING("Got kill client message for %s - "
+			    "exiting immediately\n",
+			    ip);
+		exit_server_cleanly("Forced disconnect for client");
+	}
+
+	TALLOC_FREE(client_ip);
+out:
+	TALLOC_FREE(frame);
+}
+
 static void msg_kill_client_with_server_ip(struct messaging_context *msg_ctx,
 				      void *private_data,
 				      uint32_t msg_type,
@@ -2158,11 +2201,19 @@ void smbd_process(struct tevent_context *ev_ctx,
 	/* register our message handlers */
 	messaging_register(sconn->msg_ctx, sconn,
 			   MSG_SMB_FORCE_TDIS, msg_force_tdis);
+	messaging_register(sconn->msg_ctx,
+			   sconn,
+			   MSG_SMB_FORCE_TDIS_V1,
+			   msg_force_tdis_v1);
 	messaging_register(
 		sconn->msg_ctx,
 		sconn,
 		MSG_SMB_FORCE_TDIS_DENIED,
 		msg_force_tdis_denied);
+	messaging_register(sconn->msg_ctx,
+			   sconn,
+			   MSG_SMB_FORCE_TDIS_DENIED_V1,
+			   msg_force_tdis_denied_v1);
 	messaging_register(sconn->msg_ctx, sconn,
 			   MSG_SMB_CLOSE_FILE, msg_close_file);
 	messaging_register(sconn->msg_ctx, sconn,
@@ -2195,6 +2246,11 @@ void smbd_process(struct tevent_context *ev_ctx,
 	messaging_register(sconn->msg_ctx, sconn,
 			   MSG_SMB_KILL_CLIENT_IP,
 			   msg_kill_client_ip);
+	messaging_deregister(sconn->msg_ctx, MSG_SMB_KILL_CLIENT_IP_V1, NULL);
+	messaging_register(sconn->msg_ctx,
+			   sconn,
+			   MSG_SMB_KILL_CLIENT_IP_V1,
+			   msg_kill_client_ip_v1);
 
 	messaging_deregister(sconn->msg_ctx, MSG_SMB_TELL_NUM_CHILDREN, NULL);
 
