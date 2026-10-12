@@ -3041,6 +3041,161 @@ static void test_ndr_messaging_smb_ip_dropped_bad_version(void **state)
 	talloc_free(mem_ctx);
 }
 
+/* MSG_SMB_SLEEP */
+/*
+ * Wire encoding of messaging_smb_sleep with seconds = 10:
+ *
+ *   01 00 00 00  - version (MESSAGING_SMB_SLEEP_VERSION_1 = 1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (version repeated inside union, uint32
+ * LE) 0a 00 00 00  - seconds = 10 (uint32 LE)
+ */
+static const uint8_t smb_sleep_blob_10[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x0a,
+	0x00,
+	0x00,
+	0x00, /* seconds = 10 */
+};
+
+/*
+ * Wire encoding of messaging_smb_sleep with seconds = 1:
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   01 00 00 00  - seconds = 1
+ */
+static const uint8_t smb_sleep_blob_1[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* seconds = 1 */
+};
+
+static void test_ndr_messaging_smb_sleep_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_sleep msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, smb_sleep_blob_10),
+		.length = sizeof(smb_sleep_blob_10),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_sleep_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_SLEEP_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_int_equal(10, msg.info.info1.seconds);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_sleep_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_sleep msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, smb_sleep_blob_10),
+		.length = sizeof(smb_sleep_blob_10),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_sleep_push(mem_ctx, &msg, 10, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_sleep_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_sleep orig = {};
+	struct messaging_smb_sleep decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_smb_sleep_push(mem_ctx, &orig, 1, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(smb_sleep_blob_1), blob.length);
+	assert_memory_equal(smb_sleep_blob_1,
+			    blob.data,
+			    sizeof(smb_sleep_blob_1));
+
+	err = messaging_smb_sleep_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_SLEEP_VERSION_1, decoded.version);
+	assert_int_equal(1, decoded.info.info1.seconds);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_sleep_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_sleep msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x0a,
+		0x00,
+		0x00,
+		0x00, /* seconds = 10 */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_sleep_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -3154,6 +3309,10 @@ int main(void)
 		cmocka_unit_test(test_ndr_messaging_smb_ip_dropped_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_smb_ip_dropped_bad_version),
+		cmocka_unit_test(test_ndr_messaging_smb_sleep_pull),
+		cmocka_unit_test(test_ndr_messaging_smb_sleep_push),
+		cmocka_unit_test(test_ndr_messaging_smb_sleep_roundtrip),
+		cmocka_unit_test(test_ndr_messaging_smb_sleep_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);
