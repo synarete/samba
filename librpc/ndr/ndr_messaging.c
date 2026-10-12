@@ -843,3 +843,42 @@ enum ndr_err_code messaging_kill_client_ip_pull(
 
 	return NDR_ERR_SUCCESS;
 }
+
+enum ndr_err_code messaging_smb_ip_dropped_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_ip_dropped *msg,
+	const char *ip_address,
+	DATA_BLOB *blob)
+{
+	msg->info.info1.ip_address = ip_address;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_smb_ip_dropped);
+}
+
+enum ndr_err_code messaging_smb_ip_dropped_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_ip_dropped *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_ip_dropped){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_ip_dropped);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_IP_DROPPED_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
