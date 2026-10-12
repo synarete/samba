@@ -449,6 +449,25 @@ smbcontrol_kill_client_ip()
 	return $st
 }
 
+# Send "smbcontrol smbd sleep <seconds>" to all smbd processes
+# (fire-and-forget).
+smbcontrol_sleep()
+{
+	local name="$1"
+	local seconds="$2"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" smbd sleep "$seconds" 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -598,6 +617,10 @@ smbcontrol_kill_client_ip \
 	"step1: smbcontrol kill-client-ip (legacy MSG_SMB_KILL_CLIENT_IP at level 1.0)" \
 	"192.0.2.1" || failed=$((failed + 1))
 
+smbcontrol_sleep \
+	"step1: smbcontrol sleep (legacy MSG_SMB_SLEEP at level 1.0)" \
+	"1" || failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 1.0 to 2.0
 # ===========================================================================
@@ -681,6 +704,10 @@ smbcontrol_close_denied_share \
 smbcontrol_kill_client_ip \
 	"step3: smbcontrol kill-client-ip (NDR MSG_SMB_KILL_CLIENT_IP_V1 at level 2.0)" \
 	"192.0.2.1" || failed=$((failed + 1))
+
+smbcontrol_sleep \
+	"step3: smbcontrol sleep (NDR MSG_SMB_SLEEP_V1 at level 2.0)" \
+	"1" || failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
 smbclient_ls "step3: smbclient node0 (level 2.0)" "$NODE0" \

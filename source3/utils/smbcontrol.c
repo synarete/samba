@@ -511,6 +511,30 @@ static bool do_inject_fault(struct tevent_context *ev_ctx,
 #endif /* DEVELOPER || ENABLE_SELFTEST */
 }
 
+#if defined(DEVELOPER) || defined(ENABLE_SELFTEST)
+static bool do_sleep_v1(struct messaging_context *msg_ctx,
+			const struct server_id pid,
+			unsigned int seconds)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_sleep msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	ndr_err = messaging_smb_sleep_push(frame, &msg, seconds, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_SMB_SLEEP_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+#endif
+
 static bool do_sleep(struct tevent_context *ev_ctx,
 		     struct messaging_context *msg_ctx,
 		     const struct server_id pid,
@@ -543,6 +567,11 @@ static bool do_sleep(struct tevent_context *ev_ctx,
 		return False;
 	}
 	seconds = input;
+
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return do_sleep_v1(msg_ctx, pid, seconds);
+	}
+
 	return send_message(msg_ctx, pid,
 			    MSG_SMB_SLEEP,
 			    &seconds,
