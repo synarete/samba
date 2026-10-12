@@ -44,6 +44,8 @@ root messaging_force_tdis
 root messaging_force_tdis_denied
 root messaging_kill_client_ip_version_values
 root messaging_kill_client_ip
+root messaging_smb_ip_dropped_version_values
+root messaging_smb_ip_dropped
 root messaging_rec
 root messaging_reclog
 root messaging_hdr
@@ -368,6 +370,25 @@ enum messaging_smb_conf_updated_version_values base(uint32) {
 	0x00000001	# MESSAGING_SMB_CONF_UPDATED_VERSION_1
 }
 
+struct messaging_smb_ip_dropped align(4) {
+	[value(MESSAGING_SMB_IP_DROPPED_VERSION_1)] enum:messaging_smb_ip_dropped_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_smb_ip_droppedU	# info
+}
+
+union messaging_smb_ip_droppedU align(4) switch_type(enum:messaging_smb_ip_dropped_version_values) {
+	case(MESSAGING_SMB_IP_DROPPED_VERSION_1): struct:messaging_smb_ip_dropped_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_smb_ip_dropped_v1 align(4) {
+	[flag(LIBNDR_FLAG_STR_UTF8|LIBNDR_FLAG_STR_NULLTERM)] scalar:string	# ip_address
+}
+
+enum messaging_smb_ip_dropped_version_values base(uint32) {
+	0x00000001	# MESSAGING_SMB_IP_DROPPED_VERSION_1
+}
+
 enum messaging_type base(uint32) {
 	0x0001	# MSG_DEBUG
 	0x1001	# MSG_DEBUG_V1
@@ -441,6 +462,7 @@ enum messaging_type base(uint32) {
 	0x0321	# MSG_SMB_FORCE_TDIS_DENIED
 	0x1321	# MSG_SMB_FORCE_TDIS_DENIED_V1
 	0x0322	# MSG_SMB_IP_DROPPED
+	0x1322	# MSG_SMB_IP_DROPPED_V1
 	0x0403	# MSG_WINBIND_ONLINE
 	0x0404	# MSG_WINBIND_OFFLINE
 	0x0405	# MSG_WINBIND_ONLINESTATUS
@@ -684,6 +706,17 @@ sample messaging_kill_client_ip length(27) {
 #	        reserved                 : 0x00000000 (0)
 #	        info                     : union messaging_kill_client_ipU(case 1)
 #	        info1: struct messaging_kill_client_ip_v1
+#	            ip_address               : 'string00000001'
+
+sample messaging_smb_ip_dropped length(27) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 73 74 72 69
+	[0010] 6e 67 30 30 30 30 30 30  30 31 00
+}
+#	    messaging_smb_ip_dropped: struct messaging_smb_ip_dropped
+#	        version                  : MESSAGING_SMB_IP_DROPPED_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_smb_ip_droppedU(case 1)
+#	        info1: struct messaging_smb_ip_dropped_v1
 #	            ip_address               : 'string00000001'
 
 sample messaging_rec length(84) {
