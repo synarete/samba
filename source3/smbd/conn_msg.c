@@ -22,6 +22,7 @@
 #include "includes.h"
 #include "smbd/smbd.h"
 #include "smbd/globals.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 /****************************************************************************
  Receive a smbcontrol message to forcibly unmount a share.
@@ -76,6 +77,35 @@ void msg_force_tdis(struct messaging_context *msg,
 	}
 
 	conn_force_tdis(sconn, force_tdis_check, &state);
+}
+
+void msg_force_tdis_v1(struct messaging_context *msg,
+		       void *private_data,
+		       uint32_t msg_type,
+		       struct server_id server_id,
+		       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_force_tdis m = {};
+	struct force_tdis_state state;
+	struct smbd_server_connection *sconn = talloc_get_type_abort(
+		private_data, struct smbd_server_connection);
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_force_tdis_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_FORCE_TDIS_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	state = (struct force_tdis_state){
+		.sharename = m.info.info1.sharename,
+	};
+
+	conn_force_tdis(sconn, force_tdis_check, &state);
+out:
+	TALLOC_FREE(frame);
 }
 
 static bool force_tdis_denied_check(
@@ -145,4 +175,36 @@ void msg_force_tdis_denied(
 	reload_services(sconn, conn_snum_used, false);
 
 	conn_force_tdis(sconn, force_tdis_denied_check, &state);
+}
+
+void msg_force_tdis_denied_v1(struct messaging_context *msg,
+			      void *private_data,
+			      uint32_t msg_type,
+			      struct server_id server_id,
+			      DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_force_tdis_denied m = {};
+	struct force_tdis_state state;
+	struct smbd_server_connection *sconn = talloc_get_type_abort(
+		private_data, struct smbd_server_connection);
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_force_tdis_denied_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_FORCE_TDIS_DENIED_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	state = (struct force_tdis_state){
+		.sharename = m.info.info1.sharename,
+	};
+
+	change_to_root_user();
+	reload_services(sconn, conn_snum_used, false);
+
+	conn_force_tdis(sconn, force_tdis_denied_check, &state);
+out:
+	TALLOC_FREE(frame);
 }
