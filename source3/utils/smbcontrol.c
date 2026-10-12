@@ -454,10 +454,9 @@ static bool do_sleep(struct tevent_context *ev_ctx,
 		return False;
 	}
 	seconds = input;
-	return send_message(msg_ctx, pid,
-			    MSG_SMB_SLEEP,
-			    &seconds,
-			    sizeof(unsigned int));
+
+	return NT_STATUS_IS_OK(
+		messaging_send_smb_sleep(msg_ctx, pid, seconds));
 #endif /* DEVELOPER || ENABLE_SELFTEST */
 }
 

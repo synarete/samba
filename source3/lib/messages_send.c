@@ -1025,3 +1025,50 @@ NTSTATUS messaging_send_ip_dropped(struct messaging_context *msg_ctx,
 	}
 	return messaging_send_ip_dropped_legacy(msg_ctx, dst, ip_address);
 }
+
+/* MSG_SMB_SLEEP */
+
+static NTSTATUS messaging_send_smb_sleep_v1(struct messaging_context *msg_ctx,
+					    struct server_id dst,
+					    unsigned int seconds)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_sleep msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_sleep_push(frame, &msg, seconds, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send_one_or_all(
+		msg_ctx, dst, MSG_SMB_SLEEP_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_smb_sleep_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	unsigned int seconds)
+{
+	return messaging_send_one_or_all(msg_ctx,
+					 dst,
+					 MSG_SMB_SLEEP,
+					 (const uint8_t *)&seconds,
+					 sizeof(unsigned int));
+}
+
+NTSTATUS messaging_send_smb_sleep(struct messaging_context *msg_ctx,
+				  struct server_id dst,
+				  unsigned int seconds)
+{
+	if (messaging_use_ndr_v1()) {
+		return messaging_send_smb_sleep_v1(msg_ctx, dst, seconds);
+	}
+	return messaging_send_smb_sleep_legacy(msg_ctx, dst, seconds);
+}

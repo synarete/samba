@@ -46,6 +46,8 @@ root messaging_kill_client_ip_version_values
 root messaging_kill_client_ip
 root messaging_smb_ip_dropped_version_values
 root messaging_smb_ip_dropped
+root messaging_smb_sleep_version_values
+root messaging_smb_sleep
 root messaging_rec
 root messaging_reclog
 root messaging_hdr
@@ -389,6 +391,25 @@ enum messaging_smb_ip_dropped_version_values base(uint32) {
 	0x00000001	# MESSAGING_SMB_IP_DROPPED_VERSION_1
 }
 
+struct messaging_smb_sleep align(4) {
+	[value(MESSAGING_SMB_SLEEP_VERSION_1)] enum:messaging_smb_sleep_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_smb_sleepU	# info
+}
+
+union messaging_smb_sleepU align(4) switch_type(enum:messaging_smb_sleep_version_values) {
+	case(MESSAGING_SMB_SLEEP_VERSION_1): struct:messaging_smb_sleep_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_smb_sleep_v1 align(4) {
+	scalar:uint32	# seconds
+}
+
+enum messaging_smb_sleep_version_values base(uint32) {
+	0x00000001	# MESSAGING_SMB_SLEEP_VERSION_1
+}
+
 enum messaging_type base(uint32) {
 	0x0001	# MSG_DEBUG
 	0x1001	# MSG_DEBUG_V1
@@ -459,6 +480,7 @@ enum messaging_type base(uint32) {
 	0x031E	# MSG_SMB_NOTIFY_REC_CHANGES
 	0x031F	# MSG_SMB_NOTIFY_STARTED
 	0x0320	# MSG_SMB_SLEEP
+	0x1320	# MSG_SMB_SLEEP_V1
 	0x0321	# MSG_SMB_FORCE_TDIS_DENIED
 	0x1321	# MSG_SMB_FORCE_TDIS_DENIED_V1
 	0x0322	# MSG_SMB_IP_DROPPED
@@ -718,6 +740,16 @@ sample messaging_smb_ip_dropped length(27) {
 #	        info                     : union messaging_smb_ip_droppedU(case 1)
 #	        info1: struct messaging_smb_ip_dropped_v1
 #	            ip_address               : 'string00000001'
+
+sample messaging_smb_sleep length(16) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 01 02 03 04
+}
+#	    messaging_smb_sleep: struct messaging_smb_sleep
+#	        version                  : MESSAGING_SMB_SLEEP_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_smb_sleepU(case 1)
+#	        info1: struct messaging_smb_sleep_v1
+#	            seconds                  : 0x04030201 (67305985)
 
 sample messaging_rec length(84) {
 	[0000] 01 02 03 04 02 03 04 05  03 04 05 06 07 08 09 0a
