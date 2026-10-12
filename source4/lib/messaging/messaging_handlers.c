@@ -27,6 +27,8 @@
 #include "lib/util/server_id.h"
 #include "messaging/messaging.h"
 #include "messaging/messaging_internal.h"
+#include "librpc/gen_ndr/ndr_messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "replace.h"
 
 #if defined(DEVELOPER) || defined(ENABLE_SELFTEST)
@@ -119,6 +121,44 @@ static void do_sleep(struct imessaging_context *msg,
 		server_id_str_buf(src, &tmp));
 }
 
+static void do_sleep_v1(struct imessaging_context *msg,
+			void *private_data,
+			uint32_t msg_type,
+			struct server_id src,
+			size_t num_fds,
+			int *fds,
+			DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_sleep m = {};
+	enum ndr_err_code ndr_err;
+	struct server_id_buf tmp;
+
+	if (num_fds != 0) {
+		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
+		goto out;
+	}
+
+	ndr_err = messaging_smb_sleep_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_SLEEP_V1 from server %s: %s\n",
+			    server_id_str_buf(src, &tmp),
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	DBG_ERR("Process %s requested a sleep of %" PRIu32 " seconds\n",
+		server_id_str_buf(src, &tmp),
+		m.info.info1.seconds);
+	sleep(m.info.info1.seconds);
+	DBG_ERR("Restarting after %" PRIu32
+		" second sleep requested by process %s\n",
+		m.info.info1.seconds,
+		server_id_str_buf(src, &tmp));
+out:
+	TALLOC_FREE(frame);
+}
+
 /*
  * Register the extra messaging handlers
  */
@@ -133,6 +173,11 @@ NTSTATUS imessaging_register_extra_handlers(struct imessaging_context *msg)
 	}
 
 	status = imessaging_register(msg, NULL, MSG_SMB_SLEEP, do_sleep);
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
+	}
+
+	status = imessaging_register(msg, NULL, MSG_SMB_SLEEP_V1, do_sleep_v1);
 	if (!NT_STATUS_IS_OK(status)) {
 		return status;
 	}
