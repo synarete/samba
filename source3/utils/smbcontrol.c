@@ -1725,6 +1725,74 @@ done:
 	num_replies++;
 }
 
+static void num_children_cb_v1(struct messaging_context *msg,
+			       void *private_data,
+			       uint32_t msg_type,
+			       struct server_id pid,
+			       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_num_children reply = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_num_children_pull(frame, data, &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr,
+			"Invalid MSG_SMB_NUM_CHILDREN from PID %u: %s\n",
+			(unsigned int)procid_to_pid(&pid),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+	printf("%u children\n", (unsigned)reply.info.info1.num_children);
+out:
+	num_replies++;
+	TALLOC_FREE(frame);
+}
+
+static bool do_num_children_v1(struct tevent_context *ev_ctx,
+			       struct messaging_context *msg_ctx,
+			       const struct server_id pid)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_tell_num_children msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = false;
+
+	ndr_err = messaging_smb_tell_num_children_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_NUM_CHILDREN_V1,
+			   num_children_cb_v1);
+
+	/* Send a message and register our interest in a reply */
+	ok = send_message(msg_ctx,
+			  pid,
+			  MSG_SMB_TELL_NUM_CHILDREN_V1,
+			  blob.data,
+			  blob.length);
+	if (!ok) {
+		goto out_deregister;
+	}
+
+	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
+
+	/* No replies were received within the timeout period */
+
+	if (num_replies == 0) {
+		printf("No replies received\n");
+	}
+out_deregister:
+	messaging_deregister(msg_ctx, MSG_SMB_NUM_CHILDREN_V1, NULL);
+out:
+	TALLOC_FREE(frame);
+	return ok ? (num_replies > 0) : false;
+}
+
 static bool do_num_children(struct tevent_context *ev_ctx,
 			    struct messaging_context *msg_ctx,
 			    const struct server_id pid,
@@ -1733,6 +1801,10 @@ static bool do_num_children(struct tevent_context *ev_ctx,
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> num-children\n");
 		return False;
+	}
+
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return do_num_children_v1(ev_ctx, msg_ctx, pid);
 	}
 
 	messaging_register(msg_ctx, NULL, MSG_SMB_NUM_CHILDREN,
