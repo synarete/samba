@@ -435,6 +435,10 @@ run_messaging_tests()
 
 	run_msg_test "smbcontrol sleep" "MSG_SMB_SLEEP" \
 		smbcontrol_ok smbd sleep 1
+
+	# Only the smbd parent process replies.
+	run_msg_test "smbcontrol num-children" "MSG_SMB_TELL_NUM_CHILDREN" \
+		smbcontrol_reply "^[0-9]+ children$" smbd num-children
 }
 
 # ===========================================================================

@@ -1003,3 +1003,47 @@ NTSTATUS messaging_send_smb_sleep(struct messaging_context *msg_ctx,
 	}
 	return messaging_send_smb_sleep_legacy(msg_ctx, dst, seconds);
 }
+
+/* MSG_SMB_TELL_NUM_CHILDREN */
+
+static NTSTATUS messaging_send_tell_num_children_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_tell_num_children msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_tell_num_children_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_one_or_all(msg_ctx,
+					   dst,
+					   MSG_SMB_TELL_NUM_CHILDREN_V1,
+					   blob.data,
+					   blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_tell_num_children_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	return messaging_send_one_or_all(
+		msg_ctx, dst, MSG_SMB_TELL_NUM_CHILDREN, NULL, 0);
+}
+
+NTSTATUS messaging_send_tell_num_children(struct messaging_context *msg_ctx,
+					  struct server_id dst)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_tell_num_children_v1(msg_ctx, dst);
+	}
+	return messaging_send_tell_num_children_legacy(msg_ctx, dst);
+}
