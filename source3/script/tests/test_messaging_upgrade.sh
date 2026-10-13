@@ -469,6 +469,25 @@ smbcontrol_sleep()
 	return $st
 }
 
+# Send "smbcontrol smbd num-children" to all smbd processes; only the smbd
+# parent process replies, so expect a "<N> children" reply line.
+smbcontrol_num_children()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" smbd num-children 2>&1)
+	local st=$?
+	if [ $st -eq 0 ] && echo "$out" | grep -qE "^[0-9]+ children$"; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+		return 1
+	fi
+	return 0
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -622,6 +641,10 @@ smbcontrol_sleep \
 	"step1: smbcontrol sleep (legacy MSG_SMB_SLEEP at level 0.1)" \
 	"1" || failed=$((failed + 1))
 
+smbcontrol_num_children \
+	"step1: smbcontrol num-children (legacy MSG_SMB_TELL_NUM_CHILDREN at level 0.1)" \
+	|| failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 0.1 to 1.0
 # ===========================================================================
@@ -709,6 +732,10 @@ smbcontrol_kill_client_ip \
 smbcontrol_sleep \
 	"step3: smbcontrol sleep (NDR MSG_SMB_SLEEP_V1 at level 1.0)" \
 	"1" || failed=$((failed + 1))
+
+smbcontrol_num_children \
+	"step3: smbcontrol num-children (NDR MSG_SMB_TELL_NUM_CHILDREN_V1 at level 1.0)" \
+	|| failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
 smbclient_ls "step3: smbclient node0 (level 1.0)" "$NODE0" \
