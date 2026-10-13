@@ -1246,23 +1246,63 @@ done:
 	num_replies++;
 }
 
+static void num_children_cb_v1(struct messaging_context *msg,
+			       void *private_data,
+			       uint32_t msg_type,
+			       struct server_id pid,
+			       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_num_children reply = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_num_children_pull(frame, data, &reply);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		struct server_id_buf pidstr;
+		fprintf(stderr,
+			"Invalid MSG_SMB_NUM_CHILDREN from PID %s: %s\n",
+			server_id_str_buf(pid, &pidstr),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	printf("%u children\n", (unsigned)reply.info.info1.num_children);
+	num_replies++;
+out:
+	TALLOC_FREE(frame);
+}
+
 static bool do_num_children(struct tevent_context *ev_ctx,
 			    struct messaging_context *msg_ctx,
 			    const struct server_id pid,
 			    const int argc, const char **argv)
 {
+	const bool v1 = messaging_use_ndr_v1();
+	const uint32_t reply_type = v1 ? MSG_SMB_NUM_CHILDREN_V1
+				       : MSG_SMB_NUM_CHILDREN;
+	NTSTATUS status;
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: smbcontrol <dest> num-children\n");
 		return False;
 	}
 
-	messaging_register(msg_ctx, NULL, MSG_SMB_NUM_CHILDREN,
-			   print_uint32_cb);
+	if (v1) {
+		messaging_register(msg_ctx,
+				   NULL,
+				   reply_type,
+				   num_children_cb_v1);
+	} else {
+		messaging_register(msg_ctx, NULL, reply_type, print_uint32_cb);
+	}
 
 	/* Send a message and register our interest in a reply */
 
-	if (!send_message(msg_ctx, pid, MSG_SMB_TELL_NUM_CHILDREN, NULL, 0))
+	status = messaging_send_tell_num_children(msg_ctx, pid);
+	if (!NT_STATUS_IS_OK(status)) {
+		messaging_deregister(msg_ctx, reply_type, NULL);
 		return false;
+	}
 
 	wait_replies(ev_ctx, msg_ctx, procid_to_pid(&pid) == 0);
 
@@ -1271,7 +1311,7 @@ static bool do_num_children(struct tevent_context *ev_ctx,
 	if (num_replies == 0)
 		printf("No replies received\n");
 
-	messaging_deregister(msg_ctx, MSG_SMB_NUM_CHILDREN, NULL);
+	messaging_deregister(msg_ctx, reply_type, NULL);
 
 	return num_replies;
 }
