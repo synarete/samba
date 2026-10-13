@@ -553,6 +553,45 @@ static void smb_tell_num_children(struct messaging_context *ctx, void *data,
 	}
 }
 
+static void smb_tell_num_children_v1(struct messaging_context *ctx,
+				     void *data,
+				     uint32_t msg_type,
+				     struct server_id srv_id,
+				     DATA_BLOB *msg_data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_tell_num_children req = {};
+	struct messaging_smb_num_children reply = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	struct server_id_buf tmp;
+
+	if (am_parent == NULL) {
+		goto out;
+	}
+
+	ndr_err = messaging_smb_tell_num_children_pull(frame, msg_data, &req);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_TELL_NUM_CHILDREN_V1 from %s: "
+			    "%s\n",
+			    server_id_str_buf(srv_id, &tmp),
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	ndr_err = messaging_smb_num_children_push(frame,
+						  &reply,
+						  am_parent->num_children,
+						  &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	messaging_send(ctx, srv_id, MSG_SMB_NUM_CHILDREN_V1, &blob);
+out:
+	TALLOC_FREE(frame);
+}
+
 static void notifyd_stopped(struct tevent_req *req);
 
 static struct tevent_req *notifyd_req(struct messaging_context *msg_ctx,
@@ -1853,6 +1892,10 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 			   smb_parent_send_to_children);
 	messaging_register(msg_ctx, NULL, MSG_SMB_TELL_NUM_CHILDREN,
 			   smb_tell_num_children);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_TELL_NUM_CHILDREN_V1,
+			   smb_tell_num_children_v1);
 
 	messaging_register(msg_ctx, NULL,
 			   ID_CACHE_DELETE, smbd_parent_id_cache_delete);

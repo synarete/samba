@@ -257,4 +257,25 @@ enum ndr_err_code messaging_smb_sleep_pull(TALLOC_CTX *mem_ctx,
 					   const DATA_BLOB *blob,
 					   struct messaging_smb_sleep *msg);
 
+enum ndr_err_code messaging_smb_tell_num_children_push(
+	TALLOC_CTX *mem_ctx,
+	const struct messaging_smb_tell_num_children *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_tell_num_children_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_tell_num_children *msg);
+
+enum ndr_err_code messaging_smb_num_children_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_num_children *msg,
+	uint32_t num_children,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_num_children_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_num_children *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */
