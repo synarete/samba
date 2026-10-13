@@ -919,3 +919,79 @@ enum ndr_err_code messaging_smb_sleep_pull(TALLOC_CTX *mem_ctx,
 
 	return NDR_ERR_SUCCESS;
 }
+
+enum ndr_err_code messaging_smb_tell_num_children_push(
+	TALLOC_CTX *mem_ctx,
+	const struct messaging_smb_tell_num_children *msg,
+	DATA_BLOB *blob)
+{
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_tell_num_children);
+}
+
+enum ndr_err_code messaging_smb_tell_num_children_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_tell_num_children *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_tell_num_children){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_tell_num_children);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NUM_CHILDREN_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_num_children_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_num_children *msg,
+	uint32_t num_children,
+	DATA_BLOB *blob)
+{
+	msg->info.info1.num_children = num_children;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_num_children);
+}
+
+enum ndr_err_code messaging_smb_num_children_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_num_children *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_num_children){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_num_children);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NUM_CHILDREN_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}

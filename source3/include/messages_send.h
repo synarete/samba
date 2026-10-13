@@ -112,4 +112,7 @@ NTSTATUS messaging_send_smb_sleep(struct messaging_context *msg_ctx,
 				  struct server_id dst,
 				  unsigned int seconds);
 
+NTSTATUS messaging_send_tell_num_children(struct messaging_context *msg_ctx,
+					  struct server_id dst);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
