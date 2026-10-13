@@ -256,6 +256,7 @@ sub check_env($$)
 	ad_member_s3_join   => ["vampire_dc"],
 
 	clusteredmember => ["ad_dc"],
+	cfl_upgrade     => ["ad_dc"],
 );
 
 %Samba3::ENV_DEPS_POST = ();
@@ -852,6 +853,23 @@ sub setup_clustered_samba
 	$ret->{REALM} = $dcvars->{REALM};
 	$ret->{DOMAIN} = $dcvars->{DOMAIN};
 
+	return $ret;
+}
+
+#
+# A cluster for rolling upgrade tests
+#
+sub setup_cfl_upgrade
+{
+	my ($self, $prefix, $dcvars) = @_;
+
+	#
+	# Every node starts on the stable build
+	#
+	my $ret = setup_clustered_samba($self, $prefix, $dcvars, [0, 1, 2], 3);
+	if (ref($ret) eq "HASH") {
+		$ret->{RESETUP_ENV} = 1;
+	}
 	return $ret;
 }
 
