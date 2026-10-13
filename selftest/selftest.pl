@@ -1051,7 +1051,14 @@ $envvarstr
 
 		run_testsuite($envname, $name, $cmd, $i, $suitestotal);
 
-		teardown_env($envname) if ($opt_resetup_env);
+		#
+		# An environment can declare itself single use, by setting
+		# RESETUP_ENV. Tear it down after every testsuite, so the next
+		# one provisions it again.
+		#
+		if ($opt_resetup_env or $envvars->{RESETUP_ENV}) {
+			teardown_env($envname);
+		}
 	}
 }
 
