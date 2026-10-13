@@ -124,7 +124,9 @@ interface messaging
 
 		/* Tell number of child processes */
 		MSG_SMB_TELL_NUM_CHILDREN       = 0x0317,
+		MSG_SMB_TELL_NUM_CHILDREN_V1    = 0x1317,
 		MSG_SMB_NUM_CHILDREN            = 0x0318,
+		MSG_SMB_NUM_CHILDREN_V1         = 0x1318,
 
 		/* Cancel a notify, directory got deleted */
 		MSG_SMB_NOTIFY_CANCEL_DELETED   = 0x0319,
@@ -568,6 +570,31 @@ interface messaging
 		[value(0)] uint32                          reserved;
 		[switch_is(version)] messaging_smb_sleepU info;
 	} messaging_smb_sleep;
+
+	/* MSG_SMB_TELL_NUM_CHILDREN / MSG_SMB_NUM_CHILDREN */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_NUM_CHILDREN_VERSION_1 = 0x00000001
+	} messaging_smb_num_children_version_values;
+
+	typedef struct {
+		uint32 num_children;
+	} messaging_smb_num_children_v1;
+
+	typedef [switch_type(messaging_smb_num_children_version_values)] union {
+		[case(MESSAGING_SMB_NUM_CHILDREN_VERSION_1)] messaging_smb_num_children_v1 info1;
+		[default] ;
+	} messaging_smb_num_childrenU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NUM_CHILDREN_VERSION_1)] messaging_smb_num_children_version_values version;
+		[value(0)] uint32                                 reserved;
+	} messaging_smb_tell_num_children;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NUM_CHILDREN_VERSION_1)] messaging_smb_num_children_version_values version;
+		[value(0)] uint32                                 reserved;
+		[switch_is(version)] messaging_smb_num_childrenU info;
+	} messaging_smb_num_children;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 

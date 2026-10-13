@@ -3196,6 +3196,236 @@ static void test_ndr_messaging_smb_sleep_bad_version(void **state)
 	talloc_free(mem_ctx);
 }
 
+/* MSG_SMB_TELL_NUM_CHILDREN */
+/*
+ * Wire encoding of messaging_smb_tell_num_children:
+ *
+ *   01 00 00 00  - version (MESSAGING_SMB_NUM_CHILDREN_VERSION_1 = 1)
+ *   00 00 00 00  - reserved
+ *
+ * No payload: this message is a request with no body.
+ */
+static const uint8_t smb_tell_num_children_blob[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+};
+
+static void test_ndr_messaging_smb_tell_num_children_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_tell_num_children msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, smb_tell_num_children_blob),
+		.length = sizeof(smb_tell_num_children_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_tell_num_children_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_NUM_CHILDREN_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_tell_num_children_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_tell_num_children msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_smb_tell_num_children_push(mem_ctx, &msg, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(sizeof(smb_tell_num_children_blob), blob.length);
+	assert_memory_equal(smb_tell_num_children_blob,
+			    blob.data,
+			    sizeof(smb_tell_num_children_blob));
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_tell_num_children_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_tell_num_children msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_tell_num_children_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
+/* MSG_SMB_NUM_CHILDREN */
+/*
+ * Wire encoding of messaging_smb_num_children with num_children = 4:
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   04 00 00 00  - num_children = 4
+ */
+static const uint8_t smb_num_children_blob_4[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x04,
+	0x00,
+	0x00,
+	0x00, /* num_children = 4 */
+};
+
+/* Same as above, with num_children = 0 */
+static const uint8_t smb_num_children_blob_0[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* num_children = 0 */
+};
+
+static void test_ndr_messaging_smb_num_children_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_num_children msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, smb_num_children_blob_4),
+		.length = sizeof(smb_num_children_blob_4),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_num_children_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_NUM_CHILDREN_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_int_equal(4, msg.info.info1.num_children);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_num_children_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_num_children msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_smb_num_children_push(mem_ctx, &msg, 4, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(sizeof(smb_num_children_blob_4), blob.length);
+	assert_memory_equal(smb_num_children_blob_4,
+			    blob.data,
+			    sizeof(smb_num_children_blob_4));
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_num_children_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_num_children orig = {};
+	struct messaging_smb_num_children decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_smb_num_children_push(mem_ctx, &orig, 0, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(smb_num_children_blob_0), blob.length);
+	assert_memory_equal(smb_num_children_blob_0,
+			    blob.data,
+			    sizeof(smb_num_children_blob_0));
+
+	err = messaging_smb_num_children_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_NUM_CHILDREN_VERSION_1,
+			 decoded.version);
+	assert_int_equal(0, decoded.info.info1.num_children);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_num_children_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_num_children msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x04,
+		0x00,
+		0x00,
+		0x00, /* num_children = 4 */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_num_children_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -3313,6 +3543,18 @@ int main(void)
 		cmocka_unit_test(test_ndr_messaging_smb_sleep_push),
 		cmocka_unit_test(test_ndr_messaging_smb_sleep_roundtrip),
 		cmocka_unit_test(test_ndr_messaging_smb_sleep_bad_version),
+		cmocka_unit_test(
+			test_ndr_messaging_smb_tell_num_children_pull),
+		cmocka_unit_test(
+			test_ndr_messaging_smb_tell_num_children_push),
+		cmocka_unit_test(
+			test_ndr_messaging_smb_tell_num_children_bad_version),
+		cmocka_unit_test(test_ndr_messaging_smb_num_children_pull),
+		cmocka_unit_test(test_ndr_messaging_smb_num_children_push),
+		cmocka_unit_test(
+			test_ndr_messaging_smb_num_children_roundtrip),
+		cmocka_unit_test(
+			test_ndr_messaging_smb_num_children_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);

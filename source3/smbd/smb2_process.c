@@ -2297,6 +2297,9 @@ void smbd_process(struct tevent_context *ev_ctx,
 			   msg_kill_client_ip_v1);
 
 	messaging_deregister(sconn->msg_ctx, MSG_SMB_TELL_NUM_CHILDREN, NULL);
+	messaging_deregister(sconn->msg_ctx,
+			     MSG_SMB_TELL_NUM_CHILDREN_V1,
+			     NULL);
 
 	messaging_deregister(sconn->msg_ctx, MSG_RELOAD_TLS_CERTIFICATES, NULL);
 	messaging_deregister(sconn->msg_ctx,
