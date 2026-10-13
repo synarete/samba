@@ -48,6 +48,9 @@ root messaging_smb_ip_dropped_version_values
 root messaging_smb_ip_dropped
 root messaging_smb_sleep_version_values
 root messaging_smb_sleep
+root messaging_smb_num_children_version_values
+root messaging_smb_tell_num_children
+root messaging_smb_num_children
 root messaging_rec
 root messaging_reclog
 root messaging_hdr
@@ -391,6 +394,25 @@ enum messaging_smb_ip_dropped_version_values base(uint32) {
 	0x00000001	# MESSAGING_SMB_IP_DROPPED_VERSION_1
 }
 
+struct messaging_smb_num_children align(4) {
+	[value(MESSAGING_SMB_NUM_CHILDREN_VERSION_1)] enum:messaging_smb_num_children_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_smb_num_childrenU	# info
+}
+
+union messaging_smb_num_childrenU align(4) switch_type(enum:messaging_smb_num_children_version_values) {
+	case(MESSAGING_SMB_NUM_CHILDREN_VERSION_1): struct:messaging_smb_num_children_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_smb_num_children_v1 align(4) {
+	scalar:uint32	# num_children
+}
+
+enum messaging_smb_num_children_version_values base(uint32) {
+	0x00000001	# MESSAGING_SMB_NUM_CHILDREN_VERSION_1
+}
+
 struct messaging_smb_sleep align(4) {
 	[value(MESSAGING_SMB_SLEEP_VERSION_1)] enum:messaging_smb_sleep_version_values	# version
 	[value(0)] scalar:uint32	# reserved
@@ -408,6 +430,11 @@ struct messaging_smb_sleep_v1 align(4) {
 
 enum messaging_smb_sleep_version_values base(uint32) {
 	0x00000001	# MESSAGING_SMB_SLEEP_VERSION_1
+}
+
+struct messaging_smb_tell_num_children align(4) {
+	[value(MESSAGING_SMB_NUM_CHILDREN_VERSION_1)] enum:messaging_smb_num_children_version_values	# version
+	[value(0)] scalar:uint32	# reserved
 }
 
 enum messaging_type base(uint32) {
@@ -471,7 +498,9 @@ enum messaging_type base(uint32) {
 	0x0316	# MSG_SMB_KILL_CLIENT_IP
 	0x1316	# MSG_SMB_KILL_CLIENT_IP_V1
 	0x0317	# MSG_SMB_TELL_NUM_CHILDREN
+	0x1317	# MSG_SMB_TELL_NUM_CHILDREN_V1
 	0x0318	# MSG_SMB_NUM_CHILDREN
+	0x1318	# MSG_SMB_NUM_CHILDREN_V1
 	0x0319	# MSG_SMB_NOTIFY_CANCEL_DELETED
 	0x031A	# MSG_SMB_NOTIFY_REC_CHANGE
 	0x031B	# MSG_SMB_NOTIFY_TRIGGER
@@ -750,6 +779,23 @@ sample messaging_smb_sleep length(16) {
 #	        info                     : union messaging_smb_sleepU(case 1)
 #	        info1: struct messaging_smb_sleep_v1
 #	            seconds                  : 0x04030201 (67305985)
+
+sample messaging_smb_tell_num_children length(8) {
+	[0000] 01 00 00 00 00 00 00 00
+}
+#	    messaging_smb_tell_num_children: struct messaging_smb_tell_num_children
+#	        version                  : MESSAGING_SMB_NUM_CHILDREN_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+
+sample messaging_smb_num_children length(16) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 01 02 03 04
+}
+#	    messaging_smb_num_children: struct messaging_smb_num_children
+#	        version                  : MESSAGING_SMB_NUM_CHILDREN_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_smb_num_childrenU(case 1)
+#	        info1: struct messaging_smb_num_children_v1
+#	            num_children             : 0x04030201 (67305985)
 
 sample messaging_rec length(84) {
 	[0000] 01 02 03 04 02 03 04 05  03 04 05 06 07 08 09 0a
