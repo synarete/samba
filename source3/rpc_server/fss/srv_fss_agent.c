@@ -86,7 +86,7 @@ static void fss_force_tdis_send_all_v1(struct messaging_context *msg_ctx,
 static void fss_force_tdis_send_all(struct messaging_context *msg_ctx,
 				    const char *sharename)
 {
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		fss_force_tdis_send_all_v1(msg_ctx, sharename);
 	} else {
 		messaging_send_all(msg_ctx,

@@ -1286,7 +1286,7 @@ static bool do_closeshare(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		return do_closeshare_v1(msg_ctx, pid, argv[1]);
 	}
 
@@ -1338,7 +1338,7 @@ static bool do_close_denied_share(
 		return False;
 	}
 
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		return do_close_denied_share_v1(msg_ctx, pid, argv[1]);
 	}
 
@@ -1395,7 +1395,7 @@ static bool do_kill_client_by_ip(struct tevent_context *ev_ctx,
 		return false;
 	}
 
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		return do_kill_client_by_ip_v1(msg_ctx, pid, argv[1]);
 	}
 
