@@ -1721,7 +1721,7 @@ static bool deadtime_fn(const struct timeval *now, void *private_data)
 	if ((conn_num_open(sconn) == 0)
 	    || (conn_idle_all(sconn, now->tv_sec))) {
 		DEBUG( 2, ( "Closing idle connection\n" ) );
-		if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 			deadtime_shutdown_v1(sconn->msg_ctx);
 		} else {
 			messaging_send(sconn->msg_ctx,

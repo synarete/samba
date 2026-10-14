@@ -557,7 +557,7 @@ static int shutdown_other_smbds(struct smbXsrv_session_global *session,
 		  "(IP %s)\n", (unsigned int)procid_to_pid(&pid),
 		  state->ip));
 
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		shutdown_other_smbds_v1(state->msg_ctx, pid);
 	} else {
 		messaging_send(state->msg_ctx, pid, MSG_SHUTDOWN, NULL);

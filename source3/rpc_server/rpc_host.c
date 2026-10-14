@@ -2133,7 +2133,7 @@ static void rpc_host_exit_worker(
 
 		SMB_ASSERT(w->num_associations == 0);
 
-		if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 			status = rpc_host_exit_worker_v1(server->host->msg_ctx,
 							 w->pid);
 		} else {

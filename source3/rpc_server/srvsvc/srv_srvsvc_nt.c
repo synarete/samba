@@ -1739,7 +1739,7 @@ WERROR _srvsvc_NetSessDel(struct pipes_struct *p,
 			become_root();
 		}
 
-		if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 			ntstat = srvsvc_netsessdel_shutdown_v1(
 				p->msg_ctx, session_list[snum].pid);
 		} else {
