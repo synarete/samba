@@ -2345,7 +2345,7 @@ static NTSTATUS smbd_send_ip_dropped(struct messaging_context *msg_ctx,
 {
 	DATA_BLOB blob;
 
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		return smbd_send_ip_dropped_v1(msg_ctx, addrstr);
 	}
 
