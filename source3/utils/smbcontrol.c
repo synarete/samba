@@ -599,7 +599,7 @@ static bool do_sleep(struct tevent_context *ev_ctx,
 	}
 	seconds = input;
 
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		return do_sleep_v1(msg_ctx, pid, seconds);
 	}
 
