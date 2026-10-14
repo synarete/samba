@@ -1080,7 +1080,7 @@ static bool do_debuglevel(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		return do_debuglevel_v1(ev_ctx, msg_ctx, pid);
 	}
 
