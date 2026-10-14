@@ -58,7 +58,7 @@ static void fss_smb_conf_updated_send_all_v1(struct messaging_context *msg_ctx)
 
 static void fss_smb_conf_updated_send_all(struct messaging_context *msg_ctx)
 {
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		fss_smb_conf_updated_send_all_v1(msg_ctx);
 	} else {
 		messaging_send_all(msg_ctx, MSG_SMB_CONF_UPDATED, NULL, 0);

@@ -2238,7 +2238,7 @@ static bool do_reload_config(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		return do_reload_config_v1(msg_ctx, pid);
 	}
 
