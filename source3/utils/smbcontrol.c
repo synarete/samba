@@ -1687,7 +1687,7 @@ static bool do_dmalloc_mark(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		return do_dmalloc_mark_v1(msg_ctx, pid);
 	}
 
@@ -1731,7 +1731,7 @@ static bool do_dmalloc_changed(struct tevent_context *ev_ctx,
 		return False;
 	}
 
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		return do_dmalloc_changed_v1(msg_ctx, pid);
 	}
 
