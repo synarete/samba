@@ -494,6 +494,10 @@ run_messaging_tests()
 	run_msg_test "smbcontrol num-children" "MSG_SMB_TELL_NUM_CHILDREN" \
 		smbcontrol_reply "^[0-9]+ children$" smbd num-children
 
+	# Inject SIGHUP: reload config
+	run_msg_test "smbcontrol inject hup" "MSG_SMB_INJECT_FAULT" \
+		smbcontrol_ok smbd inject hup
+
 	run_test check_no_error_logs \
 		"$STEP: check no messaging errors in logs (level $LEVEL)"
 }
