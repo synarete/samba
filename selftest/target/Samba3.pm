@@ -633,11 +633,6 @@ sub setup_clustered_samba
 			$require_mutexes = "" ;
 		}
 
-		my $mixed_version = "";
-		if ($mixed) {
-			$mixed_version = "allow unsafe cluster upgrade = yes";
-		}
-
 		my $member_options = "
        security = ADS
        workgroup = $dcvars->{DOMAIN}
@@ -651,7 +646,6 @@ sub setup_clustered_samba
        include = registry
        dbwrap_tdb_mutexes:* = yes
        ${require_mutexes}
-       ${mixed_version}
        sync machine password to keytab = $node_prefix/keytab0:account_name:machine_password:sync_kvno
        persistent handles = yes
        smb3 directory leases = yes
@@ -686,6 +680,66 @@ sub setup_clustered_samba
 			print "Provision node $i failed\n";
 			teardown_env($self, $ctdb_data);
 			return undef;
+		}
+
+		#
+		# A node of a mixed cluster runs the smb.conf the ssh backend
+		# of samba.tests.cluster_driver writes on a real node, SMB_CONF
+		# in python/samba/tests/cluster_driver_ssh.py, rather than the
+		# generic one provision() wrote: keep the two in step. Only the
+		# selftest plumbing after the include is extra. provision()
+		# still runs for the users, directories and keytab it creates.
+		#
+		if ($mixed) {
+			my $interfaces = Samba::get_interfaces_config($server_name);
+			my $conffile = $node_ret->{SERVERCONFFILE};
+
+			unless (open(CONF, ">$conffile")) {
+				warn("Unable to open $conffile");
+				teardown_env($self, $node_ret);
+				teardown_env($self, $ctdb_data);
+				return undef;
+			}
+			print CONF "[global]
+	workgroup = $dcvars->{DOMAIN}
+	realm = $dcvars->{REALM}
+	security = ADS
+
+	clustering = yes
+
+	netbios name = CLUSTEREDMEMBER
+
+	winbind use default domain = no
+	template shell = /bin/false
+	idmap config * : backend = tdb
+	idmap config * : range = 1000000-1999999
+	idmap config $dcvars->{DOMAIN} : backend = rid
+	idmap config $dcvars->{DOMAIN} : range = 2000000-2999999
+
+	include = $ENV{SRCDIR_ABS}/selftest/target/cfl_smb.conf
+
+	interfaces = $interfaces
+	bind interfaces only = yes
+	private dir = $node_prefix/private
+	binddns dir = $node_prefix/bind-dns
+	pid directory = $node_prefix/pid
+	lock directory = $node_prefix/lockdir
+	state directory = $node_prefix/lockdir
+	cache directory = $node_prefix/lockdir
+	ncalrpc dir = $node_prefix/ncalrpc
+	winbindd socket directory = $node_prefix/wbsock
+	nmbd:socket dir = $node_prefix/nmbd
+	log file = $node_prefix/logs/log.%m
+	logging = file
+	include system krb5 conf = no
+	password server = $dcvars->{SERVER}
+	rpc start on demand helpers = false
+	ctdbd socket = $socket
+
+[tmp]
+	path = $prefix/shared
+";
+			close(CONF);
 		}
 
 		my $registry_share_template = "$node_ret->{SERVERCONFFILE}.registry_share_template";
