@@ -83,6 +83,57 @@ static void do_inject_fault(struct imessaging_context *msg,
 	kill(getpid(), sig);
 }
 
+static void do_inject_fault_v1(struct imessaging_context *msg,
+			       void *private_data,
+			       uint32_t msg_type,
+			       struct server_id src,
+			       size_t num_fds,
+			       int *fds,
+			       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_inject_fault m = {};
+	enum ndr_err_code ndr_err;
+	struct server_id_buf tmp;
+
+	if (num_fds != 0) {
+		DBG_WARNING("Received %zu fds, ignoring message\n", num_fds);
+		goto out;
+	}
+
+	ndr_err = messaging_smb_inject_fault_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING(
+			"Invalid MSG_SMB_INJECT_FAULT_V1 from server %s: %s\n",
+			server_id_str_buf(src, &tmp),
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	if (m.info.info1.signal == -1) {
+		DBG_ERR("Process %s requested an internal failure, "
+			"calling exit(1)\n",
+			server_id_str_buf(src, &tmp));
+		TALLOC_FREE(frame);
+		exit(1);
+	}
+
+#if HAVE_STRSIGNAL
+	DBG_ERR("Process %s requested injection of signal %" PRId32 " (%s)\n",
+		server_id_str_buf(src, &tmp),
+		m.info.info1.signal,
+		strsignal(m.info.info1.signal));
+#else
+	DBG_ERR("Process %s requested injection of signal %" PRId32 "\n",
+		server_id_str_buf(src, &tmp),
+		m.info.info1.signal);
+#endif
+
+	kill(getpid(), m.info.info1.signal);
+out:
+	TALLOC_FREE(frame);
+}
+
 /*
  * Cause the current process to sleep for a specified number of seconds
  */
@@ -168,6 +219,14 @@ NTSTATUS imessaging_register_extra_handlers(struct imessaging_context *msg)
 
 	status = imessaging_register(
 	    msg, NULL, MSG_SMB_INJECT_FAULT, do_inject_fault);
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
+	}
+
+	status = imessaging_register(msg,
+				     NULL,
+				     MSG_SMB_INJECT_FAULT_V1,
+				     do_inject_fault_v1);
 	if (!NT_STATUS_IS_OK(status)) {
 		return status;
 	}
