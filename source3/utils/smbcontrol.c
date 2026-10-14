@@ -1628,7 +1628,7 @@ static bool do_ringbuflog(struct tevent_context *ev_ctx,
 		return false;
 	}
 
-	if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 		return do_ringbuflog_v1(ev_ctx, msg_ctx, pid);
 	}
 
