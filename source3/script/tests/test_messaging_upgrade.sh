@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 #
 # Test that a cluster can be upgraded from legacy messaging format (cluster
-# level 0.1, pre-NDR) to NDR-based messaging (level 1.0) without interrupting
+# level 1.0, pre-NDR) to NDR-based messaging (level 2.0) without interrupting
 # SMB service.
 #
 # The clusteredmember_msg_upgrade environment starts all three nodes with
-# cluster_level.tdb pre-seeded to level 0.1 so that smbd operates in
+# cluster_level.tdb pre-seeded to level 1.0 so that smbd operates in
 # legacy mode. Then test:
 #
-#  1. Verifies that all three nodes serve SMB traffic at level 0.1.
-#  2. Verifies file I/O (put/get/rm) on each node at level 0.1.
-#  3. Verifies that legacy messages works at level 0.1.
-#  4. Runs "net clusterlevel upgrade --apply" to raise the level to 1.0.
+#  1. Verifies that all three nodes serve SMB traffic at level 1.0.
+#  2. Verifies file I/O (put/get/rm) on each node at level 1.0.
+#  3. Verifies that legacy messages works at level 1.0.
+#  4. Runs "net clusterlevel upgrade --apply" to raise the level to 2.0.
 #  5. Verifies the new level is reported by "net clusterlevel show".
 #  6. Verifies that new NDR messages works fine.
-#  7. Verifies file I/O (put/get/rm) on each node at level 1.0.
+#  7. Verifies file I/O (put/get/rm) on each node at level 2.0.
 #  8. Verifies that all three nodes still serve SMB traffic after upgrade.
 #
 # Expected arguments:
@@ -564,223 +564,223 @@ wait_for_cluster_level()
 }
 
 # ===========================================================================
-# Step 1 – verify baseline operation at legacy level 0.1
+# Step 1 – verify baseline operation at legacy level 1.0
 # ===========================================================================
 
 # If the starting level is wrong the environment was not set up correctly;
 # all subsequent steps would be meaningless, so abort immediately.
 if ! cluster_level_show \
-	"step1: cluster level is 0.1 at startup" "0.1"; then
+	"step1: cluster level is 1.0 at startup" "1.0"; then
 	failed=$((failed + 1))
-	echo "FATAL: expected starting level 0.1 - aborting test" >&2
+	echo "FATAL: expected starting level 1.0 - aborting test" >&2
 	testok "$0" "$failed"
 	exit 1
 fi
 
-smbclient_ls "step1: smbclient node0 (level 0.1)" "$NODE0" \
+smbclient_ls "step1: smbclient node0 (level 1.0)" "$NODE0" \
 	|| failed=$((failed + 1))
-smbclient_ls "step1: smbclient node1 (level 0.1)" "$NODE1" \
+smbclient_ls "step1: smbclient node1 (level 1.0)" "$NODE1" \
 	|| failed=$((failed + 1))
-smbclient_ls "step1: smbclient node2 (level 0.1)" "$NODE2" \
+smbclient_ls "step1: smbclient node2 (level 1.0)" "$NODE2" \
 	|| failed=$((failed + 1))
 
 smbclient_put_get_rm \
-	"step1: I/O node0 put/get/rm (level 0.1)" "$NODE0" \
+	"step1: I/O node0 put/get/rm (level 1.0)" "$NODE0" \
 	|| failed=$((failed + 1))
 smbclient_put_get_rm \
-	"step1: I/O node1 put/get/rm (level 0.1)" "$NODE1" \
+	"step1: I/O node1 put/get/rm (level 1.0)" "$NODE1" \
 	|| failed=$((failed + 1))
 smbclient_put_get_rm \
-	"step1: I/O node2 put/get/rm (level 0.1)" "$NODE2" \
+	"step1: I/O node2 put/get/rm (level 1.0)" "$NODE2" \
 	|| failed=$((failed + 1))
 
-# At level 0.1 smbcontrol sends legacy messages (non NDR)
-smbcontrol_ping "step1: smbcontrol ping (legacy MSG_PING at level 0.1)" \
+# At level 1.0 smbcontrol sends legacy messages (non NDR)
+smbcontrol_ping "step1: smbcontrol ping (legacy MSG_PING at level 1.0)" \
 	|| failed=$((failed + 1))
 
-smbcontrol_debug "step1: smbcontrol debug (legacy MSG_DEBUG at level 0.1)" \
+smbcontrol_debug "step1: smbcontrol debug (legacy MSG_DEBUG at level 1.0)" \
 	"3" || failed=$((failed + 1))
 
 smbcontrol_debuglevel \
-	"step1: smbcontrol debuglevel (legacy MSG_REQ_DEBUGLEVEL at level 0.1)" \
+	"step1: smbcontrol debuglevel (legacy MSG_REQ_DEBUGLEVEL at level 1.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_profile \
-	"step1: smbcontrol profile off (legacy MSG_PROFILE at level 0.1)" \
+	"step1: smbcontrol profile off (legacy MSG_PROFILE at level 1.0)" \
 	"off" || failed=$((failed + 1))
 
 smbcontrol_profilelevel \
-	"step1: smbcontrol profilelevel (legacy MSG_REQ_PROFILELEVEL at level 0.1)" \
+	"step1: smbcontrol profilelevel (legacy MSG_REQ_PROFILELEVEL at level 1.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_pool_usage \
-	"step1: smbcontrol pool-usage (legacy MSG_REQ_POOL_USAGE at level 0.1)" \
+	"step1: smbcontrol pool-usage (legacy MSG_REQ_POOL_USAGE at level 1.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_dmalloc_mark \
-	"step1: smbcontrol dmalloc-mark (legacy MSG_REQ_DMALLOC_MARK at level 0.1)" \
+	"step1: smbcontrol dmalloc-mark (legacy MSG_REQ_DMALLOC_MARK at level 1.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_dmalloc_log_changed \
-	"step1: smbcontrol dmalloc-log-changed (legacy MSG_REQ_DMALLOC_LOG_CHANGED at level 0.1)" \
+	"step1: smbcontrol dmalloc-log-changed (legacy MSG_REQ_DMALLOC_LOG_CHANGED at level 1.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_idmap_delete \
-	"step1: smbcontrol idmap delete (legacy ID_CACHE_DELETE at level 0.1)" \
+	"step1: smbcontrol idmap delete (legacy ID_CACHE_DELETE at level 1.0)" \
 	"UID 0" || failed=$((failed + 1))
 
 smbcontrol_idmap_kill \
-	"step1: smbcontrol idmap kill (legacy ID_CACHE_KILL at level 0.1)" \
+	"step1: smbcontrol idmap kill (legacy ID_CACHE_KILL at level 1.0)" \
 	"UID 0" || failed=$((failed + 1))
 
 smbcontrol_reload_config \
-	"step1: smbcontrol reload-config (legacy MSG_SMB_CONF_UPDATED at level 0.1)" \
+	"step1: smbcontrol reload-config (legacy MSG_SMB_CONF_UPDATED at level 1.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_reload_certs \
-	"step1: smbcontrol reload-certs (legacy MSG_RELOAD_TLS_CERTIFICATES at level 0.1)" \
+	"step1: smbcontrol reload-certs (legacy MSG_RELOAD_TLS_CERTIFICATES at level 1.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_ringbuf_log \
-	"step1: smbcontrol ringbuf-log (legacy MSG_REQ_RINGBUF_LOG at level 0.1)" \
+	"step1: smbcontrol ringbuf-log (legacy MSG_REQ_RINGBUF_LOG at level 1.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_close_share \
-	"step1: smbcontrol close-share (legacy MSG_SMB_FORCE_TDIS at level 0.1)" \
+	"step1: smbcontrol close-share (legacy MSG_SMB_FORCE_TDIS at level 1.0)" \
 	"msg_upgrade_no_such_share" || failed=$((failed + 1))
 
 smbcontrol_close_denied_share \
-	"step1: smbcontrol close-denied-share (legacy MSG_SMB_FORCE_TDIS_DENIED at level 0.1)" \
+	"step1: smbcontrol close-denied-share (legacy MSG_SMB_FORCE_TDIS_DENIED at level 1.0)" \
 	"msg_upgrade_no_such_share" || failed=$((failed + 1))
 
 smbcontrol_kill_client_ip \
-	"step1: smbcontrol kill-client-ip (legacy MSG_SMB_KILL_CLIENT_IP at level 0.1)" \
+	"step1: smbcontrol kill-client-ip (legacy MSG_SMB_KILL_CLIENT_IP at level 1.0)" \
 	"192.0.2.1" || failed=$((failed + 1))
 
 smbcontrol_sleep \
-	"step1: smbcontrol sleep (legacy MSG_SMB_SLEEP at level 0.1)" \
+	"step1: smbcontrol sleep (legacy MSG_SMB_SLEEP at level 1.0)" \
 	"1" || failed=$((failed + 1))
 
 smbcontrol_num_children \
-	"step1: smbcontrol num-children (legacy MSG_SMB_TELL_NUM_CHILDREN at level 0.1)" \
+	"step1: smbcontrol num-children (legacy MSG_SMB_TELL_NUM_CHILDREN at level 1.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_inject_fault \
-	"step1: smbcontrol inject hup (legacy MSG_SMB_INJECT_FAULT at level 0.1)" \
+	"step1: smbcontrol inject hup (legacy MSG_SMB_INJECT_FAULT at level 1.0)" \
 	"hup" || failed=$((failed + 1))
 
 # ===========================================================================
-# Step 2 – upgrade cluster level from 0.1 to 1.0
+# Step 2 – upgrade cluster level from 1.0 to 2.0
 # ===========================================================================
 
-cluster_level_upgrade "step2: net clusterlevel upgrade --apply (0.1 -> 1.0)" \
+cluster_level_upgrade "step2: net clusterlevel upgrade --apply (1.0 -> 2.0)" \
 	|| failed=$((failed + 1))
 
 # Poll until all smbd processes have received MSG_CLUSTER_LEVEL_UPGRADED
 # and updated their in-memory cached level (up to 10 s).
-if ! wait_for_cluster_level "1.0"; then
-	echo "Timed out waiting for cluster level 1.0" >&2
+if ! wait_for_cluster_level "2.0"; then
+	echo "Timed out waiting for cluster level 2.0" >&2
 fi
 
-cluster_level_show "step2: cluster level is 1.0 after upgrade" "1.0" \
+cluster_level_show "step2: cluster level is 2.0 after upgrade" "2.0" \
 	|| failed=$((failed + 1))
 
 # ===========================================================================
-# Step 3 – verify NDR messaging and continued SMB service at level 1.0
+# Step 3 – verify NDR messaging and continued SMB service at level 2.0
 # ===========================================================================
 
-# At level 1.0 smbcontrol switches to NDR-encoded messages.  A reply
+# At level 2.0 smbcontrol switches to NDR-encoded messages.  A reply
 # means both the sender and receiver handle the new format correctly.
-smbcontrol_ping "step3: smbcontrol ping (NDR MSG_PING_V1 at level 1.0)" \
+smbcontrol_ping "step3: smbcontrol ping (NDR MSG_PING_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
-smbcontrol_debug "step3: smbcontrol debug (NDR MSG_DEBUG_V1 at level 1.0)" \
+smbcontrol_debug "step3: smbcontrol debug (NDR MSG_DEBUG_V1 at level 2.0)" \
 	"3" || failed=$((failed + 1))
 
 smbcontrol_debuglevel \
-	"step3: smbcontrol debuglevel (NDR MSG_REQ_DEBUGLEVEL_V1 at level 1.0)" \
+	"step3: smbcontrol debuglevel (NDR MSG_REQ_DEBUGLEVEL_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_profile \
-	"step3: smbcontrol profile off (NDR MSG_PROFILE_V1 at level 1.0)" \
+	"step3: smbcontrol profile off (NDR MSG_PROFILE_V1 at level 2.0)" \
 	"off" || failed=$((failed + 1))
 
 smbcontrol_profilelevel \
-	"step3: smbcontrol profilelevel (NDR MSG_REQ_PROFILELEVEL_V1 at level 1.0)" \
+	"step3: smbcontrol profilelevel (NDR MSG_REQ_PROFILELEVEL_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_pool_usage \
-	"step3: smbcontrol pool-usage (NDR MSG_REQ_POOL_USAGE_V1 at level 1.0)" \
+	"step3: smbcontrol pool-usage (NDR MSG_REQ_POOL_USAGE_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_dmalloc_mark \
-	"step3: smbcontrol dmalloc-mark (NDR MSG_REQ_DMALLOC_MARK_V1 at level 1.0)" \
+	"step3: smbcontrol dmalloc-mark (NDR MSG_REQ_DMALLOC_MARK_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_dmalloc_log_changed \
-	"step3: smbcontrol dmalloc-log-changed (NDR MSG_REQ_DMALLOC_LOG_CHANGED_V1 at level 1.0)" \
+	"step3: smbcontrol dmalloc-log-changed (NDR MSG_REQ_DMALLOC_LOG_CHANGED_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_idmap_delete \
-	"step3: smbcontrol idmap delete (NDR ID_CACHE_DELETE_V1 at level 1.0)" \
+	"step3: smbcontrol idmap delete (NDR ID_CACHE_DELETE_V1 at level 2.0)" \
 	"UID 0" || failed=$((failed + 1))
 
 smbcontrol_idmap_kill \
-	"step3: smbcontrol idmap kill (NDR ID_CACHE_KILL_V1 at level 1.0)" \
+	"step3: smbcontrol idmap kill (NDR ID_CACHE_KILL_V1 at level 2.0)" \
 	"UID 0" || failed=$((failed + 1))
 
 smbcontrol_reload_config \
-	"step3: smbcontrol reload-config (NDR MSG_SMB_CONF_UPDATED_V1 at level 1.0)" \
+	"step3: smbcontrol reload-config (NDR MSG_SMB_CONF_UPDATED_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_reload_certs \
-	"step3: smbcontrol reload-certs (NDR MSG_RELOAD_TLS_CERTIFICATES_V1 at level 1.0)" \
+	"step3: smbcontrol reload-certs (NDR MSG_RELOAD_TLS_CERTIFICATES_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_ringbuf_log \
-	"step3: smbcontrol ringbuf-log (NDR MSG_REQ_RINGBUF_LOG_V1 at level 1.0)" \
+	"step3: smbcontrol ringbuf-log (NDR MSG_REQ_RINGBUF_LOG_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_close_share \
-	"step3: smbcontrol close-share (NDR MSG_SMB_FORCE_TDIS_V1 at level 1.0)" \
+	"step3: smbcontrol close-share (NDR MSG_SMB_FORCE_TDIS_V1 at level 2.0)" \
 	"msg_upgrade_no_such_share" || failed=$((failed + 1))
 
 smbcontrol_close_denied_share \
-	"step3: smbcontrol close-denied-share (NDR MSG_SMB_FORCE_TDIS_DENIED_V1 at level 1.0)" \
+	"step3: smbcontrol close-denied-share (NDR MSG_SMB_FORCE_TDIS_DENIED_V1 at level 2.0)" \
 	"msg_upgrade_no_such_share" || failed=$((failed + 1))
 
 smbcontrol_kill_client_ip \
-	"step3: smbcontrol kill-client-ip (NDR MSG_SMB_KILL_CLIENT_IP_V1 at level 1.0)" \
+	"step3: smbcontrol kill-client-ip (NDR MSG_SMB_KILL_CLIENT_IP_V1 at level 2.0)" \
 	"192.0.2.1" || failed=$((failed + 1))
 
 smbcontrol_sleep \
-	"step3: smbcontrol sleep (NDR MSG_SMB_SLEEP_V1 at level 1.0)" \
+	"step3: smbcontrol sleep (NDR MSG_SMB_SLEEP_V1 at level 2.0)" \
 	"1" || failed=$((failed + 1))
 
 smbcontrol_num_children \
-	"step3: smbcontrol num-children (NDR MSG_SMB_TELL_NUM_CHILDREN_V1 at level 1.0)" \
+	"step3: smbcontrol num-children (NDR MSG_SMB_TELL_NUM_CHILDREN_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 smbcontrol_inject_fault \
-	"step3: smbcontrol inject hup (NDR MSG_SMB_INJECT_FAULT_V1 at level 1.0)" \
+	"step3: smbcontrol inject hup (NDR MSG_SMB_INJECT_FAULT_V1 at level 2.0)" \
 	"hup" || failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
-smbclient_ls "step3: smbclient node0 (level 1.0)" "$NODE0" \
+smbclient_ls "step3: smbclient node0 (level 2.0)" "$NODE0" \
 	|| failed=$((failed + 1))
-smbclient_ls "step3: smbclient node1 (level 1.0)" "$NODE1" \
+smbclient_ls "step3: smbclient node1 (level 2.0)" "$NODE1" \
 	|| failed=$((failed + 1))
-smbclient_ls "step3: smbclient node2 (level 1.0)" "$NODE2" \
+smbclient_ls "step3: smbclient node2 (level 2.0)" "$NODE2" \
 	|| failed=$((failed + 1))
 
 smbclient_put_get_rm \
-	"step3: I/O node0 put/get/rm (level 1.0)" "$NODE0" \
+	"step3: I/O node0 put/get/rm (level 2.0)" "$NODE0" \
 	|| failed=$((failed + 1))
 smbclient_put_get_rm \
-	"step3: I/O node1 put/get/rm (level 1.0)" "$NODE1" \
+	"step3: I/O node1 put/get/rm (level 2.0)" "$NODE1" \
 	|| failed=$((failed + 1))
 smbclient_put_get_rm \
-	"step3: I/O node2 put/get/rm (level 1.0)" "$NODE2" \
+	"step3: I/O node2 put/get/rm (level 2.0)" "$NODE2" \
 	|| failed=$((failed + 1))
 
 testok "$0" "$failed"

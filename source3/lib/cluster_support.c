@@ -41,8 +41,8 @@ bool cluster_support_available(void)
  * CFL_RANGE(__major, __minor_min, __minor_max)
  */
 #define CFL_ALL_RANGES \
-	CFL_RANGE(1, 0, 0) \
-	CFL_RANGE(0, 1, 1)
+	CFL_RANGE(2, 0, 0) \
+	CFL_RANGE(1, 0, 0)
 
 /*
  * Cross check for mistakes in the CFL_ALL_RANGES definition
@@ -350,9 +350,9 @@ void cluster_level_activate(const struct cluster_level_active *level)
 
 	/*
 	 * We should have at least the lowest version we support,
-	 * which is 0.1 (the legacy pre-NDR level).
+	 * which is 1.0 (the legacy pre-NDR level).
 	 */
-	SMB_ASSERT(CLUSTER_LEVEL_ACTIVE(0, 1));
+	SMB_ASSERT(CLUSTER_LEVEL_ACTIVE(1, 0));
 }
 
 /*
@@ -392,10 +392,10 @@ const struct cluster_level_active *cluster_level_global_active(void)
  *    // handle 5.2
  * } else if (CLUSTER_LEVEL_ACTIVATED(3, 0)) {
  *    // handle 3.0
+ * } else if (CLUSTER_LEVEL_ACTIVATED(2, 0)) {
+ *    // handle 2.0
  * } else if (CLUSTER_LEVEL_ACTIVATED(1, 0)) {
  *    // handle 1.0
- * } else if (CLUSTER_LEVEL_ACTIVATED(0, 1)) {
- *    // handle 0.1
  * } else {
  *    // error!!! 0.0 should never be active
  * }
