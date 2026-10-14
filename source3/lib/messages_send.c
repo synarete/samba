@@ -1117,3 +1117,55 @@ NTSTATUS messaging_send_tell_num_children(struct messaging_context *msg_ctx,
 	}
 	return messaging_send_tell_num_children_legacy(msg_ctx, dst);
 }
+
+/* MSG_SMB_INJECT_FAULT */
+
+static NTSTATUS messaging_send_inject_fault_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	int32_t sig)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_inject_fault msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_inject_fault_push(frame, &msg, sig, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send_one_or_all(msg_ctx,
+					   dst,
+					   MSG_SMB_INJECT_FAULT_V1,
+					   blob.data,
+					   blob.length);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_inject_fault_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	int32_t sig)
+{
+	return messaging_send_one_or_all(
+		msg_ctx,
+		dst,
+		MSG_SMB_INJECT_FAULT,
+		(const uint8_t *)&sig,
+		sizeof(int32_t));
+}
+
+NTSTATUS messaging_send_inject_fault(struct messaging_context *msg_ctx,
+				     struct server_id dst,
+				     int32_t sig)
+{
+	if (messaging_use_ndr_v1()) {
+		return messaging_send_inject_fault_v1(msg_ctx, dst, sig);
+	}
+	return messaging_send_inject_fault_legacy(msg_ctx, dst, sig);
+}
