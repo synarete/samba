@@ -488,6 +488,26 @@ smbcontrol_num_children()
 	return 0
 }
 
+# Send "smbcontrol smbd inject <signal>" to all smbd processes
+# (fire-and-forget).  SIGHUP is used since it only makes the smbd parent
+# reload its configuration, so the test environment is not disturbed.
+smbcontrol_inject_fault()
+{
+	local name="$1"
+	local signal="$2"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" smbd inject "$signal" 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -645,6 +665,10 @@ smbcontrol_num_children \
 	"step1: smbcontrol num-children (legacy MSG_SMB_TELL_NUM_CHILDREN at level 0.1)" \
 	|| failed=$((failed + 1))
 
+smbcontrol_inject_fault \
+	"step1: smbcontrol inject hup (legacy MSG_SMB_INJECT_FAULT at level 0.1)" \
+	"hup" || failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 0.1 to 1.0
 # ===========================================================================
@@ -736,6 +760,10 @@ smbcontrol_sleep \
 smbcontrol_num_children \
 	"step3: smbcontrol num-children (NDR MSG_SMB_TELL_NUM_CHILDREN_V1 at level 1.0)" \
 	|| failed=$((failed + 1))
+
+smbcontrol_inject_fault \
+	"step3: smbcontrol inject hup (NDR MSG_SMB_INJECT_FAULT_V1 at level 1.0)" \
+	"hup" || failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
 smbclient_ls "step3: smbclient node0 (level 1.0)" "$NODE0" \
