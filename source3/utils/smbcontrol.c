@@ -470,6 +470,30 @@ static bool do_daemon_stack_trace(struct tevent_context *ev_ctx,
 
 /* Inject a fault (fatal signal) into a running smbd */
 
+#if defined(DEVELOPER) || defined(ENABLE_SELFTEST)
+static bool do_inject_fault_v1(struct messaging_context *msg_ctx,
+			       const struct server_id pid,
+			       int32_t signal)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_inject_fault msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	ndr_err = messaging_smb_inject_fault_push(frame, &msg, signal, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(
+		msg_ctx, pid, MSG_SMB_INJECT_FAULT_V1, blob.data, blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+#endif
+
 static bool do_inject_fault(struct tevent_context *ev_ctx,
 			    struct messaging_context *msg_ctx,
 			    const struct server_id pid,
@@ -487,7 +511,7 @@ static bool do_inject_fault(struct tevent_context *ev_ctx,
 	return False;
 #else /* DEVELOPER || ENABLE_SELFTEST */
 	{
-		int sig = 0;
+		int32_t sig = 0;
 
 		if (strcmp(argv[1], "bus") == 0) {
 			sig = SIGBUS;
@@ -505,8 +529,15 @@ static bool do_inject_fault(struct tevent_context *ev_ctx,
 			return False;
 		}
 
-		return send_message(msg_ctx, pid, MSG_SMB_INJECT_FAULT,
-				    &sig, sizeof(int));
+		if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+			return do_inject_fault_v1(msg_ctx, pid, sig);
+		}
+
+		return send_message(msg_ctx,
+				    pid,
+				    MSG_SMB_INJECT_FAULT,
+				    &sig,
+				    sizeof(int32_t));
 	}
 #endif /* DEVELOPER || ENABLE_SELFTEST */
 }
