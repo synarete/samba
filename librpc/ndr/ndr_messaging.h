@@ -278,4 +278,15 @@ enum ndr_err_code messaging_smb_num_children_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_num_children *msg);
 
+enum ndr_err_code messaging_smb_inject_fault_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_inject_fault *msg,
+	int32_t signal,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_inject_fault_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_inject_fault *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */
