@@ -294,13 +294,13 @@ static bool do_idmap(struct tevent_context *ev,
 	}
 
 	if (strcmp(argv[1], "delete") == 0) {
-		if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 			return do_idmap_delete_v1(msg_ctx, pid, arg);
 		}
 		msg_type = ID_CACHE_DELETE;
 	}
 	else if (strcmp(argv[1], "kill") == 0) {
-		if (CLUSTER_LEVEL_ACTIVE(1, 0)) {
+		if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
 			return do_idmap_kill_v1(msg_ctx, pid, arg);
 		}
 		msg_type = ID_CACHE_KILL;
