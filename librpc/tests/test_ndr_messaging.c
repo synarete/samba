@@ -3426,6 +3426,161 @@ static void test_ndr_messaging_smb_num_children_bad_version(void **state)
 	talloc_free(mem_ctx);
 }
 
+/* MSG_SMB_INJECT_FAULT */
+/*
+ * Wire encoding of messaging_smb_inject_fault with signal = SIGSEGV (11):
+ *
+ *   01 00 00 00  - version (MESSAGING_SMB_INJECT_FAULT_VERSION_1 = 1, uint32
+ * LE) 00 00 00 00  - reserved (uint32 LE) 01 00 00 00  - union discriminant
+ * (uint32 LE) 0b 00 00 00  - signal = 11 (SIGSEGV, int32 LE)
+ */
+static const uint8_t smb_inject_fault_blob_segv[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0x0b,
+	0x00,
+	0x00,
+	0x00, /* signal = 11 (SIGSEGV) */
+};
+
+/*
+ * Wire encoding of messaging_smb_inject_fault with signal = -1 (internal):
+ *
+ *   01 00 00 00  - version
+ *   00 00 00 00  - reserved
+ *   01 00 00 00  - union discriminant
+ *   ff ff ff ff  - signal = -1
+ */
+static const uint8_t smb_inject_fault_blob_internal[] = {
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* version */
+	0x00,
+	0x00,
+	0x00,
+	0x00, /* reserved */
+	0x01,
+	0x00,
+	0x00,
+	0x00, /* union discriminant */
+	0xff,
+	0xff,
+	0xff,
+	0xff, /* signal = -1 */
+};
+
+static void test_ndr_messaging_smb_inject_fault_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_inject_fault msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, smb_inject_fault_blob_segv),
+		.length = sizeof(smb_inject_fault_blob_segv),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_inject_fault_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_INJECT_FAULT_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_int_equal(11, msg.info.info1.signal);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_inject_fault_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_inject_fault msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, smb_inject_fault_blob_segv),
+		.length = sizeof(smb_inject_fault_blob_segv),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_inject_fault_push(mem_ctx, &msg, 11, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_inject_fault_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_inject_fault orig = {};
+	struct messaging_smb_inject_fault decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_smb_inject_fault_push(mem_ctx, &orig, -1, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(smb_inject_fault_blob_internal), blob.length);
+	assert_memory_equal(smb_inject_fault_blob_internal,
+			    blob.data,
+			    sizeof(smb_inject_fault_blob_internal));
+
+	err = messaging_smb_inject_fault_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_INJECT_FAULT_VERSION_1,
+			 decoded.version);
+	assert_int_equal(-1, decoded.info.info1.signal);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_inject_fault_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_inject_fault msg = {};
+	uint8_t bad_blob[] = {
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* version = 2 (unknown) */
+		0x00,
+		0x00,
+		0x00,
+		0x00, /* reserved */
+		0x02,
+		0x00,
+		0x00,
+		0x00, /* union discriminant */
+		0x0b,
+		0x00,
+		0x00,
+		0x00, /* signal = 11 */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_inject_fault_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -3555,6 +3710,12 @@ int main(void)
 			test_ndr_messaging_smb_num_children_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_smb_num_children_bad_version),
+		cmocka_unit_test(test_ndr_messaging_smb_inject_fault_pull),
+		cmocka_unit_test(test_ndr_messaging_smb_inject_fault_push),
+		cmocka_unit_test(
+			test_ndr_messaging_smb_inject_fault_roundtrip),
+		cmocka_unit_test(
+			test_ndr_messaging_smb_inject_fault_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);

@@ -404,7 +404,7 @@ static bool do_inject_fault(struct tevent_context *ev_ctx,
 	return False;
 #else /* DEVELOPER || ENABLE_SELFTEST */
 	{
-		int sig = 0;
+		int32_t sig = 0;
 
 		if (strcmp(argv[1], "bus") == 0) {
 			sig = SIGBUS;
@@ -422,8 +422,8 @@ static bool do_inject_fault(struct tevent_context *ev_ctx,
 			return False;
 		}
 
-		return send_message(msg_ctx, pid, MSG_SMB_INJECT_FAULT,
-				    &sig, sizeof(int));
+		return NT_STATUS_IS_OK(
+			messaging_send_inject_fault(msg_ctx, pid, sig));
 	}
 #endif /* DEVELOPER || ENABLE_SELFTEST */
 }

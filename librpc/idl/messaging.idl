@@ -101,6 +101,7 @@ interface messaging
 		MSG_SMB_KERNEL_BREAK		= 0x030A,
 		MSG_SMB_FILE_RENAME		= 0x030B,
 		MSG_SMB_INJECT_FAULT		= 0x030C,
+		MSG_SMB_INJECT_FAULT_V1		= 0x130C,
 		/* MSG_SMB_BLOCKING_LOCK_CANCEL	= 0x030D,  Obsoleted */
 		MSG_SMB_NOTIFY			= 0x030E,
 		/* MSG_SMB_STAT_CACHE_DELETE	= 0x030F,  Obsoleted */
@@ -595,6 +596,26 @@ interface messaging
 		[value(0)] uint32                                 reserved;
 		[switch_is(version)] messaging_smb_num_childrenU info;
 	} messaging_smb_num_children;
+
+	/* MSG_SMB_INJECT_FAULT */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_INJECT_FAULT_VERSION_1 = 0x00000001
+	} messaging_smb_inject_fault_version_values;
+
+	typedef struct {
+		int32 signal;
+	} messaging_smb_inject_fault_v1;
+
+	typedef [switch_type(messaging_smb_inject_fault_version_values)] union {
+		[case(MESSAGING_SMB_INJECT_FAULT_VERSION_1)] messaging_smb_inject_fault_v1 info1;
+		[default] ;
+	} messaging_smb_inject_faultU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_INJECT_FAULT_VERSION_1)] messaging_smb_inject_fault_version_values version;
+		[value(0)] uint32                                   reserved;
+		[switch_is(version)] messaging_smb_inject_faultU info;
+	} messaging_smb_inject_fault;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 
