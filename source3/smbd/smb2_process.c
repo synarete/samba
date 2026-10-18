@@ -2260,6 +2260,10 @@ void smbd_process(struct tevent_context *ev_ctx,
 			   msg_force_tdis_denied_v1);
 	messaging_register(sconn->msg_ctx, sconn,
 			   MSG_SMB_CLOSE_FILE, msg_close_file);
+	messaging_register(sconn->msg_ctx,
+			   sconn,
+			   MSG_SMB_CLOSE_FILE_V1,
+			   msg_close_file_v1);
 	messaging_register(sconn->msg_ctx, sconn,
 			   MSG_SMB_FILE_RENAME, msg_file_was_renamed);
 

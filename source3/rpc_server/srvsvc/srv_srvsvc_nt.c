@@ -2992,6 +2992,32 @@ struct enum_file_close_state {
 	struct messaging_context *msg_ctx;
 };
 
+static NTSTATUS enum_file_close_fn_v1(struct messaging_context *msg_ctx,
+				      struct server_id pid,
+				      struct file_id id,
+				      uint64_t share_file_id)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_close_file msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_close_file_push(
+		frame, &msg, id, share_file_id, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("messaging_smb_close_file_push failed: %s\n",
+			    ndr_errstr(ndr_err));
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx, pid, MSG_SMB_CLOSE_FILE_V1, &blob);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
 static int enum_file_close_fn(struct file_id id,
 			      const struct share_mode_data *d,
 			      const struct share_mode_entry *e,
@@ -3021,6 +3047,19 @@ static int enum_file_close_fn(struct file_id id,
 	DBG_DEBUG("request to close file %s, %s\n", d->servicepath,
 		  share_mode_str(talloc_tos(), 0, &id, e));
 
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		status = enum_file_close_fn_v1(state->msg_ctx,
+					       e->pid,
+					       id,
+					       e->share_file_id);
+		if (!NT_STATUS_IS_OK(status)) {
+			state->r->out.result = ntstatus_to_werror(status);
+		} else {
+			state->r->out.result = WERR_OK;
+		}
+		return 0;
+	}
+
 	ndr_err = ndr_push_struct_into_fixed_blob(
 		&blob,
 		&msg,
@@ -3038,6 +3077,8 @@ static int enum_file_close_fn(struct file_id id,
 
 	if (!NT_STATUS_IS_OK(status)) {
 		state->r->out.result = ntstatus_to_werror(status);
+	} else {
+		state->r->out.result = WERR_OK;
 	}
 
 	return 0;

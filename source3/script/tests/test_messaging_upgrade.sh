@@ -506,6 +506,79 @@ smbcontrol_inject_fault()
 	return $st
 }
 
+# Send "net rpc file close <file_id>" to close an open file on a node via
+# srvsvc.
+net_rpc_file_close()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local testfile="msg_upgrade_close_${RANDOM}_$$.tmp"
+	local src="msg_upgrade_src_$$.tmp"
+	echo "messaging close file test" > "$src"
+
+	# Upload the test file to the share
+	run_as_root "$SMBCLIENT" "//$NODE0/$SHARE" \
+		-U"${DC_USERNAME}%${DC_PASSWORD}" \
+		-c "put $src $testfile" >/dev/null 2>&1
+	rm -f "$src"
+
+	# Start background smbclient to open the file and hold it open using !sleep
+	printf "open %s\\n!sleep 30\\n" "$testfile" | \
+		run_as_root "$SMBCLIENT" "//$NODE0/$SHARE" \
+			-U"${DC_USERNAME}%${DC_PASSWORD}" >/dev/null 2>&1 &
+	local client_pid=$!
+
+	# Give smbclient a chance to open the file
+	sleep 2
+
+	local file_id=""
+	local count=0
+	local out=""
+	while [ $count -lt 10 ]; do
+		out=$(run_as_root "$NET" "$CONF" -S "$NODE0" \
+			-U"${DC_USERNAME}%${DC_PASSWORD}" \
+			rpc file 2>&1)
+		file_id=$(echo "$out" | awk -v file="$testfile" '$0 ~ file {print $1; exit}')
+		if [ -n "$file_id" ]; then
+			break
+		fi
+		sleep 0.5
+		count=$((count + 1))
+	done
+
+	if [ -z "$file_id" ]; then
+		kill -9 "$client_pid" 2>/dev/null
+		wait "$client_pid" 2>/dev/null
+		run_as_root "$SMBCLIENT" "//$NODE0/$SHARE" \
+			-U"${DC_USERNAME}%${DC_PASSWORD}" \
+			-c "rm $testfile" >/dev/null 2>&1
+		echo "Could not find open file '$testfile' via net rpc file: $out" | \
+			subunit_fail_test "$name"
+		return 1
+	fi
+
+	local close_out
+	close_out=$(run_as_root "$NET" "$CONF" -S "$NODE0" \
+		-U"${DC_USERNAME}%${DC_PASSWORD}" \
+		rpc file close "$file_id" 2>&1)
+	local st=$?
+
+	kill -9 "$client_pid" 2>/dev/null
+	wait "$client_pid" 2>/dev/null
+
+	run_as_root "$SMBCLIENT" "//$NODE0/$SHARE" \
+		-U"${DC_USERNAME}%${DC_PASSWORD}" \
+		-c "rm $testfile" >/dev/null 2>&1
+
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$close_out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -667,6 +740,10 @@ smbcontrol_inject_fault \
 	"step1: smbcontrol inject hup (legacy MSG_SMB_INJECT_FAULT at level 1.0)" \
 	"hup" || failed=$((failed + 1))
 
+net_rpc_file_close \
+	"step1: net rpc file close (legacy MSG_SMB_CLOSE_FILE at level 1.0)" \
+	|| failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 1.0 to 2.0
 # ===========================================================================
@@ -762,6 +839,10 @@ smbcontrol_num_children \
 smbcontrol_inject_fault \
 	"step3: smbcontrol inject hup (NDR MSG_SMB_INJECT_FAULT_V1 at level 2.0)" \
 	"hup" || failed=$((failed + 1))
+
+net_rpc_file_close \
+	"step3: net rpc file close (NDR MSG_SMB_CLOSE_FILE_V1 at level 2.0)" \
+	|| failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
 smbclient_ls "step3: smbclient node0 (level 2.0)" "$NODE0" \
