@@ -136,6 +136,11 @@ void msg_close_file(struct messaging_context *msg_ctx,
 		    uint32_t msg_type,
 		    struct server_id server_id,
 		    DATA_BLOB *data);
+void msg_close_file_v1(struct messaging_context *msg_ctx,
+		       void *private_data,
+		       uint32_t msg_type,
+		       struct server_id server_id,
+		       DATA_BLOB *data);
 NTSTATUS delete_all_streams(struct files_struct *fsp,
 			    struct files_struct *dirfsp,
 			    struct smb_filename *fsp_atname);
