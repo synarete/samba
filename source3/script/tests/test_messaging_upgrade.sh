@@ -285,6 +285,66 @@ smbcontrol_pool_usage()
 	subunit_report "$name" "$st" "$out"
 }
 
+# Send "net rpc file close <file_id>" to close an open file on a node via
+# srvsvc.
+net_rpc_file_close()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local testfile="msg_upgrade_close_${RANDOM}_$$.tmp"
+	local src="msg_upgrade_src_$$.tmp"
+	echo "messaging close file test" >"$src"
+
+	# Upload the test file to the share
+	"${AS_ROOT[@]}" "$SMBCLIENT" "//$NODE0/$SHARE" "$CREDS" \
+		-c "put $src $testfile" >/dev/null 2>&1
+	rm -f "$src"
+
+	# Start background smbclient to open the file and hold it open using
+	# !sleep
+	printf 'open %s\n!sleep 30\n' "$testfile" |
+		"${AS_ROOT[@]}" "$SMBCLIENT" "//$NODE0/$SHARE" "$CREDS" \
+			>/dev/null 2>&1 &
+	local client_pid=$!
+
+	# Give smbclient a chance to open the file
+	sleep 2
+
+	local file_id=""
+	local out=""
+	local i
+	for ((i = 0; i < 10; i++)); do
+		out=$("${AS_ROOT[@]}" "$NET" "$CONF" -S "$NODE0" "$CREDS" \
+			rpc file 2>&1)
+		file_id=$(echo "$out" | awk -v file="$testfile" \
+			'index($0, file) {print $1; exit}')
+		if [ -n "$file_id" ]; then
+			break
+		fi
+		sleep 0.5
+	done
+
+	local st
+	if [ -z "$file_id" ]; then
+		out="Could not find open file '$testfile' via net rpc file:
+$out"
+		st=1
+	else
+		out=$("${AS_ROOT[@]}" "$NET" "$CONF" -S "$NODE0" "$CREDS" \
+			rpc file close "$file_id" 2>&1)
+		st=$?
+	fi
+
+	kill -9 "$client_pid" 2>/dev/null
+	wait "$client_pid" 2>/dev/null
+
+	"${AS_ROOT[@]}" "$SMBCLIENT" "//$NODE0/$SHARE" "$CREDS" \
+		-c "rm $testfile" >/dev/null 2>&1
+
+	subunit_report "$name" "$st" "$out"
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -443,6 +503,9 @@ run_messaging_tests()
 	# Inject SIGHUP: reload config
 	run_msg_test "smbcontrol inject hup" "MSG_SMB_INJECT_FAULT" \
 		smbcontrol_ok smbd inject hup
+
+	run_msg_test "net rpc file close" "MSG_SMB_CLOSE_FILE" \
+		net_rpc_file_close
 }
 
 # ===========================================================================
