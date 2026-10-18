@@ -1,6 +1,7 @@
 #include "idl_types.h"
 
 import "server_id.idl";
+import "file_id.idl";
 
 /*
    IDL structures for messaging code
@@ -114,6 +115,7 @@ interface messaging
 
 		/*Close a specific file given a share entry. */
 		MSG_SMB_CLOSE_FILE		= 0x0313,
+		MSG_SMB_CLOSE_FILE_V1		= 0x1313,
 
 		/* Trigger a notify cleanup run */
 		MSG_SMB_NOTIFY_CLEANUP		= 0x0314,
@@ -616,6 +618,27 @@ interface messaging
 		[value(0)] uint32                                   reserved;
 		[switch_is(version)] messaging_smb_inject_faultU info;
 	} messaging_smb_inject_fault;
+
+	/* MSG_SMB_CLOSE_FILE */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_CLOSE_FILE_VERSION_1 = 0x00000001
+	} messaging_smb_close_file_version_values;
+
+	typedef struct {
+		file_id id;
+		udlong  share_file_id;
+	} messaging_smb_close_file_v1;
+
+	typedef [switch_type(messaging_smb_close_file_version_values)] union {
+		[case(MESSAGING_SMB_CLOSE_FILE_VERSION_1)] messaging_smb_close_file_v1 info1;
+		[default] ;
+	} messaging_smb_close_fileU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_CLOSE_FILE_VERSION_1)] messaging_smb_close_file_version_values version;
+		[value(0)] uint32                                   reserved;
+		[switch_is(version)] messaging_smb_close_fileU info;
+	} messaging_smb_close_file;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 

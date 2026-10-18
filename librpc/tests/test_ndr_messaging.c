@@ -3581,6 +3581,163 @@ static void test_ndr_messaging_smb_inject_fault_bad_version(void **state)
 	talloc_free(mem_ctx);
 }
 
+/* MSG_SMB_CLOSE_FILE */
+/*
+ * Wire encoding of messaging_smb_close_file with
+ * id = {devid=0x0000000100000002, inode=0x0000000300000004, extid=0},
+ * share_file_id = 7:
+ *
+ *   01 00 00 00  - version (MESSAGING_SMB_CLOSE_FILE_VERSION_1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (uint32 LE)
+ *   02 00 00 00  - devid lo32 = 0x00000002
+ *   01 00 00 00  - devid hi32 = 0x00000001
+ *   04 00 00 00  - inode lo32 = 0x00000004
+ *   03 00 00 00  - inode hi32 = 0x00000003
+ *   00 00 00 00  - extid lo32 = 0
+ *   00 00 00 00  - extid hi32 = 0
+ *   07 00 00 00  - share_file_id lo32 = 7
+ *   00 00 00 00  - share_file_id hi32 = 0
+ */
+static const uint8_t smb_close_file_blob[] = {
+	0x01, 0x00, 0x00, 0x00, /* version */
+	0x00, 0x00, 0x00, 0x00, /* reserved */
+	0x01, 0x00, 0x00, 0x00, /* union discriminant */
+	0x02, 0x00, 0x00, 0x00, /* devid lo32 */
+	0x01, 0x00, 0x00, 0x00, /* devid hi32 */
+	0x04, 0x00, 0x00, 0x00, /* inode lo32 */
+	0x03, 0x00, 0x00, 0x00, /* inode hi32 */
+	0x00, 0x00, 0x00, 0x00, /* extid lo32 */
+	0x00, 0x00, 0x00, 0x00, /* extid hi32 */
+	0x07, 0x00, 0x00, 0x00, /* share_file_id lo32 */
+	0x00, 0x00, 0x00, 0x00, /* share_file_id hi32 */
+};
+
+/*
+ * Wire encoding of messaging_smb_close_file with all-zero file_id and
+ * share_file_id = 0 (used for roundtrip test):
+ */
+static const uint8_t smb_close_file_blob_zero[] = {
+	0x01, 0x00, 0x00, 0x00, /* version */
+	0x00, 0x00, 0x00, 0x00, /* reserved */
+	0x01, 0x00, 0x00, 0x00, /* union discriminant */
+	0x00, 0x00, 0x00, 0x00, /* devid lo32 */
+	0x00, 0x00, 0x00, 0x00, /* devid hi32 */
+	0x00, 0x00, 0x00, 0x00, /* inode lo32 */
+	0x00, 0x00, 0x00, 0x00, /* inode hi32 */
+	0x00, 0x00, 0x00, 0x00, /* extid lo32 */
+	0x00, 0x00, 0x00, 0x00, /* extid hi32 */
+	0x00, 0x00, 0x00, 0x00, /* share_file_id lo32 */
+	0x00, 0x00, 0x00, 0x00, /* share_file_id hi32 */
+};
+
+static void test_ndr_messaging_smb_close_file_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_close_file msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, smb_close_file_blob),
+		.length = sizeof(smb_close_file_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_close_file_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_CLOSE_FILE_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_int_equal(0x0000000100000002ULL, msg.info.info1.id.devid);
+	assert_int_equal(0x0000000300000004ULL, msg.info.info1.id.inode);
+	assert_int_equal(0, msg.info.info1.id.extid);
+	assert_int_equal(7, msg.info.info1.share_file_id);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_close_file_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_close_file msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const struct file_id id = {
+		.devid = 0x0000000100000002ULL,
+		.inode = 0x0000000300000004ULL,
+		.extid = 0,
+	};
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, smb_close_file_blob),
+		.length = sizeof(smb_close_file_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_close_file_push(mem_ctx, &msg, id, 7, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_close_file_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_close_file orig = {};
+	struct messaging_smb_close_file decoded = {};
+	const struct file_id id = {
+		.devid = 0,
+		.inode = 0,
+		.extid = 0,
+	};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_smb_close_file_push(mem_ctx, &orig, id, 0, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(smb_close_file_blob_zero), blob.length);
+	assert_memory_equal(smb_close_file_blob_zero,
+			    blob.data,
+			    sizeof(smb_close_file_blob_zero));
+
+	err = messaging_smb_close_file_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_CLOSE_FILE_VERSION_1, decoded.version);
+	assert_int_equal(0, decoded.info.info1.id.devid);
+	assert_int_equal(0, decoded.info.info1.id.inode);
+	assert_int_equal(0, decoded.info.info1.id.extid);
+	assert_int_equal(0, decoded.info.info1.share_file_id);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_close_file_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_close_file msg = {};
+	uint8_t bad_blob[] = {
+		0x02, 0x00, 0x00, 0x00, /* version = 2 (unknown) */
+		0x00, 0x00, 0x00, 0x00, /* reserved */
+		0x02, 0x00, 0x00, 0x00, /* union discriminant = 2 */
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_close_file_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -3716,6 +3873,11 @@ int main(void)
 			test_ndr_messaging_smb_inject_fault_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_smb_inject_fault_bad_version),
+		cmocka_unit_test(test_ndr_messaging_smb_close_file_pull),
+		cmocka_unit_test(test_ndr_messaging_smb_close_file_push),
+		cmocka_unit_test(test_ndr_messaging_smb_close_file_roundtrip),
+		cmocka_unit_test(
+			test_ndr_messaging_smb_close_file_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);

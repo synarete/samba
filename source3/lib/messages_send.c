@@ -22,6 +22,7 @@
 
 #include "includes.h"
 #include "lib/util/server_id.h"
+#include "librpc/gen_ndr/ndr_open_files.h"
 #include "messages_send.h"
 
 /*
@@ -1097,4 +1098,76 @@ NTSTATUS messaging_send_inject_fault(struct messaging_context *msg_ctx,
 		return messaging_send_inject_fault_v1(msg_ctx, dst, sig);
 	}
 	return messaging_send_inject_fault_legacy(msg_ctx, dst, sig);
+}
+
+/* MSG_SMB_CLOSE_FILE */
+
+static NTSTATUS messaging_send_close_file_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct file_id id,
+	uint64_t share_file_id)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_close_file msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_close_file_push(
+		frame, &msg, id, share_file_id, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    dst,
+				    MSG_SMB_CLOSE_FILE_V1,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_close_file_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct file_id id,
+	uint64_t share_file_id)
+{
+	struct oplock_break_message brk = {
+		.id = id,
+		.share_file_id = share_file_id,
+	};
+	uint8_t msgbuf[33];
+	DATA_BLOB blob = { .data = msgbuf, .length = sizeof(msgbuf) };
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_push_struct_into_fixed_blob(
+		&blob,
+		&brk,
+		(ndr_push_flags_fn_t)ndr_push_oplock_break_message);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	return messaging_send_buf(msg_ctx,
+				  dst,
+				  MSG_SMB_CLOSE_FILE,
+				  blob.data,
+				  blob.length);
+}
+
+NTSTATUS messaging_send_close_file(struct messaging_context *msg_ctx,
+				   struct server_id dst,
+				   struct file_id id,
+				   uint64_t share_file_id)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_close_file_v1(
+			msg_ctx, dst, id, share_file_id);
+	}
+	return messaging_send_close_file_legacy(
+		msg_ctx, dst, id, share_file_id);
 }
