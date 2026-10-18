@@ -23,6 +23,7 @@
 #define __LIBRPC_NDR_NDR_MESSAGING_H__
 
 #include "librpc/gen_ndr/messaging.h"
+#include "librpc/gen_ndr/file_id.h"
 
 enum ndr_err_code messaging_debug_push(TALLOC_CTX *mem_ctx,
 				       const struct messaging_debug *msg,
@@ -288,5 +289,17 @@ enum ndr_err_code messaging_smb_inject_fault_pull(
 	TALLOC_CTX *mem_ctx,
 	const DATA_BLOB *blob,
 	struct messaging_smb_inject_fault *msg);
+
+enum ndr_err_code messaging_smb_close_file_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_close_file *msg,
+	struct file_id id,
+	uint64_t share_file_id,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_close_file_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_close_file *msg);
 
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */

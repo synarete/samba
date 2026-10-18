@@ -2948,14 +2948,8 @@ static int enum_file_close_fn(struct file_id id,
 {
 	struct enum_file_close_state *state =
 		(struct enum_file_close_state *)private_data;
-	uint32_t fid = (((uint32_t)(procid_to_pid(&e->pid))<<16) | e->share_file_id);
-	struct oplock_break_message msg = {
-		.id = id,
-		.share_file_id = e->share_file_id,
-	};
-	enum ndr_err_code ndr_err;
-	uint8_t msgbuf[33];
-	DATA_BLOB blob = {.data = msgbuf, .length = sizeof(msgbuf)};
+	uint32_t fid = (((uint32_t)(procid_to_pid(&e->pid))<<16) |
+			e->share_file_id);
 	NTSTATUS status;
 
 	if (fid != state->r->in.fid) {
@@ -2970,23 +2964,13 @@ static int enum_file_close_fn(struct file_id id,
 	DBG_DEBUG("request to close file %s, %s\n", d->servicepath,
 		  share_mode_str(talloc_tos(), 0, &id, e));
 
-	ndr_err = ndr_push_struct_into_fixed_blob(
-		&blob,
-		&msg,
-		(ndr_push_flags_fn_t)ndr_push_oplock_break_message);
-	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		DBG_WARNING("ndr_push_oplock_break_message failed: %s\n",
-			    ndr_errstr(ndr_err));
-		status = ndr_map_error2ntstatus(ndr_err);
-	} else {
-		status = messaging_send(state->msg_ctx,
-					e->pid,
-					MSG_SMB_CLOSE_FILE,
-					&blob);
-	}
+	status = messaging_send_close_file(
+		state->msg_ctx, e->pid, id, e->share_file_id);
 
 	if (!NT_STATUS_IS_OK(status)) {
 		state->r->out.result = ntstatus_to_werror(status);
+	} else {
+		state->r->out.result = WERR_OK;
 	}
 
 	return 0;

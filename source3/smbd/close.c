@@ -33,6 +33,7 @@
 #include "auth.h"
 #include "messages.h"
 #include "librpc/gen_ndr/ndr_open_files.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "lib/util/tevent_ntstatus.h"
 #include "source3/smbd/dir.h"
 
@@ -1517,4 +1518,36 @@ void msg_close_file(struct messaging_context *msg_ctx,
 		return;
 	}
 	close_file_free(NULL, &fsp, NORMAL_CLOSE);
+}
+
+void msg_close_file_v1(struct messaging_context *msg_ctx,
+		       void *private_data,
+		       uint32_t msg_type,
+		       struct server_id server_id,
+		       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_close_file m = {};
+	enum ndr_err_code ndr_err;
+	files_struct *fsp = NULL;
+	struct smbd_server_connection *sconn = talloc_get_type_abort(
+		private_data, struct smbd_server_connection);
+
+	ndr_err = messaging_smb_close_file_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_smb_close_file_pull failed: %s\n",
+			  ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	fsp = file_find_dif(sconn,
+			    m.info.info1.id,
+			    m.info.info1.share_file_id);
+	if (!fsp) {
+		DBG_DEBUG("msg_close_file_v1: failed to find file.\n");
+		goto out;
+	}
+	close_file_free(NULL, &fsp, NORMAL_CLOSE);
+out:
+	TALLOC_FREE(frame);
 }
