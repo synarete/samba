@@ -124,4 +124,12 @@ NTSTATUS messaging_send_close_file(struct messaging_context *msg_ctx,
 				   struct file_id id,
 				   uint64_t share_file_id);
 
+NTSTATUS messaging_send_file_rename(struct messaging_context *msg_ctx,
+				    struct server_id dst,
+				    struct file_id id,
+				    uint64_t share_file_id,
+				    const char *servicepath,
+				    const char *base_name,
+				    const char *stream_name);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */

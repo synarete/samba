@@ -37,6 +37,7 @@
 #include "auth.h"
 #include "serverid.h"
 #include "messages.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "source3/lib/dbwrap/dbwrap_watch.h"
 #include "source3/lib/server_id_watch.h"
 #include "locking/leases_db.h"
@@ -5652,8 +5653,107 @@ void msg_file_was_renamed(struct messaging_context *msg_ctx,
 			  fsp_str_dbg(fsp),
 			  smb_fname_str_dbg(smb_fname));
 	}
- out:
+out:
 	TALLOC_FREE(msg);
+}
+
+void msg_file_was_renamed_v1(struct messaging_context *msg_ctx,
+			     void *private_data,
+			     uint32_t msg_type,
+			     struct server_id src,
+			     DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_file_rename m = {};
+	enum ndr_err_code ndr_err;
+	files_struct *fsp = NULL;
+	struct smb_filename *smb_fname = NULL;
+	const char *stream_name = NULL;
+	struct smbd_server_connection *sconn = talloc_get_type_abort(
+		private_data, struct smbd_server_connection);
+
+	ndr_err = messaging_smb_file_rename_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_smb_file_rename_pull failed: %s\n",
+			  ndr_errstr(ndr_err));
+		goto out;
+	}
+	if (DEBUGLEVEL >= 10) {
+		struct server_id_buf buf;
+		DBG_DEBUG("Got rename message from %s\n",
+			  server_id_str_buf(src, &buf));
+		NDR_PRINT_DEBUG(messaging_smb_file_rename, &m);
+	}
+
+	stream_name = m.info.info1.stream_name;
+	/* stream_name must always be NULL if there is no stream. */
+	if ((stream_name != NULL) && (stream_name[0] == '\0')) {
+		stream_name = NULL;
+	}
+
+	smb_fname = synthetic_smb_fname(
+		frame, m.info.info1.base_name, stream_name, NULL, 0, 0);
+	if (smb_fname == NULL) {
+		DBG_DEBUG("synthetic_smb_fname failed\n");
+		goto out;
+	}
+
+	fsp = file_find_dif(sconn,
+			    m.info.info1.id,
+			    m.info.info1.share_file_id);
+	if (fsp == NULL) {
+		DBG_DEBUG("fsp not found\n");
+		goto out;
+	}
+
+	if (strcmp(fsp->conn->connectpath, m.info.info1.servicepath) == 0) {
+		SMB_STRUCT_STAT fsp_orig_sbuf;
+		bool ok;
+
+		DBG_DEBUG("renaming file %s from %s -> %s\n",
+			  fsp_fnum_dbg(fsp),
+			  fsp_str_dbg(fsp),
+			  smb_fname_str_dbg(smb_fname));
+
+		/*
+		 * The incoming smb_fname here has an
+		 * invalid stat struct from synthetic_smb_fname()
+		 * above.
+		 * Preserve the existing stat from the
+		 * open fsp after fsp_set_smb_fname()
+		 * overwrites with the invalid stat.
+		 *
+		 * (We could just copy this into
+		 * smb_fname->st, but keep this code
+		 * identical to the fix in rename_open_files()
+		 * for clarity.
+		 *
+		 * We will do an fstat before returning
+		 * any of this metadata to the client anyway.
+		 */
+		fsp_orig_sbuf = fsp->fsp_name->st;
+		ok = fsp_set_smb_fname(fsp, smb_fname);
+		if (!ok) {
+			DBG_DEBUG("fsp_set_smb_fname failed\n");
+		}
+		fsp->fsp_name->st = fsp_orig_sbuf;
+	} else {
+		/* TODO. JRA. */
+		/*
+		 * Now we have the complete path we can work out if
+		 * this is actually within this share and adjust
+		 * newname accordingly.
+		 */
+		DBG_DEBUG("share mismatch (sharepath %s not sharepath %s) "
+			  "%s from %s -> %s\n",
+			  fsp->conn->connectpath,
+			  m.info.info1.servicepath,
+			  fsp_fnum_dbg(fsp),
+			  fsp_str_dbg(fsp),
+			  smb_fname_str_dbg(smb_fname));
+	}
+out:
+	TALLOC_FREE(frame);
 }
 
 /*

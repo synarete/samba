@@ -302,4 +302,19 @@ enum ndr_err_code messaging_smb_close_file_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_close_file *msg);
 
+enum ndr_err_code messaging_smb_file_rename_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_file_rename *msg,
+	struct file_id id,
+	uint64_t share_file_id,
+	const char *servicepath,
+	const char *base_name,
+	const char *stream_name,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_file_rename_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_file_rename *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */
