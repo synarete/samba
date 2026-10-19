@@ -132,4 +132,7 @@ NTSTATUS messaging_send_file_rename(struct messaging_context *msg_ctx,
 				    const char *base_name,
 				    const char *stream_name);
 
+NTSTATUS messaging_send_notify_cleanup(struct messaging_context *msg_ctx,
+				       struct server_id dst);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */

@@ -1097,6 +1097,12 @@ static bool cleanupd_init_recv(struct tevent_req *req)
 	return state->ok;
 }
 
+static NTSTATUS smbd_send_notify_cleanup(struct messaging_context *msg_ctx,
+					 struct server_id dst)
+{
+	return messaging_send_notify_cleanup(msg_ctx, dst);
+}
+
 static void cleanupd_started(struct tevent_req *req)
 {
 	bool ok;
@@ -1111,10 +1117,7 @@ static void cleanupd_started(struct tevent_req *req)
 		return;
 	}
 
-	status = messaging_send(parent->msg_ctx,
-				parent->cleanupd,
-				MSG_SMB_NOTIFY_CLEANUP,
-				NULL);
+	status = smbd_send_notify_cleanup(parent->msg_ctx, parent->cleanupd);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_ERR("messaging_send returned %s\n",
 			nt_errstr(status));
@@ -1401,10 +1404,8 @@ static void remove_child_pid(struct smbd_parent_context *parent,
 	}
 
 	if (!server_id_is_disconnected(&parent->cleanupd)) {
-		status = messaging_send(parent->msg_ctx,
-					parent->cleanupd,
-					MSG_SMB_NOTIFY_CLEANUP,
-					NULL);
+		status = smbd_send_notify_cleanup(parent->msg_ctx,
+						  parent->cleanupd);
 		if (!NT_STATUS_IS_OK(status)) {
 			DBG_ERR("messaging_send returned %s\n",
 				nt_errstr(status));

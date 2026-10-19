@@ -1697,7 +1697,8 @@ static bool do_notify_cleanup(struct tevent_context *ev_ctx,
 		fprintf(stderr, "Usage: smbcontrol smbd notify-cleanup\n");
 		return false;
 	}
-	return send_message(msg_ctx, pid, MSG_SMB_NOTIFY_CLEANUP, NULL, 0);
+
+	return NT_STATUS_IS_OK(messaging_send_notify_cleanup(msg_ctx, pid));
 }
 
 /* A list of message type supported */

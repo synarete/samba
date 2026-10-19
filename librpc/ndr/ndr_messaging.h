@@ -317,4 +317,14 @@ enum ndr_err_code messaging_smb_file_rename_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_file_rename *msg);
 
+enum ndr_err_code messaging_smb_notify_cleanup_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_cleanup *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_cleanup_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_cleanup *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */
