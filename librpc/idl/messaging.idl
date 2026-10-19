@@ -101,6 +101,7 @@ interface messaging
 		/* MSG_SMB_OPEN_RETRY		= 0x0309,  Obsoleted */
 		MSG_SMB_KERNEL_BREAK		= 0x030A,
 		MSG_SMB_FILE_RENAME		= 0x030B,
+		MSG_SMB_FILE_RENAME_V1		= 0x130B,
 		MSG_SMB_INJECT_FAULT		= 0x030C,
 		MSG_SMB_INJECT_FAULT_V1		= 0x130C,
 		/* MSG_SMB_BLOCKING_LOCK_CANCEL	= 0x030D,  Obsoleted */
@@ -639,6 +640,30 @@ interface messaging
 		[value(0)] uint32                                   reserved;
 		[switch_is(version)] messaging_smb_close_fileU info;
 	} messaging_smb_close_file;
+
+	/* MSG_SMB_FILE_RENAME */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_FILE_RENAME_VERSION_1 = 0x00000001
+	} messaging_smb_file_rename_version_values;
+
+	typedef struct {
+		file_id    id;
+		udlong     share_file_id;
+		utf8string servicepath;
+		utf8string base_name;
+		utf8string stream_name;
+	} messaging_smb_file_rename_v1;
+
+	typedef [switch_type(messaging_smb_file_rename_version_values)] union {
+		[case(MESSAGING_SMB_FILE_RENAME_VERSION_1)] messaging_smb_file_rename_v1 info1;
+		[default] ;
+	} messaging_smb_file_renameU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_FILE_RENAME_VERSION_1)] messaging_smb_file_rename_version_values version;
+		[value(0)] uint32                                     reserved;
+		[switch_is(version)] messaging_smb_file_renameU info;
+	} messaging_smb_file_rename;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 

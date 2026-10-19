@@ -51,6 +51,8 @@
 #include "messages.h"
 #include "util_tdb.h"
 #include "../librpc/gen_ndr/ndr_open_files.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 #include "librpc/gen_ndr/ndr_file_id.h"
 #include "librpc/gen_ndr/ndr_leases_db.h"
 #include "locking/leases_db.h"
@@ -492,6 +494,44 @@ static bool rename_lease_fn(struct share_mode_entry *e,
  Based on an initial code idea from SATOH Fumiyasu <fumiya@samba.gr.jp>
 ********************************************************************/
 
+static bool rename_share_filename_fn_v1(struct messaging_context *msg_ctx,
+					struct server_id pid,
+					struct file_id id,
+					uint64_t share_file_id,
+					const char *servicepath,
+					const char *base_name,
+					const char *stream_name)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_file_rename m = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_file_rename_push(frame,
+						 &m,
+						 id,
+						 share_file_id,
+						 servicepath,
+						 base_name,
+						 stream_name,
+						 &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_smb_file_rename_push failed: %s\n",
+			  ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return false;
+	}
+
+	status = messaging_send(msg_ctx, pid, MSG_SMB_FILE_RENAME_V1, &blob);
+	if (!NT_STATUS_IS_OK(status)) {
+		DBG_DEBUG("messaging_send failed: %s\n", nt_errstr(status));
+	}
+
+	TALLOC_FREE(frame);
+	return false;
+}
+
 static bool rename_share_filename_fn(
 	struct share_mode_entry *e,
 	bool *modified,
@@ -518,6 +558,16 @@ static bool rename_share_filename_fn(
 	}
 
 	state->msg.share_file_id = e->share_file_id;
+
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return rename_share_filename_fn_v1(state->msg_ctx,
+						   e->pid,
+						   state->msg.id,
+						   state->msg.share_file_id,
+						   state->msg.servicepath,
+						   state->msg.base_name,
+						   state->msg.stream_name);
+	}
 
 	ndr_err = ndr_push_struct_blob(
 		&blob,
