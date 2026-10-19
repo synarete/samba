@@ -49,8 +49,11 @@
 #include "../libcli/security/security.h"
 #include "serverid.h"
 #include "messages.h"
+#include "messages_send.h"
 #include "util_tdb.h"
 #include "../librpc/gen_ndr/ndr_open_files.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 #include "librpc/gen_ndr/ndr_file_id.h"
 #include "librpc/gen_ndr/ndr_leases_db.h"
 #include "locking/leases_db.h"
@@ -498,8 +501,6 @@ static bool rename_share_filename_fn(
 	void *private_data)
 {
 	struct rename_share_filename_state *state = private_data;
-	DATA_BLOB blob;
-	enum ndr_err_code ndr_err;
 	bool ok;
 
 	/*
@@ -519,26 +520,13 @@ static bool rename_share_filename_fn(
 
 	state->msg.share_file_id = e->share_file_id;
 
-	ndr_err = ndr_push_struct_blob(
-		&blob,
-		talloc_tos(),
-		&state->msg,
-		(ndr_push_flags_fn_t)ndr_push_file_rename_message);
-	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		DBG_DEBUG("ndr_push_file_rename_message failed: %s\n",
-			  ndr_errstr(ndr_err));
-		return false;
-	}
-	if (DEBUGLEVEL >= 10) {
-		struct server_id_buf tmp;
-		DBG_DEBUG("sending rename message to %s\n",
-			  server_id_str_buf(e->pid, &tmp));
-		NDR_PRINT_DEBUG(file_rename_message, &state->msg);
-	}
-
-	messaging_send(state->msg_ctx, e->pid, MSG_SMB_FILE_RENAME, &blob);
-
-	TALLOC_FREE(blob.data);
+	messaging_send_file_rename(state->msg_ctx,
+				   e->pid,
+				   state->msg.id,
+				   state->msg.share_file_id,
+				   state->msg.servicepath,
+				   state->msg.base_name,
+				   state->msg.stream_name);
 
 	return false;
 }

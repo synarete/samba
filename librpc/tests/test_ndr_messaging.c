@@ -3738,6 +3738,189 @@ static void test_ndr_messaging_smb_close_file_bad_version(void **state)
 	talloc_free(mem_ctx);
 }
 
+/* MSG_SMB_FILE_RENAME */
+/*
+ * Wire encoding of messaging_smb_file_rename with
+ * id = {devid=0x0000000100000002, inode=0x0000000300000004, extid=0},
+ * share_file_id = 7, servicepath = "/data", base_name = "test.txt",
+ * stream_name = ":stream":
+ *
+ *   01 00 00 00  - version (MESSAGING_SMB_FILE_RENAME_VERSION_1, uint32 LE)
+ *   00 00 00 00  - reserved (uint32 LE)
+ *   01 00 00 00  - union discriminant (uint32 LE)
+ *   02 00 00 00  - devid lo32 = 0x00000002
+ *   01 00 00 00  - devid hi32 = 0x00000001
+ *   04 00 00 00  - inode lo32 = 0x00000004
+ *   03 00 00 00  - inode hi32 = 0x00000003
+ *   00 00 00 00  - extid lo32 = 0
+ *   00 00 00 00  - extid hi32 = 0
+ *   07 00 00 00  - share_file_id lo32 = 7
+ *   00 00 00 00  - share_file_id hi32 = 0
+ *   2f 64 61 74  - servicepath: "/dat"
+ *   61 00        - servicepath: "a\0"
+ *   74 65 73 74  - base_name: "test"
+ *   2e 74 78 74  - base_name: ".txt"
+ *   00           - base_name: "\0"
+ *   3a 73 74 72  - stream_name: ":str"
+ *   65 61 6d 00  - stream_name: "eam\0"
+ */
+static const uint8_t smb_file_rename_blob[] = {
+	0x01, 0x00, 0x00, 0x00,		    /* version */
+	0x00, 0x00, 0x00, 0x00,		    /* reserved */
+	0x01, 0x00, 0x00, 0x00,		    /* union discriminant */
+	0x02, 0x00, 0x00, 0x00,		    /* devid lo32 */
+	0x01, 0x00, 0x00, 0x00,		    /* devid hi32 */
+	0x04, 0x00, 0x00, 0x00,		    /* inode lo32 */
+	0x03, 0x00, 0x00, 0x00,		    /* inode hi32 */
+	0x00, 0x00, 0x00, 0x00,		    /* extid lo32 */
+	0x00, 0x00, 0x00, 0x00,		    /* extid hi32 */
+	0x07, 0x00, 0x00, 0x00,		    /* share_file_id lo32 */
+	0x00, 0x00, 0x00, 0x00,		    /* share_file_id hi32 */
+	0x2f, 0x64, 0x61, 0x74, 0x61, 0x00, /* servicepath: "/data\0" */
+	0x74, 0x65, 0x73, 0x74, 0x2e, 0x74,
+	0x78, 0x74, 0x00, /* base_name: "test.txt\0" */
+	0x3a, 0x73, 0x74, 0x72, 0x65, 0x61,
+	0x6d, 0x00, /* stream_name: ":stream\0" */
+};
+
+/*
+ * Wire encoding of messaging_smb_file_rename with all-zero file_id,
+ * share_file_id = 0, servicepath = "/data", base_name = "test.txt",
+ * stream_name = "" (used for roundtrip test):
+ */
+static const uint8_t smb_file_rename_blob_nostream[] = {
+	0x01, 0x00, 0x00, 0x00,		    /* version */
+	0x00, 0x00, 0x00, 0x00,		    /* reserved */
+	0x01, 0x00, 0x00, 0x00,		    /* union discriminant */
+	0x00, 0x00, 0x00, 0x00,		    /* devid lo32 */
+	0x00, 0x00, 0x00, 0x00,		    /* devid hi32 */
+	0x00, 0x00, 0x00, 0x00,		    /* inode lo32 */
+	0x00, 0x00, 0x00, 0x00,		    /* inode hi32 */
+	0x00, 0x00, 0x00, 0x00,		    /* extid lo32 */
+	0x00, 0x00, 0x00, 0x00,		    /* extid hi32 */
+	0x00, 0x00, 0x00, 0x00,		    /* share_file_id lo32 */
+	0x00, 0x00, 0x00, 0x00,		    /* share_file_id hi32 */
+	0x2f, 0x64, 0x61, 0x74, 0x61, 0x00, /* servicepath: "/data\0" */
+	0x74, 0x65, 0x73, 0x74, 0x2e, 0x74,
+	0x78, 0x74, 0x00, /* base_name: "test.txt\0" */
+	0x00,		  /* stream_name: "\0" */
+};
+
+static void test_ndr_messaging_smb_file_rename_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_file_rename msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, smb_file_rename_blob),
+		.length = sizeof(smb_file_rename_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_file_rename_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_FILE_RENAME_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_int_equal(0x0000000100000002ULL, msg.info.info1.id.devid);
+	assert_int_equal(0x0000000300000004ULL, msg.info.info1.id.inode);
+	assert_int_equal(0, msg.info.info1.id.extid);
+	assert_int_equal(7, msg.info.info1.share_file_id);
+	assert_string_equal("/data", msg.info.info1.servicepath);
+	assert_string_equal("test.txt", msg.info.info1.base_name);
+	assert_string_equal(":stream", msg.info.info1.stream_name);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_file_rename_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_file_rename msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const struct file_id id = {
+		.devid = 0x0000000100000002ULL,
+		.inode = 0x0000000300000004ULL,
+		.extid = 0,
+	};
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, smb_file_rename_blob),
+		.length = sizeof(smb_file_rename_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_file_rename_push(
+		mem_ctx, &msg, id, 7, "/data", "test.txt", ":stream", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_file_rename_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_file_rename orig = {};
+	struct messaging_smb_file_rename decoded = {};
+	const struct file_id id = {
+		.devid = 0,
+		.inode = 0,
+		.extid = 0,
+	};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_smb_file_rename_push(
+		mem_ctx, &orig, id, 0, "/data", "test.txt", NULL, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(smb_file_rename_blob_nostream), blob.length);
+	assert_memory_equal(smb_file_rename_blob_nostream,
+			    blob.data,
+			    sizeof(smb_file_rename_blob_nostream));
+
+	err = messaging_smb_file_rename_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_FILE_RENAME_VERSION_1, decoded.version);
+	assert_int_equal(0, decoded.info.info1.id.devid);
+	assert_int_equal(0, decoded.info.info1.id.inode);
+	assert_int_equal(0, decoded.info.info1.id.extid);
+	assert_int_equal(0, decoded.info.info1.share_file_id);
+	assert_string_equal("/data", decoded.info.info1.servicepath);
+	assert_string_equal("test.txt", decoded.info.info1.base_name);
+	assert_string_equal("", decoded.info.info1.stream_name);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_file_rename_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_file_rename msg = {};
+	uint8_t bad_blob[] = {
+		0x02, 0x00, 0x00, 0x00, /* version = 2 (unknown) */
+		0x00, 0x00, 0x00, 0x00, /* reserved */
+		0x02, 0x00, 0x00, 0x00, /* union discriminant = 2 */
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_file_rename_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -3878,6 +4061,11 @@ int main(void)
 		cmocka_unit_test(test_ndr_messaging_smb_close_file_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_smb_close_file_bad_version),
+		cmocka_unit_test(test_ndr_messaging_smb_file_rename_pull),
+		cmocka_unit_test(test_ndr_messaging_smb_file_rename_push),
+		cmocka_unit_test(test_ndr_messaging_smb_file_rename_roundtrip),
+		cmocka_unit_test(
+			test_ndr_messaging_smb_file_rename_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);

@@ -1171,3 +1171,108 @@ NTSTATUS messaging_send_close_file(struct messaging_context *msg_ctx,
 	return messaging_send_close_file_legacy(
 		msg_ctx, dst, id, share_file_id);
 }
+
+/* MSG_SMB_FILE_RENAME */
+
+static NTSTATUS messaging_send_file_rename_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct file_id id,
+	uint64_t share_file_id,
+	const char *servicepath,
+	const char *base_name,
+	const char *stream_name)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_file_rename msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_file_rename_push(frame,
+						 &msg,
+						 id,
+						 share_file_id,
+						 servicepath,
+						 base_name,
+						 stream_name,
+						 &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    dst,
+				    MSG_SMB_FILE_RENAME_V1,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_file_rename_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct file_id id,
+	uint64_t share_file_id,
+	const char *servicepath,
+	const char *base_name,
+	const char *stream_name)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct file_rename_message frm = {
+		.id = id,
+		.share_file_id = share_file_id,
+		.servicepath = servicepath,
+		.base_name = base_name,
+		.stream_name = stream_name,
+	};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = ndr_push_struct_blob(
+		&blob,
+		frame,
+		&frm,
+		(ndr_push_flags_fn_t)ndr_push_file_rename_message);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    dst,
+				    MSG_SMB_FILE_RENAME,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+NTSTATUS messaging_send_file_rename(struct messaging_context *msg_ctx,
+				    struct server_id dst,
+				    struct file_id id,
+				    uint64_t share_file_id,
+				    const char *servicepath,
+				    const char *base_name,
+				    const char *stream_name)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_file_rename_v1(msg_ctx,
+						     dst,
+						     id,
+						     share_file_id,
+						     servicepath,
+						     base_name,
+						     stream_name);
+	}
+	return messaging_send_file_rename_legacy(msg_ctx,
+						 dst,
+						 id,
+						 share_file_id,
+						 servicepath,
+						 base_name,
+						 stream_name);
+}

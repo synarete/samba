@@ -1075,3 +1075,50 @@ enum ndr_err_code messaging_smb_close_file_pull(
 
 	return NDR_ERR_SUCCESS;
 }
+
+enum ndr_err_code messaging_smb_file_rename_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_file_rename *msg,
+	struct file_id id,
+	uint64_t share_file_id,
+	const char *servicepath,
+	const char *base_name,
+	const char *stream_name,
+	DATA_BLOB *blob)
+{
+	msg->info.info1.id = id;
+	msg->info.info1.share_file_id = share_file_id;
+	msg->info.info1.servicepath = servicepath != NULL ? servicepath : "";
+	msg->info.info1.base_name = base_name != NULL ? base_name : "";
+	msg->info.info1.stream_name = stream_name != NULL ? stream_name : "";
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_file_rename);
+}
+
+enum ndr_err_code messaging_smb_file_rename_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_file_rename *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_file_rename){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_file_rename);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_FILE_RENAME_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
