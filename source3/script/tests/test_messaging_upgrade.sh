@@ -42,6 +42,7 @@ SHARE=$5
 SMBCLIENT="$BINDIR/smbclient"
 SMBCONTROL="$BINDIR/smbcontrol"
 SMBSTATUS="$BINDIR/smbstatus"
+SMBTORTURE="$BINDIR/smbtorture"
 NET="$BINDIR/net"
 
 CREDS="-U${DC_USERNAME}%${DC_PASSWORD}"
@@ -345,6 +346,25 @@ $out"
 	subunit_report "$name" "$st" "$out"
 }
 
+# Run a single smbtorture test.
+#   $1  test name
+#   $2  share to connect to on node 0
+#   $3  smbtorture test to run
+smbtorture_run()
+{
+	local name="$1"
+	local share="$2"
+	local torture_test="$3"
+	subunit_start_test "$name"
+
+	local out
+	out=$("${AS_ROOT[@]}" "$SMBTORTURE" "//$NODE0/$share" "$CREDS" \
+		"$torture_test" 2>&1)
+	local st=$?
+
+	subunit_report "$name" "$st" "$out"
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -506,6 +526,12 @@ run_messaging_tests()
 
 	run_msg_test "net rpc file close" "MSG_SMB_CLOSE_FILE" \
 		net_rpc_file_close
+
+	# Rename a file which is open by another smbd process. The renaming
+	# smbd notifies the other smbd's (holding the same file open) about
+	# the new name.
+	run_msg_test "smb2.rename.rename-open" "MSG_SMB_FILE_RENAME" \
+		smbtorture_run "$SHARE" smb2.rename.rename-open
 }
 
 # ===========================================================================
