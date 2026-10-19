@@ -37,6 +37,7 @@ SHARE=$5
 
 SMBCLIENT="$BINDIR/smbclient"
 SMBCONTROL="$BINDIR/smbcontrol"
+SMBTORTURE="$BINDIR/smbtorture"
 NET="$BINDIR/net"
 
 incdir=$(dirname "$0")/../../../testprogs/blackbox
@@ -579,6 +580,26 @@ net_rpc_file_close()
 	return $st
 }
 
+# Rename a file which is open by another smbd process. The renaming smbd
+# notifies the other smbd's (holding the same file open) about the new name.
+smbtorture_rename_open()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBTORTURE" "//$NODE0/$SHARE" \
+		-U"${DC_USERNAME}%${DC_PASSWORD}" \
+		smb2.rename.rename-open 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -744,6 +765,10 @@ net_rpc_file_close \
 	"step1: net rpc file close (legacy MSG_SMB_CLOSE_FILE at level 1.0)" \
 	|| failed=$((failed + 1))
 
+smbtorture_rename_open \
+	"step1: smb2.rename.rename-open (legacy MSG_SMB_FILE_RENAME at level 1.0)" \
+	|| failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 1.0 to 2.0
 # ===========================================================================
@@ -842,6 +867,10 @@ smbcontrol_inject_fault \
 
 net_rpc_file_close \
 	"step3: net rpc file close (NDR MSG_SMB_CLOSE_FILE_V1 at level 2.0)" \
+	|| failed=$((failed + 1))
+
+smbtorture_rename_open \
+	"step3: smb2.rename.rename-open (NDR MSG_SMB_FILE_RENAME_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
