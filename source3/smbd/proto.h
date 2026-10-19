@@ -693,6 +693,11 @@ void msg_file_was_renamed(struct messaging_context *msg,
 			  uint32_t msg_type,
 			  struct server_id server_id,
 			  DATA_BLOB *data);
+void msg_file_was_renamed_v1(struct messaging_context *msg,
+			     void *private_data,
+			     uint32_t msg_type,
+			     struct server_id server_id,
+			     DATA_BLOB *data);
 struct fsp_lease *find_fsp_lease(struct files_struct *new_fsp,
 				 const struct smb2_lease_key *key,
 				 uint32_t current_state,
