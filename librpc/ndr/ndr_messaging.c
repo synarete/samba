@@ -1122,3 +1122,41 @@ enum ndr_err_code messaging_smb_file_rename_pull(
 
 	return NDR_ERR_SUCCESS;
 }
+
+enum ndr_err_code messaging_smb_notify_cleanup_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_cleanup *msg,
+	DATA_BLOB *blob)
+{
+	msg->info.info1 = (struct messaging_smb_notify_cleanup_v1){};
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_notify_cleanup);
+}
+
+enum ndr_err_code messaging_smb_notify_cleanup_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_cleanup *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_notify_cleanup){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_notify_cleanup);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_CLEANUP_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}

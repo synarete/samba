@@ -1096,6 +1096,39 @@ static bool cleanupd_init_recv(struct tevent_req *req)
 	return state->ok;
 }
 
+static NTSTATUS smbd_send_notify_cleanup_v1(struct messaging_context *msg_ctx,
+					    struct server_id dst)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_cleanup m = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status = NT_STATUS_NO_MEMORY;
+
+	ndr_err = messaging_smb_notify_cleanup_push(frame, &m, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx,
+				dst,
+				MSG_SMB_NOTIFY_CLEANUP_V1,
+				&blob);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS smbd_send_notify_cleanup(struct messaging_context *msg_ctx,
+					 struct server_id dst)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return smbd_send_notify_cleanup_v1(msg_ctx, dst);
+	}
+
+	return messaging_send(msg_ctx, dst, MSG_SMB_NOTIFY_CLEANUP, NULL);
+}
+
 static void cleanupd_started(struct tevent_req *req)
 {
 	bool ok;
@@ -1110,10 +1143,7 @@ static void cleanupd_started(struct tevent_req *req)
 		return;
 	}
 
-	status = messaging_send(parent->msg_ctx,
-				parent->cleanupd,
-				MSG_SMB_NOTIFY_CLEANUP,
-				NULL);
+	status = smbd_send_notify_cleanup(parent->msg_ctx, parent->cleanupd);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_ERR("messaging_send returned %s\n",
 			nt_errstr(status));
@@ -1400,10 +1430,8 @@ static void remove_child_pid(struct smbd_parent_context *parent,
 	}
 
 	if (!server_id_is_disconnected(&parent->cleanupd)) {
-		status = messaging_send(parent->msg_ctx,
-					parent->cleanupd,
-					MSG_SMB_NOTIFY_CLEANUP,
-					NULL);
+		status = smbd_send_notify_cleanup(parent->msg_ctx,
+						  parent->cleanupd);
 		if (!NT_STATUS_IS_OK(status)) {
 			DBG_ERR("messaging_send returned %s\n",
 				nt_errstr(status));

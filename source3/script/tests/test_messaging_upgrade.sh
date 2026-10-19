@@ -600,6 +600,23 @@ smbtorture_rename_open()
 	return $st
 }
 
+# Send "smbcontrol all notify-cleanup" (fire-and-forget) to cleanupd process.
+smbcontrol_notify_cleanup()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBCONTROL" "$CONF" all notify-cleanup 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -769,6 +786,10 @@ smbtorture_rename_open \
 	"step1: smb2.rename.rename-open (legacy MSG_SMB_FILE_RENAME at level 1.0)" \
 	|| failed=$((failed + 1))
 
+smbcontrol_notify_cleanup \
+	"step1: smbcontrol notify-cleanup (legacy MSG_SMB_NOTIFY_CLEANUP at level 1.0)" \
+	|| failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 1.0 to 2.0
 # ===========================================================================
@@ -871,6 +892,10 @@ net_rpc_file_close \
 
 smbtorture_rename_open \
 	"step3: smb2.rename.rename-open (NDR MSG_SMB_FILE_RENAME_V1 at level 2.0)" \
+	|| failed=$((failed + 1))
+
+smbcontrol_notify_cleanup \
+	"step3: smbcontrol notify-cleanup (NDR MSG_SMB_NOTIFY_CLEANUP_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
