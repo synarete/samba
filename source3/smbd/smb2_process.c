@@ -2266,6 +2266,10 @@ void smbd_process(struct tevent_context *ev_ctx,
 			   msg_close_file_v1);
 	messaging_register(sconn->msg_ctx, sconn,
 			   MSG_SMB_FILE_RENAME, msg_file_was_renamed);
+	messaging_register(sconn->msg_ctx,
+			   sconn,
+			   MSG_SMB_FILE_RENAME_V1,
+			   msg_file_was_renamed_v1);
 
 	id_cache_register_msgs(sconn->msg_ctx);
 	messaging_deregister(sconn->msg_ctx, ID_CACHE_KILL, NULL);
