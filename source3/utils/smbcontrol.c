@@ -2307,6 +2307,30 @@ static bool do_nodestatus(struct tevent_context *ev_ctx,
 	return send_message(msg_ctx, pid, MSG_SEND_PACKET, &p, sizeof(p));
 }
 
+static bool do_notify_cleanup_v1(struct messaging_context *msg_ctx,
+				 const struct server_id pid)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_cleanup msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	bool ok = False;
+
+	ndr_err = messaging_smb_notify_cleanup_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	ok = send_message(msg_ctx,
+			  pid,
+			  MSG_SMB_NOTIFY_CLEANUP_V1,
+			  blob.data,
+			  blob.length);
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
 static bool do_notify_cleanup(struct tevent_context *ev_ctx,
 			      struct messaging_context *msg_ctx,
 			      const struct server_id pid,
@@ -2316,6 +2340,11 @@ static bool do_notify_cleanup(struct tevent_context *ev_ctx,
 		fprintf(stderr, "Usage: smbcontrol smbd notify-cleanup\n");
 		return false;
 	}
+
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return do_notify_cleanup_v1(msg_ctx, pid);
+	}
+
 	return send_message(msg_ctx, pid, MSG_SMB_NOTIFY_CLEANUP, NULL, 0);
 }
 
