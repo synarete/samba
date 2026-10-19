@@ -120,6 +120,7 @@ interface messaging
 
 		/* Trigger a notify cleanup run */
 		MSG_SMB_NOTIFY_CLEANUP		= 0x0314,
+		MSG_SMB_NOTIFY_CLEANUP_V1	= 0x1314,
 		MSG_SMB_SCAVENGER		= 0x0315,
 
 		/* shutdown connection for given client */
@@ -664,6 +665,25 @@ interface messaging
 		[value(0)] uint32                                     reserved;
 		[switch_is(version)] messaging_smb_file_renameU info;
 	} messaging_smb_file_rename;
+
+	/* MSG_SMB_NOTIFY_CLEANUP */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_NOTIFY_CLEANUP_VERSION_1 = 0x00000001
+	} messaging_smb_notify_cleanup_version_values;
+
+	typedef struct {
+	} messaging_smb_notify_cleanup_v1;
+
+	typedef [switch_type(messaging_smb_notify_cleanup_version_values)] union {
+		[case(MESSAGING_SMB_NOTIFY_CLEANUP_VERSION_1)] messaging_smb_notify_cleanup_v1 info1;
+		[default] ;
+	} messaging_smb_notify_cleanupU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NOTIFY_CLEANUP_VERSION_1)] messaging_smb_notify_cleanup_version_values version;
+		[value(0)] uint32                                      reserved;
+		[switch_is(version)] messaging_smb_notify_cleanupU info;
+	} messaging_smb_notify_cleanup;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 

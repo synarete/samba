@@ -532,6 +532,9 @@ run_messaging_tests()
 	# the new name.
 	run_msg_test "smb2.rename.rename-open" "MSG_SMB_FILE_RENAME" \
 		smbtorture_run "$SHARE" smb2.rename.rename-open
+
+	run_msg_test "smbcontrol notify-cleanup" "MSG_SMB_NOTIFY_CLEANUP" \
+		smbcontrol_ok all notify-cleanup
 }
 
 # ===========================================================================
