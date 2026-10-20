@@ -20,6 +20,7 @@
 
 #include "includes.h"
 #include "messages.h"
+#include "messages_send.h"
 #include "serverid.h"
 #include "smbd/globals.h"
 #include "smbd/smbXsrv_open.h"
@@ -32,6 +33,8 @@
 #include "lib/util/util_process.h"
 #include "lib/util/sys_rw_data.h"
 #include "source3/lib/substitute.h"
+#include "lib/cluster_support.h"
+#include "librpc/ndr/ndr_messaging.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_SCAVENGER
@@ -317,6 +320,28 @@ fail:
 static void scavenger_add_timer(struct smbd_scavenger_state *state,
 				struct scavenger_message *msg);
 
+static bool scavenger_message_from_v1(TALLOC_CTX *mem_ctx,
+				      const DATA_BLOB *data,
+				      struct scavenger_message *msg)
+{
+	struct messaging_smb_scavenger m = {};
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_scavenger_pull(mem_ctx, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_SCAVENGER_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		return false;
+	}
+
+	*msg = (struct scavenger_message){
+		.file_id = m.info.info1.id,
+		.open_persistent_id = m.info.info1.open_persistent_id,
+		.name_hash = m.info.info1.name_hash,
+	};
+	return true;
+}
+
 static void smbd_scavenger_msg(struct messaging_context *msg_ctx,
 			       void *private_data,
 			       uint32_t msg_type,
@@ -328,6 +353,7 @@ static void smbd_scavenger_msg(struct messaging_context *msg_ctx,
 				      struct smbd_scavenger_state);
 	TALLOC_CTX *frame = talloc_stackframe();
 	struct server_id self = messaging_server_id(msg_ctx);
+	struct scavenger_message _msg = {};
 	struct scavenger_message *msg = NULL;
 	struct server_id_buf tmp1, tmp2;
 
@@ -367,7 +393,14 @@ static void smbd_scavenger_msg(struct messaging_context *msg_ctx,
 	}
 
 	DEBUG(10, ("scavenger: got a message\n"));
-	msg = (struct scavenger_message*)data->data;
+	if (msg_type == MSG_SMB_SCAVENGER_V1) {
+		if (!scavenger_message_from_v1(frame, data, &_msg)) {
+			goto done;
+		}
+		msg = &_msg;
+	} else {
+		msg = (struct scavenger_message *)data->data;
+	}
 	scavenger_add_timer(state, msg);
 done:
 	talloc_free(frame);
@@ -403,6 +436,16 @@ bool smbd_scavenger_init(TALLOC_CTX *mem_ctx,
 		goto fail;
 	}
 
+	status = messaging_register(msg,
+				    state,
+				    MSG_SMB_SCAVENGER_V1,
+				    smbd_scavenger_msg);
+	if (!NT_STATUS_IS_OK(status)) {
+		DEBUG(2, ("failed to register message handler: %s\n",
+			  nt_errstr(status)));
+		goto fail;
+	}
+
 	smbd_scavenger_state = state;
 	return true;
 fail:
@@ -417,15 +460,8 @@ void scavenger_schedule_disconnected(struct messaging_context *msg_ctx,
 {
 	NTSTATUS status;
 	struct server_id self = messaging_server_id(msg_ctx);
-	struct scavenger_message msg;
-	DATA_BLOB msg_blob;
 	struct server_id_buf tmp;
 	struct file_id_buf idbuf;
-
-	ZERO_STRUCT(msg);
-	msg.file_id = *file_id;
-	msg.open_persistent_id = open_persistent_id;
-	msg.name_hash = name_hash;
 
 	DBG_DEBUG("smbd: %s mark file %s as disconnected\n",
 		  server_id_str_buf(self, &tmp),
@@ -434,19 +470,19 @@ void scavenger_schedule_disconnected(struct messaging_context *msg_ctx,
 	SMB_ASSERT(!server_id_equal(&self, &smbd_scavenger_state->parent_id));
 	SMB_ASSERT(!smbd_scavenger_state->am_scavenger);
 
-	msg_blob = data_blob_const(&msg, sizeof(msg));
 	DEBUG(10, ("send message to scavenger\n"));
 
-	status = messaging_send(smbd_scavenger_state->msg,
-				smbd_scavenger_state->parent_id,
-				MSG_SMB_SCAVENGER,
-				&msg_blob);
+	status = messaging_send_scavenger(smbd_scavenger_state->msg,
+					  smbd_scavenger_state->parent_id,
+					  *file_id,
+					  open_persistent_id,
+					  name_hash);
 	if (!NT_STATUS_IS_OK(status)) {
 		struct server_id_buf tmp1, tmp2;
 		DEBUG(2, ("Failed to send message to parent smbd %s "
 			  "from %s: %s\n",
-			  server_id_str_buf(smbd_scavenger_state->parent_id,
-					    &tmp1),
+			  server_id_str_buf(
+				smbd_scavenger_state->parent_id, &tmp1),
 			  server_id_str_buf(self, &tmp2),
 			  nt_errstr(status)));
 	}

@@ -1320,3 +1320,78 @@ NTSTATUS messaging_send_notify_cleanup(struct messaging_context *msg_ctx,
 	}
 	return messaging_send_notify_cleanup_legacy(msg_ctx, dst);
 }
+
+/* MSG_SMB_SCAVENGER */
+
+static NTSTATUS messaging_send_scavenger_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct file_id file_id,
+	uint64_t open_persistent_id,
+	uint32_t name_hash)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_scavenger msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_scavenger_push(
+		frame, &msg, file_id, open_persistent_id, name_hash, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    dst,
+				    MSG_SMB_SCAVENGER_V1,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_scavenger_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct file_id file_id,
+	uint64_t open_persistent_id,
+	uint32_t name_hash)
+{
+	struct {
+		struct file_id file_id;
+		uint64_t open_persistent_id;
+		uint32_t name_hash;
+	} msg = {
+		.file_id = file_id,
+		.open_persistent_id = open_persistent_id,
+		.name_hash = name_hash,
+	};
+
+	return messaging_send_buf(msg_ctx,
+				  dst,
+				  MSG_SMB_SCAVENGER,
+				  (const uint8_t *)&msg,
+				  sizeof(msg));
+}
+
+NTSTATUS messaging_send_scavenger(struct messaging_context *msg_ctx,
+				  struct server_id dst,
+				  struct file_id file_id,
+				  uint64_t open_persistent_id,
+				  uint32_t name_hash)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_scavenger_v1(msg_ctx,
+						   dst,
+						   file_id,
+						   open_persistent_id,
+						   name_hash);
+	}
+	return messaging_send_scavenger_legacy(msg_ctx,
+					       dst,
+					       file_id,
+					       open_persistent_id,
+					       name_hash);
+}
