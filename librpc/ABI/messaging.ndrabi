@@ -59,6 +59,8 @@ root messaging_smb_file_rename_version_values
 root messaging_smb_file_rename
 root messaging_smb_notify_cleanup_version_values
 root messaging_smb_notify_cleanup
+root messaging_smb_scavenger_version_values
+root messaging_smb_scavenger
 root messaging_rec
 root messaging_reclog
 root messaging_hdr
@@ -507,6 +509,27 @@ enum messaging_smb_num_children_version_values base(uint32) {
 	0x00000001	# MESSAGING_SMB_NUM_CHILDREN_VERSION_1
 }
 
+struct messaging_smb_scavenger align(4) {
+	[value(MESSAGING_SMB_SCAVENGER_VERSION_1)] enum:messaging_smb_scavenger_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_smb_scavengerU	# info
+}
+
+union messaging_smb_scavengerU align(4) switch_type(enum:messaging_smb_scavenger_version_values) {
+	case(MESSAGING_SMB_SCAVENGER_VERSION_1): struct:messaging_smb_scavenger_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_smb_scavenger_v1 align(4) {
+	struct:file_id	# id
+	scalar:udlong	# open_persistent_id
+	scalar:uint32	# name_hash
+}
+
+enum messaging_smb_scavenger_version_values base(uint32) {
+	0x00000001	# MESSAGING_SMB_SCAVENGER_VERSION_1
+}
+
 struct messaging_smb_sleep align(4) {
 	[value(MESSAGING_SMB_SLEEP_VERSION_1)] enum:messaging_smb_sleep_version_values	# version
 	[value(0)] scalar:uint32	# reserved
@@ -593,6 +616,7 @@ enum messaging_type base(uint32) {
 	0x0314	# MSG_SMB_NOTIFY_CLEANUP
 	0x1314	# MSG_SMB_NOTIFY_CLEANUP_V1
 	0x0315	# MSG_SMB_SCAVENGER
+	0x1315	# MSG_SMB_SCAVENGER_V1
 	0x0316	# MSG_SMB_KILL_CLIENT_IP
 	0x1316	# MSG_SMB_KILL_CLIENT_IP_V1
 	0x0317	# MSG_SMB_TELL_NUM_CHILDREN
@@ -951,6 +975,23 @@ sample messaging_smb_notify_cleanup length(12) {
 #	        reserved                 : 0x00000000 (0)
 #	        info                     : union messaging_smb_notify_cleanupU(case 1)
 #	        info1: struct messaging_smb_notify_cleanup_v1
+
+sample messaging_smb_scavenger length(48) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 01 02 03 04
+	[0010] 05 06 07 08 02 03 04 05  06 07 08 09 03 04 05 06
+	[0020] 07 08 09 0a 04 05 06 07  08 09 0a 0b 05 06 07 08
+}
+#	    messaging_smb_scavenger: struct messaging_smb_scavenger
+#	        version                  : MESSAGING_SMB_SCAVENGER_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_smb_scavengerU(case 1)
+#	        info1: struct messaging_smb_scavenger_v1
+#	            id: struct file_id
+#	                devid                    : 0x0807060504030201 (578437695752307201)
+#	                inode                    : 0x0908070605040302 (650777868590383874)
+#	                extid                    : 0x0a09080706050403 (723118041428460547)
+#	            open_persistent_id       : 0x0b0a090807060504 (795458214266537220)
+#	            name_hash                : 0x08070605 (134678021)
 
 sample messaging_rec length(84) {
 	[0000] 01 02 03 04 02 03 04 05  03 04 05 06 07 08 09 0a
