@@ -122,6 +122,7 @@ interface messaging
 		MSG_SMB_NOTIFY_CLEANUP		= 0x0314,
 		MSG_SMB_NOTIFY_CLEANUP_V1	= 0x1314,
 		MSG_SMB_SCAVENGER		= 0x0315,
+		MSG_SMB_SCAVENGER_V1		= 0x1315,
 
 		/* shutdown connection for given client */
 		MSG_SMB_KILL_CLIENT_IP		= 0x0316,
@@ -684,6 +685,28 @@ interface messaging
 		[value(0)] uint32                                      reserved;
 		[switch_is(version)] messaging_smb_notify_cleanupU info;
 	} messaging_smb_notify_cleanup;
+
+	/* MSG_SMB_SCAVENGER */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_SCAVENGER_VERSION_1 = 0x00000001
+	} messaging_smb_scavenger_version_values;
+
+	typedef struct {
+		file_id id;
+		udlong  open_persistent_id;
+		uint32  name_hash;
+	} messaging_smb_scavenger_v1;
+
+	typedef [switch_type(messaging_smb_scavenger_version_values)] union {
+		[case(MESSAGING_SMB_SCAVENGER_VERSION_1)] messaging_smb_scavenger_v1 info1;
+		[default] ;
+	} messaging_smb_scavengerU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_SCAVENGER_VERSION_1)] messaging_smb_scavenger_version_values version;
+		[value(0)] uint32                                  reserved;
+		[switch_is(version)] messaging_smb_scavengerU info;
+	} messaging_smb_scavenger;
 
 	/* messaging struct sent across the sockets and stored in the tdb */
 

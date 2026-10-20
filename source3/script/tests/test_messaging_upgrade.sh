@@ -600,6 +600,26 @@ smbtorture_rename_open()
 	return $st
 }
 
+# Disconnect a client holding a Persistent Handle (continuous availability
+# share) and wait for the scavenger to reap it.
+smbtorture_persistent_timeout()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBTORTURE" "//$NODE0/ca_so" \
+		-U"${DC_USERNAME}%${DC_PASSWORD}" \
+		smb2.persistent-open.timeout_5 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
 # Send "smbcontrol all notify-cleanup" (fire-and-forget) to cleanupd process.
 smbcontrol_notify_cleanup()
 {
@@ -790,6 +810,10 @@ smbcontrol_notify_cleanup \
 	"step1: smbcontrol notify-cleanup (legacy MSG_SMB_NOTIFY_CLEANUP at level 1.0)" \
 	|| failed=$((failed + 1))
 
+smbtorture_persistent_timeout \
+	"step1: smb2.persistent-open.timeout_5 (legacy MSG_SMB_SCAVENGER at level 1.0)" \
+	|| failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 1.0 to 2.0
 # ===========================================================================
@@ -896,6 +920,10 @@ smbtorture_rename_open \
 
 smbcontrol_notify_cleanup \
 	"step3: smbcontrol notify-cleanup (NDR MSG_SMB_NOTIFY_CLEANUP_V1 at level 2.0)" \
+	|| failed=$((failed + 1))
+
+smbtorture_persistent_timeout \
+	"step3: smb2.persistent-open.timeout_5 (NDR MSG_SMB_SCAVENGER_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works
