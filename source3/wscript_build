@@ -979,6 +979,7 @@ bld.SAMBA3_SUBSYSTEM('SLCACHE',
                     deps='''
                          samba-util
                          tdb
+                         NDR_NETSAMLOGONCACHE
                          ''')
 
 bld.SAMBA3_SUBSYSTEM('dsgetdcname',
