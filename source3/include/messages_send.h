@@ -135,4 +135,10 @@ NTSTATUS messaging_send_file_rename(struct messaging_context *msg_ctx,
 NTSTATUS messaging_send_notify_cleanup(struct messaging_context *msg_ctx,
 				       struct server_id dst);
 
+NTSTATUS messaging_send_scavenger(struct messaging_context *msg_ctx,
+				  struct server_id dst,
+				  struct file_id file_id,
+				  uint64_t open_persistent_id,
+				  uint32_t name_hash);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */

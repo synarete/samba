@@ -47,6 +47,10 @@ NET="$BINDIR/net"
 
 CREDS="-U${DC_USERNAME}%${DC_PASSWORD}"
 
+# Share used by smbtorture's persistent handle test (continuous
+# availability).
+CA_SHARE="ca_so"
+
 # A share name which does not exist, so that sending it in close-share and
 # close-denied-share does not tear down the connections used by the test.
 NO_SUCH_SHARE="msg_upgrade_no_such_share"
@@ -535,6 +539,11 @@ run_messaging_tests()
 
 	run_msg_test "smbcontrol notify-cleanup" "MSG_SMB_NOTIFY_CLEANUP" \
 		smbcontrol_ok all notify-cleanup
+
+	# Disconnect a client holding a Persistent Handle and wait for the
+	# scavenger to reap it.
+	run_msg_test "smb2.persistent-open.timeout_5" "MSG_SMB_SCAVENGER" \
+		smbtorture_run "$CA_SHARE" smb2.persistent-open.timeout_5
 }
 
 # ===========================================================================

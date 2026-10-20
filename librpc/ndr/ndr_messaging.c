@@ -1160,3 +1160,46 @@ enum ndr_err_code messaging_smb_notify_cleanup_pull(
 
 	return NDR_ERR_SUCCESS;
 }
+
+enum ndr_err_code messaging_smb_scavenger_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_scavenger *msg,
+	struct file_id id,
+	uint64_t open_persistent_id,
+	uint32_t name_hash,
+	DATA_BLOB *blob)
+{
+	msg->info.info1.id = id;
+	msg->info.info1.open_persistent_id = open_persistent_id;
+	msg->info.info1.name_hash = name_hash;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_smb_scavenger);
+}
+
+enum ndr_err_code messaging_smb_scavenger_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_scavenger *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_scavenger){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_scavenger);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_SCAVENGER_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
