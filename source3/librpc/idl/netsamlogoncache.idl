@@ -1,0 +1,18 @@
+#include "idl_types.h"
+
+import "netlogon.idl";
+
+[
+  uuid("12345778-1234-abcd-ffff-00000000"),
+  version(0.0),
+  pointer_default(unique),
+  helpstring("Samba Netsamlogon cache")
+]
+interface netsamlogoncache
+{
+	/* used for samba3 netsamlogon cache */
+	typedef [public] struct {
+		time_t timestamp;
+		netr_SamInfo3 info3;
+	} netsamlogoncache_entry;
+}

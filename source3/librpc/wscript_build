@@ -67,3 +67,7 @@ bld.SAMBA3_SUBSYSTEM('NDR_ADS',
 	public_deps='ndr NDR_NBT'
 	)
 
+bld.SAMBA3_SUBSYSTEM('NDR_NETSAMLOGONCACHE',
+	source='gen_ndr/ndr_netsamlogoncache.c',
+	public_deps='ndr'
+	)

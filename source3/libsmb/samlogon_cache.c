@@ -29,7 +29,7 @@
 #include "lib/util/talloc_stack.h"
 #include "lib/util/memory.h" /* for SAFE_FREE() */
 #include "source3/lib/util_path.h"
-#include "librpc/gen_ndr/ndr_krb5pac.h"
+#include "librpc/gen_ndr/ndr_netsamlogoncache.h"
 #include "../libcli/security/security.h"
 #include "util_tdb.h"
 #include "param/loadparm.h"

@@ -255,10 +255,4 @@ interface krb5pac
 		uint32 SignatureLength;
 		[flag(NDR_REMAINING)] DATA_BLOB ChecksumAndSignature;
 	} PAC_Validate;
-
-	/* used for samba3 netsamlogon cache */
-	typedef [public] struct {
-		time_t timestamp;
-		netr_SamInfo3 info3;
-	} netsamlogoncache_entry;
 }
