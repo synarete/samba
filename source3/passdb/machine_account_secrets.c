@@ -115,7 +115,12 @@ bool secrets_store_domain_sid(const char *domain, const struct dom_sid  *sid)
 {
 	char *protect_ids;
 	bool ret;
-	struct dom_sid clean_sid = { 0 };
+	struct secrets_domain_sid ssid = {
+		.sid = *sid,
+	};
+	uint8_t buf[SECRETS_DOMAIN_SID_SIZE] = { 0, };
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
 
 	protect_ids = secrets_fetch(protect_ids_keystr(domain), NULL);
 	if (protect_ids) {
@@ -129,14 +134,22 @@ bool secrets_store_domain_sid(const char *domain, const struct dom_sid  *sid)
 	SAFE_FREE(protect_ids);
 
 	/*
-	 * use a copy to prevent uninitialized memory from being carried over
-	 * to the tdb
+	 * We used to store a raw struct dom_sid,
+	 * secrets_domain_sid in host byte order
+	 * has the same layout, unused sub_auths are 0.
 	 */
-	sid_copy(&clean_sid, sid);
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &ssid,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_push_flags_fn_t)ndr_push_secrets_domain_sid);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("ndr_push_secrets_domain_sid failed: %s\n",
+			ndr_errstr(ndr_err));
+		return false;
+	}
 
 	ret = secrets_store(domain_sid_keystr(domain),
-			    &clean_sid,
-			    sizeof(struct dom_sid));
+			    blob.data,
+			    blob.length);
 
 	/* Force a re-query */
 	if (ret) {
@@ -151,22 +164,33 @@ bool secrets_store_domain_sid(const char *domain, const struct dom_sid  *sid)
 
 bool secrets_fetch_domain_sid(const char *domain, struct dom_sid  *sid)
 {
-	struct dom_sid  *dyn_sid;
-	size_t size = 0;
+	struct secrets_domain_sid ssid = { .sid = { .num_auths = 0, }, };
+	DATA_BLOB blob = { .length = 0, };
+	enum ndr_err_code ndr_err;
 
-	dyn_sid = (struct dom_sid  *)secrets_fetch(domain_sid_keystr(domain), &size);
-
-	if (dyn_sid == NULL)
-		return False;
-
-	if (size != sizeof(struct dom_sid)) {
-		SAFE_FREE(dyn_sid);
-		return False;
+	blob.data = (uint8_t *)secrets_fetch(domain_sid_keystr(domain),
+					     &blob.length);
+	if (blob.data == NULL) {
+		return false;
 	}
 
-	*sid = *dyn_sid;
-	SAFE_FREE(dyn_sid);
-	return True;
+	if (blob.length != SECRETS_DOMAIN_SID_SIZE) {
+		SAFE_FREE(blob.data);
+		return false;
+	}
+
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &ssid,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_sid);
+	SAFE_FREE(blob.data);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("ndr_pull_secrets_domain_sid failed: %s\n",
+			ndr_errstr(ndr_err));
+		return false;
+	}
+
+	*sid = ssid.sid;
+	return true;
 }
 
 bool secrets_store_domain_guid(const char *domain, const struct GUID *guid)
