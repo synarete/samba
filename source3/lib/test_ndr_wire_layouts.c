@@ -94,6 +94,55 @@ static void test_secrets_domain_sid(void **state)
 }
 
 /*
+ * ndr_push_struct_into_fixed_blob_flags() and
+ * ndr_pull_struct_blob_all_noalloc_flags() need to pass
+ * the flags down, test that with LIBNDR_FLAG_BIGENDIAN,
+ * so that it is also covered on little endian platforms.
+ */
+static void test_ndr_flags_bigendian(void **state)
+{
+	struct secrets_domain_sid ssid = {
+		.sid = {
+			.sid_rev_num = 1,
+			.num_auths = 1,
+			.id_auth = { 0, 0, 0, 0, 0, 5 },
+			.sub_auths = { 0x01020304, },
+		},
+	};
+	struct secrets_domain_sid ssid2 = { .sid = { .num_auths = 0, }, };
+	uint8_t buf[SECRETS_DOMAIN_SID_SIZE] = { 0, };
+	uint8_t expected[SECRETS_DOMAIN_SID_SIZE] = {
+		1, 1, 0, 0, 0, 0, 0, 5,
+		0x01, 0x02, 0x03, 0x04,
+	};
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &ssid,
+			LIBNDR_FLAG_BIGENDIAN,
+			(ndr_push_flags_fn_t)ndr_push_secrets_domain_sid);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(buf, expected, sizeof(expected));
+
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &ssid2,
+			LIBNDR_FLAG_BIGENDIAN,
+			(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_sid);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(&ssid, &ssid2, sizeof(ssid));
+
+	/* wrong sizes are rejected */
+	blob.length -= 1;
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &ssid,
+			LIBNDR_FLAG_BIGENDIAN,
+			(ndr_push_flags_fn_t)ndr_push_secrets_domain_sid);
+	assert_false(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &ssid2,
+			LIBNDR_FLAG_BIGENDIAN,
+			(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_sid);
+	assert_false(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+}
+
+/*
  * message_hdr_put() and message_hdr_get() are hand-marshalled
  * (little endian), verify they match messaging_hdr.
  */
@@ -147,6 +196,7 @@ int main(int argc, const char **argv)
 {
 	const struct CMUnitTest tests[] = {
 		cmocka_unit_test(test_secrets_domain_sid),
+		cmocka_unit_test(test_ndr_flags_bigendian),
 		cmocka_unit_test(test_messaging_hdr),
 	};
 
