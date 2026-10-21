@@ -5,12 +5,12 @@
 
 #include "lib/util/time.h"
 #include "messages.h"
+#include "librpc/gen_ndr/ndr_ratelimit.h"
 
 #define RATELIMITD_SOCKET_NAME "ratelimitd.sock"
 
 /* Protocol version for compatibility checking */
 #define RATELIMIT_PROTOCOL_VERSION 2
-#define RATELIMIT_SHARE_NAME_LEN 256
 
 static inline uint64_t time_now_usec(void)
 {
@@ -27,24 +27,13 @@ enum ratelimit_operation {
 	RATELIMIT_OP_WRITE = 2,
 };
 
-/* Activity report from VFS process to local daemon via Unix socket */
-struct ratelimit_activity_report {
-	uint64_t timestamp_usec;
-	int64_t recent_iops;
-	uint32_t protocol_version;
-	uint32_t operation;
-	int32_t pid;
-	uint32_t inflight_ios;
-	char share_name[RATELIMIT_SHARE_NAME_LEN];
-} PACKED_STRUCT;
-
-/* Node summary broadcast from daemon to cluster */
-struct ratelimit_node_summary {
-	uint32_t vnn;
-	int32_t process_count;
-	uint64_t timestamp_usec;
-	char share_name[RATELIMIT_SHARE_NAME_LEN];
-} PACKED_STRUCT;
+/*
+ * The activity reports (VFS process to local daemon via unix socket),
+ * the node summaries (daemon to cluster) and the tdb records are
+ * defined in source3/librpc/idl/ratelimit.idl. They used to be
+ * packed C structures, the NDR representations have exactly
+ * the same layout if marshalled with LIBNDR_FLAG_HOST_BYTE_ORDER.
+ */
 
 static inline uint32_t ratelimit_msg_type_summary(uint32_t operation)
 {
