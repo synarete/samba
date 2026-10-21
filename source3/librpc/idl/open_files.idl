@@ -7,6 +7,14 @@ import "smb2_lease_struct.idl";
 import "misc.idl";
 
 [
+	/*
+	 * The NDR wire format of all [public] types
+	 * (except [no_ndr_abi] ones) and everything
+	 * they use is protected by
+	 * source3/librpc/ABI/open_files.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
 	pointer_default(unique)
 ]
 
