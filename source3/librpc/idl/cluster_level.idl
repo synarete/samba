@@ -3,6 +3,14 @@
 import "misc.idl";
 
 [
+	/*
+	 * The NDR wire format of all [public] types
+	 * (except [no_ndr_abi] ones) and everything
+	 * they use is protected by
+	 * source3/librpc/ABI/cluster_level.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
 	uuid("a84e4f68-7f89-11f1-969e-3fec00e1ddde"),
 	version(0.0),
 	pointer_default(unique),
