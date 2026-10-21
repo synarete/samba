@@ -573,18 +573,17 @@ static void notifyd_sys_callback(struct sys_notify_context *ctx,
 {
 	struct messaging_context *msg_ctx = talloc_get_type_abort(
 		private_data, struct messaging_context);
-	struct notify_trigger_msg msg;
+	uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE];
 	struct iovec iov[4];
 	char slash = '/';
 
-	msg = (struct notify_trigger_msg) {
-		.when = timespec_current(),
-		.action = ev->action,
-		.filter = filter,
-	};
+	notify_trigger_msg_push_hdr(timespec_current(),
+				    ev->action,
+				    filter,
+				    hdr);
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_trigger_msg, path);
+	iov[0].iov_base = hdr;
+	iov[0].iov_len = notify_trigger_msg_hdr_len();
 	iov[1].iov_base = discard_const_p(char, ev->dir);
 	iov[1].iov_len = strlen(ev->dir);
 	iov[2].iov_base = &slash;
@@ -598,25 +597,22 @@ static void notifyd_sys_callback(struct sys_notify_context *ctx,
 }
 
 static bool notifyd_parse_rec_change(uint8_t *buf, size_t bufsize,
-				     struct notify_rec_change_msg **pmsg,
-				     size_t *pathlen)
+				     struct notify_rec_change_msg *msg)
 {
-	struct notify_rec_change_msg *msg;
+	bool ok;
 
-	if (bufsize < offsetof(struct notify_rec_change_msg, path) + 1) {
-		DBG_WARNING("message too short, ignoring: %zu\n", bufsize);
+	ok = notify_rec_change_msg_parse(buf, bufsize, msg);
+	if (!ok) {
+		DBG_WARNING("invalid message, ignoring: %zu\n", bufsize);
 		return false;
 	}
-
-	*pmsg = msg = (struct notify_rec_change_msg *)buf;
-	*pathlen = bufsize - offsetof(struct notify_rec_change_msg, path);
 
 	DBG_DEBUG("Got rec_change_msg filter=%"PRIu32", "
 		  "subdir_filter=%"PRIu32", private_data=%p, path=%.*s\n",
 		  msg->instance.filter,
 		  msg->instance.subdir_filter,
 		  msg->instance.private_data,
-		  (int)(*pathlen),
+		  (int)msg->pathlen,
 		  msg->path);
 
 	return true;
@@ -629,24 +625,19 @@ static void notifyd_rec_change(struct messaging_context *msg_ctx,
 	struct notifyd_state *state = talloc_get_type_abort(
 		private_data, struct notifyd_state);
 	struct server_id_buf idbuf;
-	struct notify_rec_change_msg *msg;
-	size_t pathlen;
+	struct notify_rec_change_msg msg;
 	bool ok;
-	struct notify_instance instance;
 
 	DBG_DEBUG("Got %zu bytes from %s\n", data->length,
 		  server_id_str_buf(src, &idbuf));
 
-	ok = notifyd_parse_rec_change(data->data, data->length,
-				      &msg, &pathlen);
+	ok = notifyd_parse_rec_change(data->data, data->length, &msg);
 	if (!ok) {
 		return;
 	}
 
-	memcpy(&instance, &msg->instance, sizeof(instance)); /* avoid SIGBUS */
-
 	ok = notifyd_apply_rec_change(
-		&src, msg->path, pathlen, &instance,
+		&src, msg.path, msg.pathlen, &msg.instance,
 		state->entries, state->sys_notify_watch, state->sys_notify_ctx,
 		state->msg_ctx);
 	if (!ok) {
@@ -700,7 +691,7 @@ static void notifyd_rec_change(struct messaging_context *msg_ctx,
 
 struct notifyd_trigger_state {
 	struct messaging_context *msg_ctx;
-	struct notify_trigger_msg *msg;
+	struct notify_trigger_msg msg;
 	bool recursive;
 	bool covered_by_sys_notify;
 };
@@ -718,29 +709,26 @@ static void notifyd_trigger(struct messaging_context *msg_ctx,
 	struct notifyd_trigger_state tstate;
 	const char *path;
 	const char *p, *next_p;
+	bool ok;
 
-	if (data->length < offsetof(struct notify_trigger_msg, path) + 1) {
-		DBG_WARNING("message too short, ignoring: %zu\n",
+	tstate.msg_ctx = msg_ctx;
+
+	ok = notify_trigger_msg_parse(data->data, data->length, &tstate.msg);
+	if (!ok) {
+		DBG_WARNING("invalid message, ignoring: %zu\n",
 			    data->length);
 		return;
 	}
-	if (data->data[data->length-1] != 0) {
-		DBG_WARNING("path not 0-terminated, ignoring\n");;
-		return;
-	}
-
-	tstate.msg_ctx = msg_ctx;
 
 	tstate.covered_by_sys_notify = (src.vnn == my_id.vnn);
 	tstate.covered_by_sys_notify &= !server_id_equal(&src, &my_id);
 
-	tstate.msg = (struct notify_trigger_msg *)data->data;
-	path = tstate.msg->path;
+	path = tstate.msg.path;
 
 	DBG_DEBUG("Got trigger_msg action=%"PRIu32", filter=%"PRIu32", "
 		  "path=%s\n",
-		  tstate.msg->action,
-		  tstate.msg->filter,
+		  tstate.msg.action,
+		  tstate.msg.filter,
 		  path);
 
 	if (path[0] != '/') {
@@ -795,8 +783,7 @@ static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 
 {
 	struct notifyd_trigger_state *tstate = private_data;
-	struct notify_event_msg msg = { .action = tstate->msg->action,
-					.when = tstate->msg->when };
+	uint8_t hdr[NOTIFY_EVENT_HDR_SIZE];
 	struct iovec iov[2];
 	size_t path_len = key.dsize;
 	struct notifyd_watcher watcher = {};
@@ -820,9 +807,9 @@ static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 		  (int)key.dsize,
 		  (char *)key.dptr);
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_event_msg, path);
-	iov[1].iov_base = tstate->msg->path + path_len + 1;
+	iov[0].iov_base = hdr;
+	iov[0].iov_len = notify_event_msg_hdr_len();
+	iov[1].iov_base = discard_const_p(char, tstate->msg.path) + path_len + 1;
 	iov[1].iov_len = strlen((char *)(iov[1].iov_base)) + 1;
 
 	for (i=0; i<num_instances; i++) {
@@ -847,11 +834,14 @@ static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 			}
 		}
 
-		if ((i_filter & tstate->msg->filter) == 0) {
+		if ((i_filter & tstate->msg.filter) == 0) {
 			continue;
 		}
 
-		msg.private_data = instance->instance.private_data;
+		notify_event_msg_push_hdr(tstate->msg.when,
+					  instance->instance.private_data,
+					  tstate->msg.action,
+					  hdr);
 
 		status = messaging_send_iov(
 			tstate->msg_ctx, instance->client,
@@ -886,9 +876,10 @@ static void notifyd_send_delete(struct messaging_context *msg_ctx,
 				TDB_DATA key,
 				struct notifyd_instance *instance)
 {
-	struct notify_rec_change_msg msg = {
-		.instance.private_data = instance->instance.private_data
+	struct notify_instance delete_instance = {
+		.private_data = instance->instance.private_data
 	};
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
 	uint8_t nul = 0;
 	struct iovec iov[3];
 	NTSTATUS status;
@@ -897,9 +888,11 @@ static void notifyd_send_delete(struct messaging_context *msg_ctx,
 	 * Send a rec_change to ourselves to delete a dead entry
 	 */
 
+	notify_rec_change_msg_push_hdr(&delete_instance, hdr);
+
 	iov[0] = (struct iovec) {
-		.iov_base = &msg,
-		.iov_len = offsetof(struct notify_rec_change_msg, path) };
+		.iov_base = hdr,
+		.iov_len = notify_rec_change_msg_hdr_len() };
 	iov[1] = (struct iovec) { .iov_base = key.dptr, .iov_len = key.dsize };
 	iov[2] = (struct iovec) { .iov_base = &nul, .iov_len = sizeof(nul) };
 
@@ -1397,23 +1390,18 @@ static void notifyd_apply_reclog(struct notifyd_peer *peer,
 
 	for (i=0; i<log->num_recs; i++) {
 		struct messaging_rec *r = log->recs[i];
-		struct notify_rec_change_msg *chg;
-		size_t pathlen;
+		struct notify_rec_change_msg chg;
 		bool ok;
-		struct notify_instance instance;
 
 		ok = notifyd_parse_rec_change(r->buf.data, r->buf.length,
-					      &chg, &pathlen);
+					      &chg);
 		if (!ok) {
 			DBG_INFO("notifyd_parse_rec_change failed\n");
 			goto fail;
 		}
 
-		/* avoid SIGBUS */
-		memcpy(&instance, &chg->instance, sizeof(instance));
-
-		ok = notifyd_apply_rec_change(&r->src, chg->path, pathlen,
-					      &instance, peer->db,
+		ok = notifyd_apply_rec_change(&r->src, chg.path, chg.pathlen,
+					      &chg.instance, peer->db,
 					      state->sys_notify_watch,
 					      state->sys_notify_ctx,
 					      state->msg_ctx);
