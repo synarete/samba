@@ -1,0 +1,70 @@
+#include "idl_types.h"
+
+/*
+ * The messages exchanged between smbd and notifyd, also
+ * between notifyd instances on different ctdb nodes
+ * (directly or within a messaging_reclog broadcast).
+ *
+ * Each message consists of a fixed size header described
+ * here, followed by a nul terminated path.
+ *
+ * The headers used to be raw C structures in host byte order,
+ * the NDR representations have exactly the same layout on
+ * LP64 platforms if marshalled with LIBNDR_FLAG_HOST_BYTE_ORDER,
+ * other platforms still use the raw C structures.
+ */
+
+[
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * source3/librpc/ABI/notifyd.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
+	pointer_default(unique)
+]
+interface notifyd
+{
+	/*
+	 * struct timespec, as it was used in the raw C structures
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		int64 tv_sec;
+		int64 tv_nsec;
+	} notifyd_timespec;
+
+	/*
+	 * MSG_SMB_NOTIFY_REC_CHANGE header
+	 *
+	 * private_data is the opaque (pointer) value
+	 * of the client.
+	 */
+	const uint32 NOTIFY_REC_CHANGE_HDR_SIZE = 32;
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		notifyd_timespec creation_time;
+		uint32 filter;
+		uint32 subdir_filter;
+		hyper private_data;
+	} notify_rec_change_hdr;
+
+	/*
+	 * MSG_SMB_NOTIFY_TRIGGER header
+	 */
+	const uint32 NOTIFY_TRIGGER_HDR_SIZE = 24;
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		notifyd_timespec when;
+		uint32 action;
+		uint32 filter;
+	} notify_trigger_hdr;
+
+	/*
+	 * MSG_PVFS_NOTIFY header
+	 */
+	const uint32 NOTIFY_EVENT_HDR_SIZE = 28;
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		notifyd_timespec when;
+		hyper private_data;
+		uint32 action;
+	} notify_event_hdr;
+}

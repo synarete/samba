@@ -759,6 +759,7 @@ bld.SAMBA3_LIBRARY('smbd_base',
                         LIBADS_SERVER
                         LIBAFS
                         NDR_SMBXSRV
+                        notifyd_msg
                         LEASES_DB
                         LEASES_UTIL
                         sysquotas
@@ -1149,6 +1150,7 @@ bld.SAMBA3_BINARY('test_ndr_wire_layouts',
                       NDR_SECRETS
                       NDR_OPEN_FILES
                       NDR_RATELIMIT
+                      notifyd_msg
                       messages_util
                       NDR_MESSAGING
                       cmocka

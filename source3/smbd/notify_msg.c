@@ -111,23 +111,18 @@ static void notify_handler(struct messaging_context *msg, void *private_data,
 {
 	struct notify_context *ctx = talloc_get_type_abort(
 		private_data, struct notify_context);
-	struct notify_event_msg *event_msg;
+	struct notify_event_msg event_msg;
 	struct notify_event event;
+	bool ok;
 
-	if (data->length < offsetof(struct notify_event_msg, path) + 1) {
-		DBG_WARNING("message too short: %zu\n", data->length);
-		return;
-	}
-	if (data->data[data->length-1] != 0) {
-		DBG_WARNING("path not 0-terminated\n");
+	ok = notify_event_msg_parse(data->data, data->length, &event_msg);
+	if (!ok) {
 		return;
 	}
 
-	event_msg = (struct notify_event_msg *)data->data;
-
-	event.action = event_msg->action;
-	event.path = event_msg->path;
-	event.private_data = event_msg->private_data;
+	event.action = event_msg.action;
+	event.path = event_msg.path;
+	event.private_data = event_msg.private_data;
 
 	DBG_DEBUG("Got notify_event action=%"PRIu32", private_data=%p, "
 		   "path=%s\n",
@@ -135,14 +130,15 @@ static void notify_handler(struct messaging_context *msg, void *private_data,
 		  event.private_data,
 		  event.path);
 
-	ctx->callback(ctx->sconn, event.private_data, event_msg->when, &event);
+	ctx->callback(ctx->sconn, event.private_data, event_msg.when, &event);
 }
 
 NTSTATUS notify_add(struct notify_context *ctx,
 		    const char *path, uint32_t filter, uint32_t subdir_filter,
 		    void *private_data)
 {
-	struct notify_rec_change_msg msg = {};
+	struct notify_instance instance = {};
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
 	struct iovec iov[2];
 	size_t pathlen;
 	NTSTATUS status;
@@ -160,13 +156,15 @@ NTSTATUS notify_add(struct notify_context *ctx,
 
 	pathlen = strlen(path)+1;
 
-	clock_gettime_mono(&msg.instance.creation_time);
-	msg.instance.filter = filter;
-	msg.instance.subdir_filter = subdir_filter;
-	msg.instance.private_data = private_data;
+	clock_gettime_mono(&instance.creation_time);
+	instance.filter = filter;
+	instance.subdir_filter = subdir_filter;
+	instance.private_data = private_data;
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
+	notify_rec_change_msg_push_hdr(&instance, hdr);
+
+	iov[0].iov_base = hdr;
+	iov[0].iov_len = notify_rec_change_msg_hdr_len();
 	iov[1].iov_base = discard_const_p(char, path);
 	iov[1].iov_len = pathlen;
 
@@ -186,7 +184,8 @@ NTSTATUS notify_add(struct notify_context *ctx,
 NTSTATUS notify_remove(struct notify_context *ctx, void *private_data,
 		       char *path)
 {
-	struct notify_rec_change_msg msg = {};
+	struct notify_instance instance = {};
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
 	struct iovec iov[2];
 	NTSTATUS status;
 
@@ -195,10 +194,12 @@ NTSTATUS notify_remove(struct notify_context *ctx, void *private_data,
 		return NT_STATUS_NOT_IMPLEMENTED;
 	}
 
-	msg.instance.private_data = private_data;
+	instance.private_data = private_data;
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
+	notify_rec_change_msg_push_hdr(&instance, hdr);
+
+	iov[0].iov_base = hdr;
+	iov[0].iov_len = notify_rec_change_msg_hdr_len();
 	iov[1].iov_base = path;
 	iov[1].iov_len = strlen(path)+1;
 
@@ -213,7 +214,7 @@ void notify_trigger(struct notify_context *ctx,
 		    uint32_t action, uint32_t filter,
 		    const char *dir, const char *name)
 {
-	struct notify_trigger_msg msg;
+	uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE];
 	struct iovec iov[4];
 	char slash = '/';
 
@@ -228,12 +229,10 @@ void notify_trigger(struct notify_context *ctx,
 		return;
 	}
 
-	msg.when = timespec_current();
-	msg.action = action;
-	msg.filter = filter;
+	notify_trigger_msg_push_hdr(timespec_current(), action, filter, hdr);
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_trigger_msg, path);
+	iov[0].iov_base = hdr;
+	iov[0].iov_len = notify_trigger_msg_hdr_len();
 	iov[1].iov_base = discard_const_p(char, dir);
 	iov[1].iov_len = strlen(dir);
 	iov[2].iov_base = &slash;
