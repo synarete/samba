@@ -18,6 +18,7 @@
  */
 
 #include "includes.h"
+#include "lib/file_id_key.h"
 #include "utils/net.h"
 #include "locking/share_mode_lock.h"
 #include "locking/proto.h"
@@ -45,14 +46,13 @@ static int net_tdb_locking(struct net_context *c, int argc, const char **argv)
 	}
 
 	blob = strhex_to_data_blob(mem_ctx, argv[0]);
-	if (blob.length != sizeof(struct file_id)) {
-		d_printf("Invalid length %zu of key, expected %zu\n",
+	ok = pull_file_id_24(blob.data, blob.length, &id);
+	if (!ok) {
+		d_printf("Invalid length %zu of key, expected %u\n",
 			 blob.length,
-			 sizeof(struct file_id));
+			 FILE_ID_KEY_LENGTH);
 		goto out;
 	}
-
-	memcpy(&id, blob.data, blob.length);
 
 	lock = fetch_share_mode_unlocked(mem_ctx, id);
 	if (lock == NULL) {
