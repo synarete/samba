@@ -47,6 +47,7 @@ bld.SAMBA3_SUBSYSTEM('NDR_CLUSTER_LEVEL',
 bld.SAMBA_NDR_ABI('cluster_level', deps='NDR_CLUSTER_LEVEL')
 bld.SAMBA_NDR_ABI('leases_db', deps='NDR_LEASES_DB')
 bld.SAMBA_NDR_ABI('open_files', deps='NDR_OPEN_FILES')
+bld.SAMBA_NDR_ABI('rpc_host', deps='NDR_RPC_HOST NDR_NAMED_PIPE_AUTH')
 bld.SAMBA_NDR_ABI('smbXsrv', deps='NDR_SMBXSRV')
 
 bld.SAMBA3_SUBSYSTEM('NDR_SECRETS',
