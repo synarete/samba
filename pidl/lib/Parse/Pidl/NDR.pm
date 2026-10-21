@@ -1197,6 +1197,10 @@ my %property_list = (
 	"charset"		=> ["ELEMENT"],
 	"length_is"		=> ["ELEMENT"],
 	"to_null"		=> ["ELEMENT"],
+
+	# wire format ABI checks
+	"ndr_abi"		=> ["INTERFACE", "TYPEDEF", "STRUCT", "UNION", "ENUM", "BITMAP"],
+	"no_ndr_abi"		=> ["INTERFACE", "TYPEDEF", "STRUCT", "UNION", "ENUM", "BITMAP"],
 );
 
 #####################################################################

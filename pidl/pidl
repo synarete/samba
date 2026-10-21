@@ -86,6 +86,13 @@ Generate a C file and C header containing NDR parsers. The filename for
 the parser defaults to ndr_OUTNAME.c. The header filename will be the
 parser filename with the extension changed from .c to .h.
 
+=item I<--ndr-abi>
+
+Generate a C file containing a program, which prints a description
+of the NDR wire format of all types marked with [ndr_abi] and all
+types they use, together with sample blobs. The filename defaults
+to ndr_OUTNAME_abi.c. See librpc/ndr/ndr_abi.h in the Samba tree.
+
 =item I<--tdr-parser>
 
 Generate a C file and C header containing TDR parsers. The filename for
@@ -351,6 +358,19 @@ charset. If this attribute is specified, pidl will
 take care of converting the character data from this format
 to the host format. Commonly used values are UCS2, DOS and UTF8.
 
+=item ndr_abi
+
+On an interface all [public] types are marked as [ndr_abi],
+on an individual [public] type only this type. The NDR wire
+format of these types (and all types they use) is described
+by the output of --ndr-abi.
+
+=item no_ndr_abi
+
+Excludes a type from the interface wide [ndr_abi], e.g. for
+structures only used in memory. It is an error if such a type
+is used by an [ndr_abi] type.
+
 =back
 
 =head2 Unsupported MIDL properties or statements
@@ -477,6 +497,7 @@ my($opt_typelib);
 my($opt_server);
 my($opt_server_compat);
 my($opt_ndr_parser);
+my($opt_ndr_abi);
 my($opt_tdr_parser);
 my($opt_ws_parser);
 my($opt_python);
@@ -519,6 +540,7 @@ Debugging:
 Samba 4 output:
  --header[=OUTFILE]      create generic header file [BASENAME.h]
  --ndr-parser[=OUTFILE]  create a C NDR parser [ndr_BASENAME.c]
+ --ndr-abi[=OUTFILE]     create a C NDR wire format ABI dumper [ndr_BASENAME_abi.c]
  --client[=OUTFILE]      create a C NDR client [ndr_BASENAME_c.c]
  --tdr-parser[=OUTFILE]  create a C TDR parser [tdr_BASENAME.c]
  --python[=OUTFILE]      create python wrapper file [py_BASENAME.c]
@@ -566,6 +588,7 @@ my $result = GetOptions (
 		'tdr-parser:s' => \$opt_tdr_parser,
 		'template' => \$opt_template,
 		'ndr-parser:s' => \$opt_ndr_parser,
+		'ndr-abi:s' => \$opt_ndr_abi,
 		'client:s' => \$opt_client,
 		'ws-parser:s' => \$opt_ws_parser,
 		'python' => \$opt_python,
@@ -675,6 +698,7 @@ sub process_file($)
 		defined($opt_server_compat) or
 		defined($opt_header) or
 		defined($opt_ndr_parser) or
+		defined($opt_ndr_abi) or
 		defined($opt_python) or
 		defined($opt_dump_ndr_tree) or
 		defined($opt_samba3_header) or
@@ -739,6 +763,13 @@ sub process_file($)
 		FileSave($parser_fname, $parser);
 		FileSave($h_filename, $header);
 
+	}
+
+	if (defined($opt_ndr_abi)) {
+		my $abi_fname = ($opt_ndr_abi or "$outputdir/ndr_$basename\_abi.c");
+		require Parse::Pidl::Samba4::NDR::ABI;
+		my $generator = new Parse::Pidl::Samba4::NDR::ABI();
+		FileSave($abi_fname, $generator->Parse($ndr, $basename, $h_filename));
 	}
 
 	if (defined($opt_ws_parser)) {
