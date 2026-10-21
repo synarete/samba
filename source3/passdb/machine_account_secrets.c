@@ -33,6 +33,7 @@
 
 #include "librpc/gen_ndr/libnet_join.h"
 #include "librpc/gen_ndr/ndr_secrets.h"
+#include "lib/cluster_support.h"
 #include "lib/crypto/crypto.h"
 #include "lib/krb5_wrap/krb5_samba.h"
 #include "lib/util/time_basic.h"
@@ -111,6 +112,425 @@ bool secrets_clear_domain_protection(const char *domain)
 	return true;
 }
 
+/*
+ * SECRETS/SID/<DOMAIN> and SECRETS/DOMGUID/<DOMAIN>
+ * are in host byte order (LIBNDR_FLAG_HOST_BYTE_ORDER)
+ * in version 0 of the database (without SECRETS/VERSION)
+ * and in little endian with version 1, see secrets.idl.
+ */
+static NTSTATUS secrets_tdb_version(struct db_context *db,
+				    enum secrets_tdb_version *_version)
+{
+	struct secrets_version v = { .version = 0, };
+	DATA_BLOB blob;
+	TDB_DATA val;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	status = dbwrap_fetch(db,
+			      talloc_tos(),
+			      string_term_tdb_data(SECRETS_VERSION_KEY),
+			      &val);
+	if (NT_STATUS_EQUAL(status, NT_STATUS_NOT_FOUND)) {
+		*_version = SECRETS_TDB_VERSION_0;
+		return NT_STATUS_OK;
+	}
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
+	}
+
+	blob = data_blob_const(val.dptr, val.dsize);
+	ndr_err = ndr_pull_struct_blob_all_noalloc(&blob, &v,
+			(ndr_pull_flags_fn_t)ndr_pull_secrets_version);
+	TALLOC_FREE(val.dptr);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("ndr_pull_secrets_version failed: %s\n",
+			ndr_errstr(ndr_err));
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	switch (v.version) {
+	case SECRETS_TDB_VERSION_0:
+	case SECRETS_TDB_VERSION_1:
+		break;
+	default:
+		DBG_ERR("Unsupported %s 0x%x\n",
+			SECRETS_VERSION_KEY, (unsigned)v.version);
+		return NT_STATUS_INTERNAL_DB_CORRUPTION;
+	}
+
+	*_version = v.version;
+	return NT_STATUS_OK;
+}
+
+static libndr_flags secrets_tdb_version_ndr_flags(
+	enum secrets_tdb_version version)
+{
+	if (version >= SECRETS_TDB_VERSION_1) {
+		return 0;
+	}
+
+	return LIBNDR_FLAG_HOST_BYTE_ORDER;
+}
+
+struct secrets_format_record {
+	const char *prefix;
+	size_t size;
+	size_t struct_size;
+	ndr_push_flags_fn_t push_fn;
+	ndr_pull_flags_fn_t pull_fn;
+};
+
+static const struct secrets_format_record secrets_format_records[] = {
+	{
+		.prefix = SECRETS_DOMAIN_SID "/",
+		.size = SECRETS_DOMAIN_SID_SIZE,
+		.struct_size = sizeof(struct secrets_domain_sid),
+		.push_fn = (ndr_push_flags_fn_t)ndr_push_secrets_domain_sid,
+		.pull_fn = (ndr_pull_flags_fn_t)ndr_pull_secrets_domain_sid,
+	},
+	{
+		.prefix = SECRETS_DOMAIN_GUID "/",
+		.size = SECRETS_DOMAIN_GUID_SIZE,
+		.struct_size = sizeof(struct secrets_domain_guid),
+		.push_fn = (ndr_push_flags_fn_t)ndr_push_secrets_domain_guid,
+		.pull_fn = (ndr_pull_flags_fn_t)ndr_pull_secrets_domain_guid,
+	},
+};
+
+static const struct secrets_format_record *secrets_format_record_type(
+	TDB_DATA key)
+{
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(secrets_format_records); i++) {
+		const struct secrets_format_record *t =
+			&secrets_format_records[i];
+		size_t plen = strlen(t->prefix);
+
+		if (key.dsize > plen &&
+		    memcmp(key.dptr, t->prefix, plen) == 0)
+		{
+			return t;
+		}
+	}
+
+	return NULL;
+}
+
+struct secrets_format_collect_state {
+	TALLOC_CTX *mem_ctx;
+	TDB_DATA *keys;
+	size_t num_keys;
+	bool failed;
+};
+
+static int secrets_format_collect_fn(struct db_record *rec,
+				     void *private_data)
+{
+	struct secrets_format_collect_state *state = private_data;
+	TDB_DATA key = dbwrap_record_get_key(rec);
+	TDB_DATA *tmp = NULL;
+
+	if (secrets_format_record_type(key) == NULL) {
+		return 0;
+	}
+
+	tmp = talloc_realloc(state->mem_ctx,
+			     state->keys,
+			     TDB_DATA,
+			     state->num_keys + 1);
+	if (tmp == NULL) {
+		state->failed = true;
+		return -1;
+	}
+	state->keys = tmp;
+
+	state->keys[state->num_keys] = (TDB_DATA) {
+		.dptr = talloc_memdup(state->keys, key.dptr, key.dsize),
+		.dsize = key.dsize,
+	};
+	if (state->keys[state->num_keys].dptr == NULL) {
+		state->failed = true;
+		return -1;
+	}
+	state->num_keys += 1;
+
+	return 0;
+}
+
+/*
+ * Convert the database from version 0 to version 1:
+ *
+ * Convert all SECRETS/SID/<DOMAIN> and SECRETS/DOMGUID/<DOMAIN>
+ * records from host byte order to little endian and set
+ * SECRETS/VERSION, this has to be called within a transaction.
+ */
+static NTSTATUS secrets_tdb_upgrade_v1(struct db_context *db)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct secrets_format_collect_state state = {
+		.mem_ctx = frame,
+	};
+	struct secrets_version v = {
+		.version = SECRETS_TDB_VERSION_1,
+	};
+	uint8_t fbuf[SECRETS_VERSION_SIZE] = { 0, };
+	DATA_BLOB fblob = data_blob_const(fbuf, sizeof(fbuf));
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+	size_t i;
+
+	status = dbwrap_traverse_read(db,
+				      secrets_format_collect_fn,
+				      &state,
+				      NULL);
+	if (state.failed) {
+		TALLOC_FREE(frame);
+		return NT_STATUS_NO_MEMORY;
+	}
+	if (!NT_STATUS_IS_OK(status)) {
+		TALLOC_FREE(frame);
+		return status;
+	}
+
+	for (i = 0; i < state.num_keys; i++) {
+		TDB_DATA key = state.keys[i];
+		const struct secrets_format_record *t =
+			secrets_format_record_type(key);
+		void *r = NULL;
+		DATA_BLOB blob;
+		TDB_DATA val;
+
+		status = dbwrap_fetch(db, frame, key, &val);
+		if (!NT_STATUS_IS_OK(status)) {
+			TALLOC_FREE(frame);
+			return status;
+		}
+
+		if (val.dsize != t->size) {
+			/*
+			 * The readers reject this anyway
+			 */
+			DBG_WARNING("Ignoring %.*s with invalid size %zu\n",
+				    (int)key.dsize, (const char *)key.dptr,
+				    val.dsize);
+			continue;
+		}
+
+		r = talloc_zero_size(frame, t->struct_size);
+		if (r == NULL) {
+			TALLOC_FREE(frame);
+			return NT_STATUS_NO_MEMORY;
+		}
+
+		blob = data_blob_const(val.dptr, val.dsize);
+		ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
+			&blob, r, LIBNDR_FLAG_HOST_BYTE_ORDER, t->pull_fn);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			DBG_WARNING("Ignoring invalid %.*s: %s\n",
+				    (int)key.dsize, (const char *)key.dptr,
+				    ndr_errstr(ndr_err));
+			continue;
+		}
+
+		ndr_err = ndr_push_struct_into_fixed_blob(&blob, r,
+							  t->push_fn);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			TALLOC_FREE(frame);
+			return ndr_map_error2ntstatus(ndr_err);
+		}
+
+		status = dbwrap_store(db, key,
+				      make_tdb_data(blob.data, blob.length),
+				      0);
+		if (!NT_STATUS_IS_OK(status)) {
+			TALLOC_FREE(frame);
+			return status;
+		}
+	}
+
+	ndr_err = ndr_push_struct_into_fixed_blob(&fblob, &v,
+			(ndr_push_flags_fn_t)ndr_push_secrets_version);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = dbwrap_store(db,
+			      string_term_tdb_data(SECRETS_VERSION_KEY),
+			      make_tdb_data(fblob.data, fblob.length),
+			      0);
+	if (!NT_STATUS_IS_OK(status)) {
+		TALLOC_FREE(frame);
+		return status;
+	}
+
+	DBG_NOTICE("Upgraded to version 1, "
+		   "converted %zu records to little endian\n",
+		   state.num_keys);
+
+	TALLOC_FREE(frame);
+	return NT_STATUS_OK;
+}
+
+struct secrets_store_format_record_state {
+	const char *key;
+	const void *r;
+	ndr_push_flags_fn_t push_fn;
+	size_t size;
+};
+
+static NTSTATUS secrets_store_format_record_fn(struct db_context *db,
+					       void *private_data)
+{
+	struct secrets_store_format_record_state *state = private_data;
+	uint8_t buf[MAX(SECRETS_DOMAIN_SID_SIZE,
+			SECRETS_DOMAIN_GUID_SIZE)] = { 0, };
+	DATA_BLOB blob = data_blob_const(buf, state->size);
+	enum secrets_tdb_version version = SECRETS_TDB_VERSION_0;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	SMB_ASSERT(state->size <= sizeof(buf));
+
+	status = secrets_tdb_version(db, &version);
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
+	}
+
+	if (version < SECRETS_TDB_VERSION_1 &&
+	    CLUSTER_LEVEL_ACTIVE(2, 0))
+	{
+		/*
+		 * The first writer converts the whole
+		 * database within this transaction.
+		 */
+		status = secrets_tdb_upgrade_v1(db);
+		if (!NT_STATUS_IS_OK(status)) {
+			DBG_ERR("secrets_tdb_upgrade_v1() failed: %s\n",
+				nt_errstr(status));
+			return status;
+		}
+		version = SECRETS_TDB_VERSION_1;
+	}
+
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(
+		&blob,
+		state->r,
+		secrets_tdb_version_ndr_flags(version),
+		state->push_fn);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	return dbwrap_store(db,
+			    string_tdb_data(state->key),
+			    make_tdb_data(blob.data, blob.length),
+			    0);
+}
+
+static bool secrets_store_format_record(const char *key,
+					const void *r,
+					size_t size,
+					ndr_push_flags_fn_t push_fn)
+{
+	struct secrets_store_format_record_state state = {
+		.key = key,
+		.r = r,
+		.push_fn = push_fn,
+		.size = size,
+	};
+	NTSTATUS status;
+
+	if (!secrets_init()) {
+		return false;
+	}
+
+	status = dbwrap_trans_do(secrets_db_ctx(),
+				 secrets_store_format_record_fn,
+				 &state);
+	if (!NT_STATUS_IS_OK(status)) {
+		DBG_ERR("Failed to store %s: %s\n", key, nt_errstr(status));
+		return false;
+	}
+
+	return true;
+}
+
+static bool secrets_fetch_format_record(const char *key,
+					void *r,
+					size_t size,
+					ndr_pull_flags_fn_t pull_fn)
+{
+	struct db_context *db = NULL;
+	enum ndr_err_code ndr_err;
+	unsigned retries = 0;
+
+	if (!secrets_init()) {
+		return false;
+	}
+	db = secrets_db_ctx();
+
+again:
+	{
+		enum secrets_tdb_version v1 = SECRETS_TDB_VERSION_0;
+		enum secrets_tdb_version v2 = SECRETS_TDB_VERSION_0;
+		DATA_BLOB blob;
+		TDB_DATA val;
+		NTSTATUS status;
+
+		status = secrets_tdb_version(db, &v1);
+		if (!NT_STATUS_IS_OK(status)) {
+			return false;
+		}
+
+		status = dbwrap_fetch(db, talloc_tos(),
+				      string_tdb_data(key), &val);
+		if (!NT_STATUS_IS_OK(status)) {
+			return false;
+		}
+
+		/*
+		 * The database might have been upgraded
+		 * after we checked SECRETS/VERSION, check again.
+		 */
+		status = secrets_tdb_version(db, &v2);
+		if (!NT_STATUS_IS_OK(status)) {
+			TALLOC_FREE(val.dptr);
+			return false;
+		}
+		if (v1 != v2) {
+			TALLOC_FREE(val.dptr);
+			if (retries++ > 3) {
+				return false;
+			}
+			goto again;
+		}
+
+		if (val.dsize != size) {
+			DBG_WARNING("%s has invalid size %zu\n",
+				    key, val.dsize);
+			TALLOC_FREE(val.dptr);
+			return false;
+		}
+
+		blob = data_blob_const(val.dptr, val.dsize);
+		ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
+			&blob, r,
+			secrets_tdb_version_ndr_flags(v2),
+			pull_fn);
+		TALLOC_FREE(val.dptr);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			DBG_ERR("Failed to parse %s: %s\n",
+				key, ndr_errstr(ndr_err));
+			return false;
+		}
+	}
+
+	return true;
+}
+
 bool secrets_store_domain_sid(const char *domain, const struct dom_sid  *sid)
 {
 	char *protect_ids;
@@ -118,9 +538,6 @@ bool secrets_store_domain_sid(const char *domain, const struct dom_sid  *sid)
 	struct secrets_domain_sid ssid = {
 		.sid = *sid,
 	};
-	uint8_t buf[SECRETS_DOMAIN_SID_SIZE] = { 0, };
-	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
-	enum ndr_err_code ndr_err;
 
 	protect_ids = secrets_fetch(protect_ids_keystr(domain), NULL);
 	if (protect_ids) {
@@ -138,18 +555,11 @@ bool secrets_store_domain_sid(const char *domain, const struct dom_sid  *sid)
 	 * secrets_domain_sid in host byte order
 	 * has the same layout, unused sub_auths are 0.
 	 */
-	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &ssid,
-			LIBNDR_FLAG_HOST_BYTE_ORDER,
-			(ndr_push_flags_fn_t)ndr_push_secrets_domain_sid);
-	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		DBG_ERR("ndr_push_secrets_domain_sid failed: %s\n",
-			ndr_errstr(ndr_err));
-		return false;
-	}
-
-	ret = secrets_store(domain_sid_keystr(domain),
-			    blob.data,
-			    blob.length);
+	ret = secrets_store_format_record(
+		domain_sid_keystr(domain),
+		&ssid,
+		SECRETS_DOMAIN_SID_SIZE,
+		(ndr_push_flags_fn_t)ndr_push_secrets_domain_sid);
 
 	/* Force a re-query */
 	if (ret) {
@@ -165,27 +575,14 @@ bool secrets_store_domain_sid(const char *domain, const struct dom_sid  *sid)
 bool secrets_fetch_domain_sid(const char *domain, struct dom_sid  *sid)
 {
 	struct secrets_domain_sid ssid = { .sid = { .num_auths = 0, }, };
-	DATA_BLOB blob = { .length = 0, };
-	enum ndr_err_code ndr_err;
+	bool ok;
 
-	blob.data = (uint8_t *)secrets_fetch(domain_sid_keystr(domain),
-					     &blob.length);
-	if (blob.data == NULL) {
-		return false;
-	}
-
-	if (blob.length != SECRETS_DOMAIN_SID_SIZE) {
-		SAFE_FREE(blob.data);
-		return false;
-	}
-
-	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &ssid,
-			LIBNDR_FLAG_HOST_BYTE_ORDER,
-			(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_sid);
-	SAFE_FREE(blob.data);
-	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		DBG_ERR("ndr_pull_secrets_domain_sid failed: %s\n",
-			ndr_errstr(ndr_err));
+	ok = secrets_fetch_format_record(
+		domain_sid_keystr(domain),
+		&ssid,
+		SECRETS_DOMAIN_SID_SIZE,
+		(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_sid);
+	if (!ok) {
 		return false;
 	}
 
@@ -200,9 +597,6 @@ bool secrets_store_domain_guid(const char *domain, const struct GUID *guid)
 	struct secrets_domain_guid sguid = {
 		.guid = *guid,
 	};
-	uint8_t buf[SECRETS_DOMAIN_GUID_SIZE] = { 0, };
-	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
-	enum ndr_err_code ndr_err;
 
 	protect_ids = secrets_fetch(protect_ids_keystr(domain), NULL);
 	if (protect_ids) {
@@ -220,56 +614,44 @@ bool secrets_store_domain_guid(const char *domain, const struct GUID *guid)
 	 * secrets_domain_guid in host byte order
 	 * has the same layout.
 	 */
-	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &sguid,
-			LIBNDR_FLAG_HOST_BYTE_ORDER,
-			(ndr_push_flags_fn_t)ndr_push_secrets_domain_guid);
-	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		DBG_ERR("ndr_push_secrets_domain_guid failed: %s\n",
-			ndr_errstr(ndr_err));
-		return false;
-	}
-
 	key = domain_guid_keystr(domain);
-	return secrets_store(key, blob.data, blob.length);
+	return secrets_store_format_record(
+		key,
+		&sguid,
+		SECRETS_DOMAIN_GUID_SIZE,
+		(ndr_push_flags_fn_t)ndr_push_secrets_domain_guid);
 }
 
 bool secrets_fetch_domain_guid(const char *domain, struct GUID *guid)
 {
 	struct secrets_domain_guid sguid = { .guid = { .time_low = 0, }, };
-	DATA_BLOB blob = { .length = 0, };
-	enum ndr_err_code ndr_err;
 	const char *key;
 	struct GUID new_guid;
+	bool exists;
+	bool ok;
 
 	key = domain_guid_keystr(domain);
-	blob.data = (uint8_t *)secrets_fetch(key, &blob.length);
 
-	if (blob.data == NULL) {
+	if (!secrets_init()) {
+		return false;
+	}
+	exists = dbwrap_exists(secrets_db_ctx(), string_tdb_data(key));
+
+	if (!exists) {
 		if (lp_server_role() == ROLE_DOMAIN_PDC ||
 		    lp_server_role() == ROLE_IPA_DC) {
 			new_guid = GUID_random();
 			if (!secrets_store_domain_guid(domain, &new_guid))
 				return False;
-			blob.data = (uint8_t *)secrets_fetch(key, &blob.length);
-		}
-		if (blob.data == NULL) {
-			return False;
 		}
 	}
 
-	if (blob.length != SECRETS_DOMAIN_GUID_SIZE) {
-		DEBUG(1,("UUID size %zu is wrong!\n", blob.length));
-		SAFE_FREE(blob.data);
-		return False;
-	}
-
-	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &sguid,
-			LIBNDR_FLAG_HOST_BYTE_ORDER,
-			(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_guid);
-	SAFE_FREE(blob.data);
-	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		DBG_ERR("ndr_pull_secrets_domain_guid failed: %s\n",
-			ndr_errstr(ndr_err));
+	ok = secrets_fetch_format_record(
+		key,
+		&sguid,
+		SECRETS_DOMAIN_GUID_SIZE,
+		(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_guid);
+	if (!ok) {
 		return false;
 	}
 
