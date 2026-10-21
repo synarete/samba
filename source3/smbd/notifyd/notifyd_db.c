@@ -16,6 +16,9 @@
 #include "replace.h"
 #include "lib/util/debug.h"
 #include "lib/util/server_id_db.h"
+#include "lib/util/tevent_ntstatus.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 #include "notifyd_private.h"
 #include "notifyd_db.h"
 
@@ -90,6 +93,90 @@ static NTSTATUS notifyd_parse_db(
 	return status;
 }
 
+static NTSTATUS notifyd_parse_db_v1(
+	const DATA_BLOB *data,
+	uint64_t *log_index,
+	bool (*fn)(const char *path,
+		   struct server_id server,
+		   const struct notify_instance *instance,
+		   void *private_data),
+	void *private_data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_db m = {};
+	struct notifyd_parse_db_state state = {.fn = fn,
+					       .private_data = private_data};
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_notify_db_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = NT_STATUS_INTERNAL_DB_CORRUPTION;
+		goto out;
+	}
+
+	*log_index = m.info.info1.rec_index;
+
+	status = dbwrap_parse_marshall_buf(m.info.info1.db.data,
+					   m.info.info1.db.length,
+					   notifyd_parse_db_parser,
+					   &state);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS notifyd_get_db_send_v1(struct messaging_context *msg_ctx,
+				       struct server_id dst)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_get_db m = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status = NT_STATUS_NO_MEMORY;
+
+	ndr_err = messaging_smb_notify_get_db_push(frame, &m, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx, dst, MSG_SMB_NOTIFY_GET_DB_V1, &blob);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS notifyd_get_db_send(struct messaging_context *msg_ctx,
+				    struct server_id dst)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return notifyd_get_db_send_v1(msg_ctx, dst);
+	}
+
+	return messaging_send_buf(
+		msg_ctx, dst, MSG_SMB_NOTIFY_GET_DB, NULL, 0);
+}
+
+static NTSTATUS notifyd_parse_db_rec(
+	const struct messaging_rec *rec,
+	uint64_t *log_index,
+	bool (*fn)(const char *path,
+		   struct server_id server,
+		   const struct notify_instance *instance,
+		   void *private_data),
+	void *private_data)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return notifyd_parse_db_v1(&rec->buf,
+					   log_index,
+					   fn,
+					   private_data);
+	}
+
+	return notifyd_parse_db(
+		rec->buf.data, rec->buf.length, log_index, fn, private_data);
+}
+
 NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 		     bool (*fn)(const char *path, struct server_id server,
 				const struct notify_instance *instance,
@@ -102,6 +189,7 @@ NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 	struct tevent_req *req = NULL;
 	struct messaging_rec *rec = NULL;
 	uint64_t log_idx;
+	uint32_t resp_type;
 	NTSTATUS status;
 	int ret;
 	bool ok;
@@ -118,7 +206,10 @@ NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 		return NT_STATUS_NO_MEMORY;
 	}
 
-	req = messaging_read_send(ev, ev, msg_ctx, MSG_SMB_NOTIFY_DB);
+	resp_type = CLUSTER_LEVEL_ACTIVE(2, 0) ? MSG_SMB_NOTIFY_DB_V1
+					       : MSG_SMB_NOTIFY_DB;
+
+	req = messaging_read_send(ev, ev, msg_ctx, resp_type);
 	if (req == NULL) {
 		TALLOC_FREE(ev);
 		return NT_STATUS_NO_MEMORY;
@@ -130,10 +221,9 @@ NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 		return NT_STATUS_NO_MEMORY;
 	}
 
-	status = messaging_send_buf(
-		msg_ctx, notifyd, MSG_SMB_NOTIFY_GET_DB, NULL, 0);
+	status = notifyd_get_db_send(msg_ctx, notifyd);
 	if (!NT_STATUS_IS_OK(status)) {
-		DBG_DEBUG("messaging_send_buf failed: %s\n",
+		DBG_DEBUG("notifyd_get_db_send failed: %s\n",
 			  nt_errstr(status));
 		TALLOC_FREE(ev);
 		return status;
@@ -154,8 +244,7 @@ NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 		return map_nt_error_from_unix(ret);
 	}
 
-	status = notifyd_parse_db(
-		rec->buf.data, rec->buf.length, &log_idx, fn, private_data);
+	status = notifyd_parse_db_rec(rec, &log_idx, fn, private_data);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("notifyd_parse_db failed: %s\n",
 			  nt_errstr(status));
