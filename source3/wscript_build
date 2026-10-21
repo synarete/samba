@@ -779,6 +779,11 @@ bld.SAMBA3_LIBRARY('smbd_base',
                    NOTIFY_DEPS,
                    private_library=True)
 
+bld.SAMBA3_LIBRARY('file_id_key',
+                   source='lib/file_id_key.c',
+                   deps='NDR_FILE_ID',
+                   private_library=True)
+
 bld.SAMBA3_SUBSYSTEM('LOCKING',
                     source='''
                            locking/locking.c
@@ -793,6 +798,7 @@ bld.SAMBA3_SUBSYSTEM('LOCKING',
                          LEASES_DB
                          LEASES_UTIL
                          NDR_OPEN_FILES
+                         file_id_key
                          FNAME_UTIL
                          fd_handle
                          ''')
