@@ -6,6 +6,20 @@
 import "netlogon.idl", "security.idl", "auth.idl";
 
 [
+	/*
+	 * This is used between smbd/samba and samba-dcerpcd,
+	 * rpcd_* or external rpc services listening on the
+	 * named pipe sockets, which might be from a different
+	 * version, so the NDR wire format of all [public]
+	 * types and everything they use is protected by
+	 * librpc/ABI/named_pipe_auth.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 *
+	 * Incompatible changes require a new level,
+	 * as there's no negotiation, a peer only accepts
+	 * the level it knows (currently 8).
+	 */
+	ndr_abi,
 	pointer_default(unique)
 ]
 interface named_pipe_auth

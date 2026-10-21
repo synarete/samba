@@ -4,8 +4,14 @@
   Authentication IDL structures
 
   These are NOT public network structures, but it is helpful to define
-  these things in IDL. They may change without ABI breakage or
-  warning.
+  these things in IDL.
+
+  But note that auth_session_info_transport is used in
+  named_pipe_auth.idl and auth_session_info is stored in
+  smbXsrv_session_global.tdb, so their NDR wire format
+  (including everything they use) can't be changed
+  without care, see librpc/ABI/named_pipe_auth.ndrabi,
+  source3/librpc/ABI/smbXsrv.ndrabi and librpc/ndr/ndr_abi.h.
 
 */
 
