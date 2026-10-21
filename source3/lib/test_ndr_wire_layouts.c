@@ -94,6 +94,37 @@ static void test_secrets_domain_sid(void **state)
 }
 
 /*
+ * SECRETS/DOMGUID/<DOMAIN> used a raw struct GUID
+ */
+static void test_secrets_domain_guid(void **state)
+{
+	struct secrets_domain_guid sguid = { .guid = { .time_low = 0, }, };
+	struct secrets_domain_guid sguid2 = { .guid = { .time_low = 0, }, };
+	uint8_t raw[sizeof(struct GUID)];
+	uint8_t buf[SECRETS_DOMAIN_GUID_SIZE] = { 0, };
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
+
+	assert_int_equal(sizeof(raw), SECRETS_DOMAIN_GUID_SIZE);
+
+	fill_pattern(&sguid.guid, sizeof(sguid.guid), 0x20);
+	memcpy(raw, &sguid.guid, sizeof(raw));
+
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &sguid,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_push_flags_fn_t)ndr_push_secrets_domain_guid);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(buf, raw, sizeof(raw));
+
+	blob = data_blob_const(raw, sizeof(raw));
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &sguid2,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_guid);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_true(GUID_equal(&sguid.guid, &sguid2.guid));
+}
+
+/*
  * ndr_push_struct_into_fixed_blob_flags() and
  * ndr_pull_struct_blob_all_noalloc_flags() need to pass
  * the flags down, test that with LIBNDR_FLAG_BIGENDIAN,
@@ -196,6 +227,7 @@ int main(int argc, const char **argv)
 {
 	const struct CMUnitTest tests[] = {
 		cmocka_unit_test(test_secrets_domain_sid),
+		cmocka_unit_test(test_secrets_domain_guid),
 		cmocka_unit_test(test_ndr_flags_bigendian),
 		cmocka_unit_test(test_messaging_hdr),
 	};
