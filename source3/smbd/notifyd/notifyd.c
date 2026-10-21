@@ -910,6 +910,70 @@ static void notifyd_send_delete(struct messaging_context *msg_ctx,
 	}
 }
 
+struct notifyd_db_marshall_state {
+	uint8_t *buf;
+	size_t bufsize;
+	size_t dbsize;
+	bool ok;
+};
+
+/*
+ * This produces the dbwrap_marshall() format, but the values
+ * are converted with notifyd_entry_to_wire_buf() directly into
+ * the buffer. With buf == NULL only the size is calculated.
+ */
+static int notifyd_db_marshall_fn(struct db_record *rec, void *private_data)
+{
+	struct notifyd_db_marshall_state *state = private_data;
+	TDB_DATA key = dbwrap_record_get_key(rec);
+	TDB_DATA value = dbwrap_record_get_value(rec);
+	size_t wire_len;
+	size_t len;
+	uint8_t *p = NULL;
+	bool ok;
+
+	ok = notifyd_entry_wire_len(value.dsize, &wire_len);
+	if (!ok) {
+		DBG_WARNING("Invalid notifyd entry for %.*s\n",
+			    (int)key.dsize, (char *)key.dptr);
+		state->ok = false;
+		return -1;
+	}
+
+	len = 8 + key.dsize + 8 + wire_len;
+
+	if (state->buf == NULL) {
+		state->dbsize += len;
+		return 0;
+	}
+
+	if (len > state->bufsize - state->dbsize) {
+		DBG_WARNING("Buffer too small\n");
+		state->ok = false;
+		return -1;
+	}
+
+	p = state->buf + state->dbsize;
+
+	SBVAL(p, 0, key.dsize);
+	p += 8;
+	memcpy(p, key.dptr, key.dsize);
+	p += key.dsize;
+
+	SBVAL(p, 0, wire_len);
+	p += 8;
+	ok = notifyd_entry_to_wire_buf(value.dptr, value.dsize, p, wire_len);
+	if (!ok) {
+		DBG_WARNING("Could not convert notifyd entry for %.*s\n",
+			    (int)key.dsize, (char *)key.dptr);
+		state->ok = false;
+		return -1;
+	}
+
+	state->dbsize += len;
+	return 0;
+}
+
 static void notifyd_get_db(struct messaging_context *msg_ctx,
 			   void *private_data, uint32_t msg_type,
 			   struct server_id src, DATA_BLOB *data)
@@ -923,8 +987,26 @@ static void notifyd_get_db(struct messaging_context *msg_ctx,
 	size_t dbsize;
 	uint8_t *buf;
 	struct iovec iov[2];
+	struct notifyd_db_marshall_state mstate = { .ok = true, };
 
-	dbsize = dbwrap_marshall(state->entries, NULL, 0);
+	/*
+	 * The in memory database uses the raw C structures,
+	 * other nodes get the NDR representation,
+	 * see notifyd_entry_to_wire_buf().
+	 *
+	 * The first pass only calculates the size.
+	 */
+	status = dbwrap_traverse_read(state->entries,
+				      notifyd_db_marshall_fn,
+				      &mstate,
+				      NULL);
+	if (!NT_STATUS_IS_OK(status) || !mstate.ok) {
+		DBG_WARNING("dbwrap_traverse_read failed: %s\n",
+			    nt_errstr(status));
+		return;
+	}
+
+	dbsize = mstate.dbsize;
 
 	buf = talloc_array(talloc_tos(), uint8_t, dbsize);
 	if (buf == NULL) {
@@ -932,7 +1014,24 @@ static void notifyd_get_db(struct messaging_context *msg_ctx,
 		return;
 	}
 
-	dbsize = dbwrap_marshall(state->entries, buf, dbsize);
+	mstate = (struct notifyd_db_marshall_state) {
+		.buf = buf,
+		.bufsize = dbsize,
+		.ok = true,
+	};
+
+	status = dbwrap_traverse_read(state->entries,
+				      notifyd_db_marshall_fn,
+				      &mstate,
+				      NULL);
+	if (!NT_STATUS_IS_OK(status) || !mstate.ok) {
+		DBG_WARNING("dbwrap_traverse_read failed: %s\n",
+			    nt_errstr(status));
+		TALLOC_FREE(buf);
+		return;
+	}
+
+	dbsize = mstate.dbsize;
 
 	if (dbsize != talloc_get_size(buf)) {
 		DBG_DEBUG("dbsize changed: %zu->%zu\n",
@@ -971,6 +1070,68 @@ static void notifyd_get_db(struct messaging_context *msg_ctx,
 static int notifyd_add_proxy_syswatches(struct db_record *rec,
 					void *private_data);
 
+struct notifyd_db_unmarshall_state {
+	struct db_context *db;
+	uint8_t *native;
+	NTSTATUS status;
+};
+
+/*
+ * Store the values converted by notifyd_entry_from_wire_buf()
+ * in the database, see notifyd_db_marshall_fn().
+ */
+static bool notifyd_db_unmarshall_fn(TDB_DATA key,
+				     TDB_DATA value,
+				     void *private_data)
+{
+	struct notifyd_db_unmarshall_state *state = private_data;
+	size_t native_len;
+	bool ok;
+
+	ok = notifyd_entry_native_len(value.dsize, &native_len);
+	if (!ok) {
+		DBG_DEBUG("Invalid notifyd entry for %.*s\n",
+			  (int)key.dsize, (char *)key.dptr);
+		state->status = NT_STATUS_INVALID_NETWORK_RESPONSE;
+		return false;
+	}
+
+	if (talloc_get_size(state->native) < native_len) {
+		uint8_t *tmp = talloc_realloc(talloc_tos(),
+					      state->native,
+					      uint8_t,
+					      native_len);
+		if (tmp == NULL) {
+			state->status = NT_STATUS_NO_MEMORY;
+			return false;
+		}
+		state->native = tmp;
+	}
+
+	ok = notifyd_entry_from_wire_buf(value.dptr,
+					 value.dsize,
+					 state->native,
+					 native_len);
+	if (!ok) {
+		DBG_DEBUG("Could not convert notifyd entry for %.*s\n",
+			  (int)key.dsize, (char *)key.dptr);
+		state->status = NT_STATUS_INVALID_NETWORK_RESPONSE;
+		return false;
+	}
+
+	state->status = dbwrap_store(state->db,
+				     key,
+				     make_tdb_data(state->native, native_len),
+				     0);
+	if (!NT_STATUS_IS_OK(state->status)) {
+		DBG_DEBUG("dbwrap_store failed: %s\n",
+			  nt_errstr(state->status));
+		return false;
+	}
+
+	return true;
+}
+
 static void notifyd_got_db(struct messaging_context *msg_ctx,
 			   void *private_data, uint32_t msg_type,
 			   struct server_id src, DATA_BLOB *data)
@@ -979,6 +1140,9 @@ static void notifyd_got_db(struct messaging_context *msg_ctx,
 		private_data, struct notifyd_state);
 	struct notifyd_peer *p = NULL;
 	struct server_id_buf idbuf;
+	struct notifyd_db_unmarshall_state ustate = {
+		.status = NT_STATUS_OK,
+	};
 	NTSTATUS status;
 	int count;
 	size_t i;
@@ -1012,12 +1176,24 @@ static void notifyd_got_db(struct messaging_context *msg_ctx,
 		return;
 	}
 
-	status = dbwrap_unmarshall(p->db, data->data + 8,
-				   data->length - 8);
+	/*
+	 * Other nodes send the NDR representation, the
+	 * in memory database uses the raw C structures,
+	 * see notifyd_entry_from_wire_buf().
+	 */
+	ustate.db = p->db;
+	status = dbwrap_parse_marshall_buf(data->data + 8,
+					   data->length - 8,
+					   notifyd_db_unmarshall_fn,
+					   &ustate);
+	TALLOC_FREE(ustate.native);
+	if (NT_STATUS_IS_OK(status)) {
+		status = ustate.status;
+	}
 	if (!NT_STATUS_IS_OK(status)) {
-		DBG_DEBUG("dbwrap_unmarshall returned %s for db %s\n",
-			  nt_errstr(status),
-			  server_id_str_buf(src, &idbuf));
+		DBG_DEBUG("Could not parse db from %s: %s\n",
+			  server_id_str_buf(src, &idbuf),
+			  nt_errstr(status));
 		TALLOC_FREE(p);
 		return;
 	}
