@@ -30,6 +30,7 @@
 #include "librpc/gen_ndr/ndr_open_files.h"
 #include "librpc/gen_ndr/ndr_ratelimit.h"
 #include "smbd/notifyd/notifyd.h"
+#include "smbd/notifyd/notifyd_private.h"
 #include "lib/util/server_id.h"
 #include "lib/messages_util.h"
 #include "librpc/gen_ndr/ndr_messaging.h"
@@ -675,6 +676,75 @@ static void test_notify_event_msg(void **state)
 }
 
 /*
+ * The values of the notifyd database (MSG_SMB_NOTIFY_DB)
+ * used to be the raw C structures, which are still used
+ * for the in memory database.
+ */
+static void test_notifyd_entry(void **state)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct notifyd_watcher watcher;
+	struct notifyd_instance instances[2];
+	uint8_t native[sizeof(watcher) + sizeof(instances)];
+	DATA_BLOB wire = { .length = 0, };
+	DATA_BLOB native2 = { .length = 0, };
+	size_t i;
+	bool ok;
+
+	SKIP_IF_NOT_LEGACY_PLATFORM();
+
+	assert_int_equal(sizeof(watcher), NOTIFYD_WATCHER_REC_SIZE);
+	assert_int_equal(sizeof(instances[0]), NOTIFYD_INSTANCE_REC_SIZE);
+
+	/* make sure the padding is 0 */
+	memset(&watcher, 0, sizeof(watcher));
+	memset(instances, 0, sizeof(instances));
+
+	watcher.filter = 0x01020304;
+	watcher.subdir_filter = 0x11121314;
+	watcher.sys_filter = 0x21222324;
+	watcher.sys_subdir_filter = 0x31323334;
+	watcher.sys_watch = (void *)(uintptr_t)0x4142434445464748;
+
+	for (i = 0; i < ARRAY_SIZE(instances); i++) {
+		instances[i].client = (struct server_id) {
+			.pid = 0x5152535455565758 + i,
+			.task_id = 0x61626364,
+			.vnn = 0x71727374,
+			.unique_id = 0x8182838485868788,
+		};
+		instances[i].instance = (struct notify_instance) {
+			.creation_time = {
+				.tv_sec = 0x0102030405060708,
+				.tv_nsec = 999999999,
+			},
+			.filter = 0x91929394,
+			.subdir_filter = 0xa1a2a3a4,
+			.private_data = (void *)(uintptr_t)0xb1b2b3b4b5b6b7b8,
+		};
+	}
+
+	memcpy(native, &watcher, sizeof(watcher));
+	memcpy(native + sizeof(watcher), instances, sizeof(instances));
+
+	ok = notifyd_entry_to_wire(frame, native, sizeof(native), &wire);
+	assert_true(ok);
+	assert_int_equal(wire.length, sizeof(native));
+	assert_memory_equal(wire.data, native, sizeof(native));
+
+	ok = notifyd_entry_from_wire(frame, wire.data, wire.length, &native2);
+	assert_true(ok);
+	assert_int_equal(native2.length, sizeof(native));
+	assert_memory_equal(native2.data, native, sizeof(native));
+
+	ok = notifyd_entry_from_wire(frame, wire.data, wire.length - 1,
+				     &native2);
+	assert_false(ok);
+
+	TALLOC_FREE(frame);
+}
+
+/*
  * message_hdr_put() and message_hdr_get() are hand-marshalled
  * (little endian), verify they match messaging_hdr.
  */
@@ -773,6 +843,7 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_notify_trigger_msg),
 		cmocka_unit_test(test_notify_event_msg),
 		cmocka_unit_test(test_messaging_hdr),
+		cmocka_unit_test(test_notifyd_entry),
 		cmocka_unit_test(test_dbwrap_watch_modified_msg),
 	};
 
