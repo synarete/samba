@@ -25,6 +25,7 @@ def SAMBA_PIDL(bld, pname, source,
     # to map between the options and the resulting file names
     options_map = { '--header'            : '%s.h',
                     '--ndr-parser'        : 'ndr_%s.c ndr_%s.h',
+                    '--ndr-abi'           : 'ndr_%s_abi.c',
                     '--samba3-ndr-server' : 'srv_%s.c srv_%s.h',
                     '--samba3-ndr-client' : 'cli_%s.c cli_%s.h',
                     '--server'            : 'ndr_%s_s.c',
