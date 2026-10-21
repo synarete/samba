@@ -41,6 +41,7 @@ bool cluster_support_available(void)
  * CFL_RANGE(__major, __minor_min, __minor_max)
  */
 #define CFL_ALL_RANGES \
+	CFL_RANGE(2, 0, 0) \
 	CFL_RANGE(1, 0, 0)
 
 /*
