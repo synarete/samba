@@ -33,6 +33,7 @@
 #include "smbd/notifyd/notifyd_private.h"
 #include "lib/util/server_id.h"
 #include "lib/messages_util.h"
+#include "lib/cluster_support.h"
 #include "librpc/gen_ndr/ndr_messaging.h"
 #include "librpc/gen_ndr/ndr_dbwrap_watch.h"
 #include <cmocka.h>
@@ -563,6 +564,8 @@ static void test_notify_rec_change_msg(void **state)
 	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE] = { 0, };
 	uint8_t buf[NOTIFY_REC_CHANGE_HDR_SIZE + 5] = { 0, };
 	struct notify_rec_change_msg msg;
+	size_t hdr_len = 0;
+	uint32_t msg_type;
 	bool ok;
 
 	SKIP_IF_NOT_LEGACY_PLATFORM();
@@ -576,13 +579,17 @@ static void test_notify_rec_change_msg(void **state)
 	legacy.instance.subdir_filter = instance.subdir_filter;
 	legacy.instance.private_data = instance.private_data;
 
-	notify_rec_change_msg_push_hdr(&instance, hdr);
+	msg_type = MSG_SMB_NOTIFY_REC_CHANGE;
+	ok = notify_rec_change_msg_push_hdr_type(
+		msg_type, &instance, hdr, &hdr_len);
+	assert_true(ok);
+	assert_int_equal(hdr_len, NOTIFY_REC_CHANGE_HDR_SIZE);
 	assert_memory_equal(hdr, &legacy, sizeof(hdr));
 
 	memcpy(buf, &legacy, NOTIFY_REC_CHANGE_HDR_SIZE);
 	memcpy(buf + NOTIFY_REC_CHANGE_HDR_SIZE, "/foo", 5);
 
-	ok = notify_rec_change_msg_parse(buf, sizeof(buf), &msg);
+	ok = notify_rec_change_msg_parse(msg_type, buf, sizeof(buf), &msg);
 	assert_true(ok);
 	assert_int_equal(msg.instance.creation_time.tv_sec,
 			 instance.creation_time.tv_sec);
@@ -605,6 +612,8 @@ static void test_notify_trigger_msg(void **state)
 	uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE] = { 0, };
 	uint8_t buf[NOTIFY_TRIGGER_HDR_SIZE + 5] = { 0, };
 	struct notify_trigger_msg msg;
+	size_t hdr_len = 0;
+	uint32_t msg_type;
 	bool ok;
 
 	SKIP_IF_NOT_LEGACY_PLATFORM();
@@ -617,13 +626,17 @@ static void test_notify_trigger_msg(void **state)
 	legacy.action = 0x11121314;
 	legacy.filter = 0x21222324;
 
-	notify_trigger_msg_push_hdr(when, legacy.action, legacy.filter, hdr);
+	msg_type = MSG_SMB_NOTIFY_TRIGGER;
+	ok = notify_trigger_msg_push_hdr_type(
+		msg_type, when, legacy.action, legacy.filter, hdr, &hdr_len);
+	assert_true(ok);
+	assert_int_equal(hdr_len, NOTIFY_TRIGGER_HDR_SIZE);
 	assert_memory_equal(hdr, &legacy, sizeof(hdr));
 
 	memcpy(buf, &legacy, NOTIFY_TRIGGER_HDR_SIZE);
 	memcpy(buf + NOTIFY_TRIGGER_HDR_SIZE, "/foo", 5);
 
-	ok = notify_trigger_msg_parse(buf, sizeof(buf), &msg);
+	ok = notify_trigger_msg_parse(msg_type, buf, sizeof(buf), &msg);
 	assert_true(ok);
 	assert_int_equal(msg.when.tv_sec, when.tv_sec);
 	assert_int_equal(msg.when.tv_nsec, when.tv_nsec);
@@ -643,6 +656,8 @@ static void test_notify_event_msg(void **state)
 	uint8_t hdr[NOTIFY_EVENT_HDR_SIZE] = { 0, };
 	uint8_t buf[NOTIFY_EVENT_HDR_SIZE + 5] = { 0, };
 	struct notify_event_msg msg;
+	size_t hdr_len = 0;
+	uint32_t msg_type;
 	bool ok;
 
 	SKIP_IF_NOT_LEGACY_PLATFORM();
@@ -655,13 +670,17 @@ static void test_notify_event_msg(void **state)
 	legacy.private_data = private_data;
 	legacy.action = 0x11121314;
 
-	notify_event_msg_push_hdr(when, private_data, legacy.action, hdr);
+	msg_type = MSG_PVFS_NOTIFY;
+	ok = notify_event_msg_push_hdr_type(
+		msg_type, when, private_data, legacy.action, hdr, &hdr_len);
+	assert_true(ok);
+	assert_int_equal(hdr_len, NOTIFY_EVENT_HDR_SIZE);
 	assert_memory_equal(hdr, &legacy, sizeof(hdr));
 
 	memcpy(buf, &legacy, NOTIFY_EVENT_HDR_SIZE);
 	memcpy(buf + NOTIFY_EVENT_HDR_SIZE, "/foo", 5);
 
-	ok = notify_event_msg_parse(buf, sizeof(buf), &msg);
+	ok = notify_event_msg_parse(msg_type, buf, sizeof(buf), &msg);
 	assert_true(ok);
 	assert_int_equal(msg.when.tv_sec, when.tv_sec);
 	assert_int_equal(msg.when.tv_nsec, when.tv_nsec);
@@ -671,7 +690,7 @@ static void test_notify_event_msg(void **state)
 
 	/* the path needs to be nul terminated */
 	buf[sizeof(buf)-1] = 'x';
-	ok = notify_event_msg_parse(buf, sizeof(buf), &msg);
+	ok = notify_event_msg_parse(msg_type, buf, sizeof(buf), &msg);
 	assert_false(ok);
 }
 
@@ -795,6 +814,129 @@ static void test_messaging_hdr(void **state)
 }
 
 /*
+ * With cluster level 2.0 the notifyd messages use
+ * the *_LE message types with little endian headers
+ * on all platforms.
+ *
+ * main() activates the latest level.
+ */
+static void test_notify_msgs_le(void **state)
+{
+	struct notify_instance instance = {
+		.creation_time = {
+			.tv_sec = 0x01020304,
+			.tv_nsec = 999999999,
+		},
+		.filter = 0x11121314,
+		.subdir_filter = 0x21222324,
+		.private_data = (void *)(uintptr_t)0x31323334,
+	};
+	struct timespec when = {
+		.tv_sec = 0x01020304,
+		.tv_nsec = 999999999,
+	};
+	uint8_t rc_expected[NOTIFY_REC_CHANGE_HDR_SIZE];
+	uint8_t tr_expected[NOTIFY_TRIGGER_HDR_SIZE];
+	uint8_t ev_expected[NOTIFY_EVENT_HDR_SIZE];
+	uint8_t rc_buf[NOTIFY_REC_CHANGE_HDR_SIZE + 5] = { 0, };
+	uint8_t tr_buf[NOTIFY_TRIGGER_HDR_SIZE + 5] = { 0, };
+	uint8_t ev_buf[NOTIFY_EVENT_HDR_SIZE + 5] = { 0, };
+	struct notify_rec_change_msg rc_msg;
+	struct notify_trigger_msg tr_msg;
+	struct notify_event_msg ev_msg;
+	size_t hdr_len = 0;
+	uint32_t msg_type;
+	bool ok;
+
+	PUSH_LE_U64(rc_expected, 0, instance.creation_time.tv_sec);
+	PUSH_LE_U64(rc_expected, 8, instance.creation_time.tv_nsec);
+	PUSH_LE_U32(rc_expected, 16, instance.filter);
+	PUSH_LE_U32(rc_expected, 20, instance.subdir_filter);
+	PUSH_LE_U64(rc_expected, 24, 0x31323334);
+
+	PUSH_LE_U64(tr_expected, 0, when.tv_sec);
+	PUSH_LE_U64(tr_expected, 8, when.tv_nsec);
+	PUSH_LE_U32(tr_expected, 16, 0x41424344);
+	PUSH_LE_U32(tr_expected, 20, 0x51525354);
+
+	PUSH_LE_U64(ev_expected, 0, when.tv_sec);
+	PUSH_LE_U64(ev_expected, 8, when.tv_nsec);
+	PUSH_LE_U64(ev_expected, 16, 0x31323334);
+	PUSH_LE_U32(ev_expected, 24, 0x41424344);
+
+	assert_true(CLUSTER_LEVEL_ACTIVE(2, 0));
+
+	msg_type = notify_rec_change_msg_push_hdr(&instance, rc_buf, &hdr_len);
+	assert_int_equal(msg_type, MSG_SMB_NOTIFY_REC_CHANGE_LE);
+	assert_int_equal(hdr_len, NOTIFY_REC_CHANGE_HDR_SIZE);
+	assert_memory_equal(rc_buf, rc_expected, sizeof(rc_expected));
+	memcpy(rc_buf + NOTIFY_REC_CHANGE_HDR_SIZE, "/foo", 5);
+
+	ok = notify_rec_change_msg_parse(msg_type,
+					 rc_buf,
+					 sizeof(rc_buf),
+					 &rc_msg);
+	assert_true(ok);
+	assert_int_equal(rc_msg.instance.creation_time.tv_sec,
+			 instance.creation_time.tv_sec);
+	assert_int_equal(rc_msg.instance.creation_time.tv_nsec,
+			 instance.creation_time.tv_nsec);
+	assert_int_equal(rc_msg.instance.filter, instance.filter);
+	assert_int_equal(rc_msg.instance.subdir_filter,
+			 instance.subdir_filter);
+	assert_ptr_equal(rc_msg.instance.private_data,
+			 instance.private_data);
+	assert_int_equal(rc_msg.pathlen, 5);
+	assert_string_equal(rc_msg.path, "/foo");
+
+	/* other message types are rejected */
+	ok = notify_rec_change_msg_parse(MSG_SMB_NOTIFY_TRIGGER_LE,
+					 rc_buf,
+					 sizeof(rc_buf),
+					 &rc_msg);
+	assert_false(ok);
+
+	msg_type = notify_trigger_msg_push_hdr(
+		when, 0x41424344, 0x51525354, tr_buf, &hdr_len);
+	assert_int_equal(msg_type, MSG_SMB_NOTIFY_TRIGGER_LE);
+	assert_int_equal(hdr_len, NOTIFY_TRIGGER_HDR_SIZE);
+	assert_memory_equal(tr_buf, tr_expected, sizeof(tr_expected));
+	memcpy(tr_buf + NOTIFY_TRIGGER_HDR_SIZE, "/foo", 5);
+
+	ok = notify_trigger_msg_parse(msg_type,
+				      tr_buf,
+				      sizeof(tr_buf),
+				      &tr_msg);
+	assert_true(ok);
+	assert_int_equal(tr_msg.when.tv_sec, when.tv_sec);
+	assert_int_equal(tr_msg.when.tv_nsec, when.tv_nsec);
+	assert_int_equal(tr_msg.action, 0x41424344);
+	assert_int_equal(tr_msg.filter, 0x51525354);
+	assert_string_equal(tr_msg.path, "/foo");
+
+	msg_type = notify_event_msg_push_hdr(when,
+					     instance.private_data,
+					     0x41424344,
+					     ev_buf,
+					     &hdr_len);
+	assert_int_equal(msg_type, MSG_PVFS_NOTIFY_LE);
+	assert_int_equal(hdr_len, NOTIFY_EVENT_HDR_SIZE);
+	assert_memory_equal(ev_buf, ev_expected, sizeof(ev_expected));
+	memcpy(ev_buf + NOTIFY_EVENT_HDR_SIZE, "/foo", 5);
+
+	ok = notify_event_msg_parse(msg_type,
+				    ev_buf,
+				    sizeof(ev_buf),
+				    &ev_msg);
+	assert_true(ok);
+	assert_int_equal(ev_msg.when.tv_sec, when.tv_sec);
+	assert_int_equal(ev_msg.when.tv_nsec, when.tv_nsec);
+	assert_ptr_equal(ev_msg.private_data, instance.private_data);
+	assert_int_equal(ev_msg.action, 0x41424344);
+	assert_string_equal(ev_msg.path, "/foo");
+}
+
+/*
  * dbwrap_watched_trigger_wakeup() sends the instance
  * of the watcher with SBVAL() as MSG_DBWRAP_MODIFIED
  * payload, verify it matches dbwrap_watch_modified_msg.
@@ -844,8 +986,15 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_notify_event_msg),
 		cmocka_unit_test(test_messaging_hdr),
 		cmocka_unit_test(test_notifyd_entry),
+		cmocka_unit_test(test_notify_msgs_le),
 		cmocka_unit_test(test_dbwrap_watch_modified_msg),
 	};
+
+	/*
+	 * There's no messaging context, so we
+	 * need to activate the latest level ourself.
+	 */
+	cluster_level_activate_latest();
 
 	cmocka_set_message_output(CM_OUTPUT_SUBUNIT);
 

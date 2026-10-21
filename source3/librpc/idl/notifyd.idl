@@ -14,6 +14,10 @@ import "server_id.idl";
  * the NDR representations have exactly the same layout on
  * LP64 platforms if marshalled with LIBNDR_FLAG_HOST_BYTE_ORDER,
  * other platforms still use the raw C structures.
+ *
+ * Once cluster level 2.0 is active the *_LE message types
+ * (e.g. MSG_SMB_NOTIFY_REC_CHANGE_LE) are used, the headers
+ * are little endian on all platforms then.
  */
 
 [

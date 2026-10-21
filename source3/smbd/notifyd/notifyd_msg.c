@@ -25,17 +25,25 @@
 #include "librpc/gen_ndr/ndr_notifyd.h"
 #include "notifyd.h"
 #include "notifyd_private.h"
+#include "lib/cluster_support.h"
 
 /*
  * The messages consist of a fixed size NDR header
  * (see source3/librpc/idl/notifyd.idl) followed
  * by the nul terminated path.
  *
- * The headers used to be raw C structures, the NDR
- * representations in host byte order have exactly
- * the same layout on LP64 platforms. On other platforms
- * we have to keep using the raw C structures in order
- * to stay compatible.
+ * The legacy message types (e.g. MSG_SMB_NOTIFY_REC_CHANGE)
+ * use headers in host byte order. They used to be raw C
+ * structures, the NDR representations in host byte order
+ * have exactly the same layout on LP64 platforms. On other
+ * platforms we have to keep using the raw C structures in
+ * order to stay compatible.
+ *
+ * Once cluster level 2.0 is active the senders use
+ * the *_LE message types (e.g. MSG_SMB_NOTIFY_REC_CHANGE_LE),
+ * the headers are little endian on all platforms.
+ *
+ * The receivers handle both.
  */
 
 struct notify_trigger_legacy {
@@ -69,28 +77,9 @@ static bool notifyd_msg_is_ndr(void)
 			NOTIFY_EVENT_HDR_SIZE;
 }
 
-size_t notify_rec_change_msg_hdr_len(void)
+static bool notifyd_msg_use_le(void)
 {
-	if (!notifyd_msg_is_ndr()) {
-		return sizeof(struct notify_instance);
-	}
-	return NOTIFY_REC_CHANGE_HDR_SIZE;
-}
-
-size_t notify_trigger_msg_hdr_len(void)
-{
-	if (!notifyd_msg_is_ndr()) {
-		return offsetof(struct notify_trigger_legacy, path);
-	}
-	return NOTIFY_TRIGGER_HDR_SIZE;
-}
-
-size_t notify_event_msg_hdr_len(void)
-{
-	if (!notifyd_msg_is_ndr()) {
-		return offsetof(struct notify_event_legacy, path);
-	}
-	return NOTIFY_EVENT_HDR_SIZE;
+	return CLUSTER_LEVEL_ACTIVE(2, 0);
 }
 
 static struct notifyd_timespec notifyd_timespec_from(struct timespec ts)
@@ -109,9 +98,11 @@ static struct timespec notifyd_timespec_to(struct notifyd_timespec nts)
 	};
 }
 
-void notify_rec_change_msg_push_hdr(
+bool notify_rec_change_msg_push_hdr_type(
+	uint32_t msg_type,
 	const struct notify_instance *instance,
-	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE])
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE],
+	size_t *hdr_len)
 {
 	struct notify_rec_change_hdr h = {
 		.creation_time = notifyd_timespec_from(
@@ -121,41 +112,93 @@ void notify_rec_change_msg_push_hdr(
 		.private_data = (uint64_t)(uintptr_t)instance->private_data,
 	};
 	DATA_BLOB blob = data_blob_const(hdr, NOTIFY_REC_CHANGE_HDR_SIZE);
+	libndr_flags flags = LIBNDR_FLAG_HOST_BYTE_ORDER;
 	enum ndr_err_code ndr_err;
 
-	if (!notifyd_msg_is_ndr()) {
-		memcpy(hdr, instance, sizeof(struct notify_instance));
-		return;
+	switch (msg_type) {
+	case MSG_SMB_NOTIFY_REC_CHANGE_LE:
+		flags = 0;
+		break;
+	case MSG_SMB_NOTIFY_REC_CHANGE:
+		if (!notifyd_msg_is_ndr()) {
+			memcpy(hdr, instance, sizeof(struct notify_instance));
+			*hdr_len = sizeof(struct notify_instance);
+			return true;
+		}
+		break;
+	default:
+		return false;
 	}
 
 	ndr_err = ndr_push_struct_into_fixed_blob_flags(
-		&blob, &h, LIBNDR_FLAG_HOST_BYTE_ORDER,
+		&blob, &h, flags,
 		(ndr_push_flags_fn_t)ndr_push_notify_rec_change_hdr);
 	SMB_ASSERT(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+
+	*hdr_len = NOTIFY_REC_CHANGE_HDR_SIZE;
+	return true;
 }
 
-bool notify_rec_change_msg_parse(const uint8_t *buf,
+uint32_t notify_rec_change_msg_push_hdr(
+	const struct notify_instance *instance,
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE],
+	size_t *hdr_len)
+{
+	uint32_t msg_type = MSG_SMB_NOTIFY_REC_CHANGE;
+	bool ok;
+
+	if (notifyd_msg_use_le()) {
+		msg_type = MSG_SMB_NOTIFY_REC_CHANGE_LE;
+	}
+
+	ok = notify_rec_change_msg_push_hdr_type(
+		msg_type, instance, hdr, hdr_len);
+	SMB_ASSERT(ok);
+
+	return msg_type;
+}
+
+bool notify_rec_change_msg_parse(uint32_t msg_type,
+				 const uint8_t *buf,
 				 size_t buflen,
 				 struct notify_rec_change_msg *msg)
 {
 	struct notify_rec_change_hdr h = { .filter = 0, };
-	size_t hdr_len = notify_rec_change_msg_hdr_len();
-	DATA_BLOB blob = data_blob_const(buf, hdr_len);
+	size_t hdr_len = NOTIFY_REC_CHANGE_HDR_SIZE;
+	libndr_flags flags = LIBNDR_FLAG_HOST_BYTE_ORDER;
+	bool raw = false;
+	DATA_BLOB blob;
 	struct notify_instance instance;
 	enum ndr_err_code ndr_err;
+
+	switch (msg_type) {
+	case MSG_SMB_NOTIFY_REC_CHANGE_LE:
+		flags = 0;
+		break;
+	case MSG_SMB_NOTIFY_REC_CHANGE:
+		if (!notifyd_msg_is_ndr()) {
+			hdr_len = sizeof(struct notify_instance);
+			raw = true;
+		}
+		break;
+	default:
+		DBG_WARNING("unexpected msg_type 0x%"PRIx32"\n", msg_type);
+		return false;
+	}
 
 	if (buflen < hdr_len + 1) {
 		DBG_WARNING("message too short: %zu\n", buflen);
 		return false;
 	}
 
-	if (!notifyd_msg_is_ndr()) {
+	if (raw) {
 		memcpy(&instance, buf, sizeof(instance));
 		goto done;
 	}
 
+	blob = data_blob_const(buf, hdr_len);
 	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
-		&blob, &h, LIBNDR_FLAG_HOST_BYTE_ORDER,
+		&blob, &h, flags,
 		(ndr_pull_flags_fn_t)ndr_pull_notify_rec_change_hdr);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_WARNING("ndr_pull_notify_rec_change_hdr failed: %s\n",
@@ -180,10 +223,12 @@ done:
 	return true;
 }
 
-void notify_trigger_msg_push_hdr(struct timespec when,
-				 uint32_t action,
-				 uint32_t filter,
-				 uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE])
+bool notify_trigger_msg_push_hdr_type(uint32_t msg_type,
+				      struct timespec when,
+				      uint32_t action,
+				      uint32_t filter,
+				      uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE],
+				      size_t *hdr_len)
 {
 	struct notify_trigger_hdr h = {
 		.when = notifyd_timespec_from(when),
@@ -191,32 +236,86 @@ void notify_trigger_msg_push_hdr(struct timespec when,
 		.filter = filter,
 	};
 	DATA_BLOB blob = data_blob_const(hdr, NOTIFY_TRIGGER_HDR_SIZE);
+	libndr_flags flags = LIBNDR_FLAG_HOST_BYTE_ORDER;
 	enum ndr_err_code ndr_err;
 
-	if (!notifyd_msg_is_ndr()) {
-		struct notify_trigger_legacy l = {
-			.when = when,
-			.action = action,
-			.filter = filter,
-		};
-		memcpy(hdr, &l, offsetof(struct notify_trigger_legacy, path));
-		return;
+	switch (msg_type) {
+	case MSG_SMB_NOTIFY_TRIGGER_LE:
+		flags = 0;
+		break;
+	case MSG_SMB_NOTIFY_TRIGGER:
+		if (!notifyd_msg_is_ndr()) {
+			struct notify_trigger_legacy l = {
+				.when = when,
+				.action = action,
+				.filter = filter,
+			};
+			memcpy(hdr,
+			       &l,
+			       offsetof(struct notify_trigger_legacy, path));
+			*hdr_len = offsetof(struct notify_trigger_legacy, path);
+			return true;
+		}
+		break;
+	default:
+		return false;
 	}
 
 	ndr_err = ndr_push_struct_into_fixed_blob_flags(
-		&blob, &h, LIBNDR_FLAG_HOST_BYTE_ORDER,
+		&blob, &h, flags,
 		(ndr_push_flags_fn_t)ndr_push_notify_trigger_hdr);
 	SMB_ASSERT(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+
+	*hdr_len = NOTIFY_TRIGGER_HDR_SIZE;
+	return true;
 }
 
-bool notify_trigger_msg_parse(const uint8_t *buf,
+uint32_t notify_trigger_msg_push_hdr(struct timespec when,
+				     uint32_t action,
+				     uint32_t filter,
+				     uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE],
+				     size_t *hdr_len)
+{
+	uint32_t msg_type = MSG_SMB_NOTIFY_TRIGGER;
+	bool ok;
+
+	if (notifyd_msg_use_le()) {
+		msg_type = MSG_SMB_NOTIFY_TRIGGER_LE;
+	}
+
+	ok = notify_trigger_msg_push_hdr_type(
+		msg_type, when, action, filter, hdr, hdr_len);
+	SMB_ASSERT(ok);
+
+	return msg_type;
+}
+
+bool notify_trigger_msg_parse(uint32_t msg_type,
+			      const uint8_t *buf,
 			      size_t buflen,
 			      struct notify_trigger_msg *msg)
 {
 	struct notify_trigger_hdr h = { .action = 0, };
-	size_t hdr_len = notify_trigger_msg_hdr_len();
-	DATA_BLOB blob = data_blob_const(buf, hdr_len);
+	size_t hdr_len = NOTIFY_TRIGGER_HDR_SIZE;
+	libndr_flags flags = LIBNDR_FLAG_HOST_BYTE_ORDER;
+	bool raw = false;
+	DATA_BLOB blob;
 	enum ndr_err_code ndr_err;
+
+	switch (msg_type) {
+	case MSG_SMB_NOTIFY_TRIGGER_LE:
+		flags = 0;
+		break;
+	case MSG_SMB_NOTIFY_TRIGGER:
+		if (!notifyd_msg_is_ndr()) {
+			hdr_len = offsetof(struct notify_trigger_legacy, path);
+			raw = true;
+		}
+		break;
+	default:
+		DBG_WARNING("unexpected msg_type 0x%"PRIx32"\n", msg_type);
+		return false;
+	}
 
 	if (buflen < hdr_len + 1) {
 		DBG_WARNING("message too short: %zu\n", buflen);
@@ -227,7 +326,7 @@ bool notify_trigger_msg_parse(const uint8_t *buf,
 		return false;
 	}
 
-	if (!notifyd_msg_is_ndr()) {
+	if (raw) {
 		struct notify_trigger_legacy l;
 
 		memcpy(&l, buf, offsetof(struct notify_trigger_legacy, path));
@@ -240,8 +339,9 @@ bool notify_trigger_msg_parse(const uint8_t *buf,
 		return true;
 	}
 
+	blob = data_blob_const(buf, hdr_len);
 	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
-		&blob, &h, LIBNDR_FLAG_HOST_BYTE_ORDER,
+		&blob, &h, flags,
 		(ndr_pull_flags_fn_t)ndr_pull_notify_trigger_hdr);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_WARNING("ndr_pull_notify_trigger_hdr failed: %s\n",
@@ -259,10 +359,12 @@ bool notify_trigger_msg_parse(const uint8_t *buf,
 	return true;
 }
 
-void notify_event_msg_push_hdr(struct timespec when,
-			       void *private_data,
-			       uint32_t action,
-			       uint8_t hdr[NOTIFY_EVENT_HDR_SIZE])
+bool notify_event_msg_push_hdr_type(uint32_t msg_type,
+				    struct timespec when,
+				    void *private_data,
+				    uint32_t action,
+				    uint8_t hdr[NOTIFY_EVENT_HDR_SIZE],
+				    size_t *hdr_len)
 {
 	struct notify_event_hdr h = {
 		.when = notifyd_timespec_from(when),
@@ -270,32 +372,86 @@ void notify_event_msg_push_hdr(struct timespec when,
 		.action = action,
 	};
 	DATA_BLOB blob = data_blob_const(hdr, NOTIFY_EVENT_HDR_SIZE);
+	libndr_flags flags = LIBNDR_FLAG_HOST_BYTE_ORDER;
 	enum ndr_err_code ndr_err;
 
-	if (!notifyd_msg_is_ndr()) {
-		struct notify_event_legacy l = {
-			.when = when,
-			.private_data = private_data,
-			.action = action,
-		};
-		memcpy(hdr, &l, offsetof(struct notify_event_legacy, path));
-		return;
+	switch (msg_type) {
+	case MSG_PVFS_NOTIFY_LE:
+		flags = 0;
+		break;
+	case MSG_PVFS_NOTIFY:
+		if (!notifyd_msg_is_ndr()) {
+			struct notify_event_legacy l = {
+				.when = when,
+				.private_data = private_data,
+				.action = action,
+			};
+			memcpy(hdr,
+			       &l,
+			       offsetof(struct notify_event_legacy, path));
+			*hdr_len = offsetof(struct notify_event_legacy, path);
+			return true;
+		}
+		break;
+	default:
+		return false;
 	}
 
 	ndr_err = ndr_push_struct_into_fixed_blob_flags(
-		&blob, &h, LIBNDR_FLAG_HOST_BYTE_ORDER,
+		&blob, &h, flags,
 		(ndr_push_flags_fn_t)ndr_push_notify_event_hdr);
 	SMB_ASSERT(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+
+	*hdr_len = NOTIFY_EVENT_HDR_SIZE;
+	return true;
 }
 
-bool notify_event_msg_parse(const uint8_t *buf,
+uint32_t notify_event_msg_push_hdr(struct timespec when,
+				   void *private_data,
+				   uint32_t action,
+				   uint8_t hdr[NOTIFY_EVENT_HDR_SIZE],
+				   size_t *hdr_len)
+{
+	uint32_t msg_type = MSG_PVFS_NOTIFY;
+	bool ok;
+
+	if (notifyd_msg_use_le()) {
+		msg_type = MSG_PVFS_NOTIFY_LE;
+	}
+
+	ok = notify_event_msg_push_hdr_type(
+		msg_type, when, private_data, action, hdr, hdr_len);
+	SMB_ASSERT(ok);
+
+	return msg_type;
+}
+
+bool notify_event_msg_parse(uint32_t msg_type,
+			    const uint8_t *buf,
 			    size_t buflen,
 			    struct notify_event_msg *msg)
 {
 	struct notify_event_hdr h = { .action = 0, };
-	size_t hdr_len = notify_event_msg_hdr_len();
-	DATA_BLOB blob = data_blob_const(buf, hdr_len);
+	size_t hdr_len = NOTIFY_EVENT_HDR_SIZE;
+	libndr_flags flags = LIBNDR_FLAG_HOST_BYTE_ORDER;
+	bool raw = false;
+	DATA_BLOB blob;
 	enum ndr_err_code ndr_err;
+
+	switch (msg_type) {
+	case MSG_PVFS_NOTIFY_LE:
+		flags = 0;
+		break;
+	case MSG_PVFS_NOTIFY:
+		if (!notifyd_msg_is_ndr()) {
+			hdr_len = offsetof(struct notify_event_legacy, path);
+			raw = true;
+		}
+		break;
+	default:
+		DBG_WARNING("unexpected msg_type 0x%"PRIx32"\n", msg_type);
+		return false;
+	}
 
 	if (buflen < hdr_len + 1) {
 		DBG_WARNING("message too short: %zu\n", buflen);
@@ -306,7 +462,7 @@ bool notify_event_msg_parse(const uint8_t *buf,
 		return false;
 	}
 
-	if (!notifyd_msg_is_ndr()) {
+	if (raw) {
 		struct notify_event_legacy l;
 
 		memcpy(&l, buf, offsetof(struct notify_event_legacy, path));
@@ -319,8 +475,9 @@ bool notify_event_msg_parse(const uint8_t *buf,
 		return true;
 	}
 
+	blob = data_blob_const(buf, hdr_len);
 	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
-		&blob, &h, LIBNDR_FLAG_HOST_BYTE_ORDER,
+		&blob, &h, flags,
 		(ndr_pull_flags_fn_t)ndr_pull_notify_event_hdr);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_WARNING("ndr_pull_notify_event_hdr failed: %s\n",

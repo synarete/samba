@@ -131,6 +131,15 @@ interface messaging
 		/* smbd ip dropped message */
 		MSG_SMB_IP_DROPPED		= 0x0322,
 
+		/*
+		 * The notifyd messages with little endian
+		 * headers, used once cluster level 2.0 is active,
+		 * see source3/librpc/idl/notifyd.idl
+		 */
+		MSG_SMB_NOTIFY_REC_CHANGE_LE	= 0x0323,
+		MSG_SMB_NOTIFY_TRIGGER_LE	= 0x0324,
+		MSG_PVFS_NOTIFY_LE		= 0x0325,
+
 		/* winbind messages */
 		/* MSG_WINBIND_FINISHED		= 0x0401,  Obsoleted */
 		/* MSG_WINBIND_FORGET_STATE	= 0x0402,  Obsoleted */

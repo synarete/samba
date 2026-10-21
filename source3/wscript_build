@@ -1154,6 +1154,8 @@ bld.SAMBA3_BINARY('test_ndr_wire_layouts',
                       messages_util
                       NDR_MESSAGING
                       NDR_DBWRAP_WATCH
+                      samba-cluster-support
+                      smbconf
                       cmocka
                       ''',
                  for_selftest=True)

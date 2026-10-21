@@ -49,6 +49,8 @@ static struct tevent_req *fcn_test_send(
 	struct tevent_req *req = NULL;
 	struct fcn_test_state *state = NULL;
 	uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE];
+	size_t hdr_len;
+	uint32_t msg_type;
 	struct iovec iov[2];
 	NTSTATUS status;
 
@@ -70,13 +72,14 @@ static struct tevent_req *fcn_test_send(
 	}
 	tevent_req_set_callback(state->fcn_req, fcn_test_done, req);
 
-	notify_trigger_msg_push_hdr(timespec_current(),
-				    trigger_action,
-				    trigger_filter,
-				    hdr);
+	msg_type = notify_trigger_msg_push_hdr(timespec_current(),
+					       trigger_action,
+					       trigger_filter,
+					       hdr,
+					       &hdr_len);
 	iov[0] = (struct iovec) {
 		.iov_base = hdr,
-		.iov_len = notify_trigger_msg_hdr_len(),
+		.iov_len = hdr_len,
 	};
 	iov[1] = (struct iovec) {
 		.iov_base = discard_const_p(char, trigger_path),
@@ -86,7 +89,7 @@ static struct tevent_req *fcn_test_send(
 	status = messaging_send_iov(
 		msg_ctx,
 		notifyd,
-		MSG_SMB_NOTIFY_TRIGGER,
+		msg_type,
 		iov,
 		ARRAY_SIZE(iov),
 		NULL,

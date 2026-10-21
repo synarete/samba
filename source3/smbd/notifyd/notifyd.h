@@ -93,23 +93,38 @@ struct notify_instance {
  * by the (nul terminated) path, the following
  * structures are the parsed representations.
  *
- * Note the header length is given by notify_*_msg_hdr_len(),
- * as it can be smaller than NOTIFY_*_HDR_SIZE on non LP64
- * platforms.
+ * The notify_*_msg_push_hdr() functions return the message
+ * type to use and the length of the header, which can be
+ * smaller than NOTIFY_*_HDR_SIZE on non LP64 platforms.
+ * The notify_*_msg_parse() functions take the received
+ * message type, the receivers need to register for both
+ * message types, e.g. MSG_SMB_NOTIFY_REC_CHANGE and
+ * MSG_SMB_NOTIFY_REC_CHANGE_LE.
+ *
+ * The notify_*_msg_push_hdr_type() functions push the
+ * header for an explicit message type, they return false
+ * for an unexpected message type. They are only useful
+ * for tests.
  */
 
-/* MSG_SMB_NOTIFY_REC_CHANGE payload */
+/* MSG_SMB_NOTIFY_REC_CHANGE[_LE] payload */
 struct notify_rec_change_msg {
 	struct notify_instance instance;
 	const char *path; /* points into the message buffer */
 	size_t pathlen;
 };
 
-size_t notify_rec_change_msg_hdr_len(void);
-void notify_rec_change_msg_push_hdr(
+uint32_t notify_rec_change_msg_push_hdr(
 	const struct notify_instance *instance,
-	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE]);
-bool notify_rec_change_msg_parse(const uint8_t *buf,
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE],
+	size_t *hdr_len);
+bool notify_rec_change_msg_push_hdr_type(
+	uint32_t msg_type,
+	const struct notify_instance *instance,
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE],
+	size_t *hdr_len);
+bool notify_rec_change_msg_parse(uint32_t msg_type,
+				 const uint8_t *buf,
 				 size_t buflen,
 				 struct notify_rec_change_msg *msg);
 
@@ -120,7 +135,7 @@ bool notify_rec_change_msg_parse(const uint8_t *buf,
  * because it is called a lot.
  */
 
-/* MSG_SMB_NOTIFY_TRIGGER payload */
+/* MSG_SMB_NOTIFY_TRIGGER[_LE] payload */
 struct notify_trigger_msg {
 	struct timespec when;
 	uint32_t action;
@@ -128,12 +143,19 @@ struct notify_trigger_msg {
 	const char *path; /* points into the message buffer */
 };
 
-size_t notify_trigger_msg_hdr_len(void);
-void notify_trigger_msg_push_hdr(struct timespec when,
-				 uint32_t action,
-				 uint32_t filter,
-				 uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE]);
-bool notify_trigger_msg_parse(const uint8_t *buf,
+uint32_t notify_trigger_msg_push_hdr(struct timespec when,
+				     uint32_t action,
+				     uint32_t filter,
+				     uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE],
+				     size_t *hdr_len);
+bool notify_trigger_msg_push_hdr_type(uint32_t msg_type,
+				      struct timespec when,
+				      uint32_t action,
+				      uint32_t filter,
+				      uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE],
+				      size_t *hdr_len);
+bool notify_trigger_msg_parse(uint32_t msg_type,
+			      const uint8_t *buf,
 			      size_t buflen,
 			      struct notify_trigger_msg *msg);
 
@@ -142,7 +164,7 @@ bool notify_trigger_msg_parse(const uint8_t *buf,
  * and sends out the following message to all interested clients
  */
 
-/* MSG_PVFS_NOTIFY payload */
+/* MSG_PVFS_NOTIFY[_LE] payload */
 struct notify_event_msg {
 	struct timespec when;
 	void *private_data;
@@ -150,12 +172,19 @@ struct notify_event_msg {
 	const char *path; /* points into the message buffer */
 };
 
-size_t notify_event_msg_hdr_len(void);
-void notify_event_msg_push_hdr(struct timespec when,
-			       void *private_data,
-			       uint32_t action,
-			       uint8_t hdr[NOTIFY_EVENT_HDR_SIZE]);
-bool notify_event_msg_parse(const uint8_t *buf,
+uint32_t notify_event_msg_push_hdr(struct timespec when,
+				   void *private_data,
+				   uint32_t action,
+				   uint8_t hdr[NOTIFY_EVENT_HDR_SIZE],
+				   size_t *hdr_len);
+bool notify_event_msg_push_hdr_type(uint32_t msg_type,
+				    struct timespec when,
+				    void *private_data,
+				    uint32_t action,
+				    uint8_t hdr[NOTIFY_EVENT_HDR_SIZE],
+				    size_t *hdr_len);
+bool notify_event_msg_parse(uint32_t msg_type,
+			    const uint8_t *buf,
 			    size_t buflen,
 			    struct notify_event_msg *msg);
 

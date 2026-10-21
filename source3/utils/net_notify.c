@@ -33,7 +33,10 @@ static void net_notify_got_event(struct messaging_context *msg,
 	struct notify_event_msg event_msg;
 	bool ok;
 
-	ok = notify_event_msg_parse(data->data, data->length, &event_msg);
+	ok = notify_event_msg_parse(msg_type,
+				    data->data,
+				    data->length,
+				    &event_msg);
 	if (!ok) {
 		d_fprintf(stderr, "invalid message\n");
 		return;
@@ -53,6 +56,8 @@ static int net_notify_listen(struct net_context *c, int argc,
 	struct server_id_buf idbuf;
 	struct notify_instance instance;
 	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
+	size_t hdr_len;
+	uint32_t msg_type;
 	struct iovec iov[2];
 	NTSTATUS status;
 	bool ok;
@@ -75,11 +80,11 @@ static int net_notify_listen(struct net_context *c, int argc,
 		.filter = atoi(argv[1]),
 		.subdir_filter = atoi(argv[2])
 	};
-	notify_rec_change_msg_push_hdr(&instance, hdr);
+	msg_type = notify_rec_change_msg_push_hdr(&instance, hdr, &hdr_len);
 
 	iov[0] = (struct iovec) {
 		.iov_base = hdr,
-		.iov_len = notify_rec_change_msg_hdr_len()
+		.iov_len = hdr_len
 	};
 	iov[1] = (struct iovec) {
 		.iov_base = discard_const_p(char, argv[0]),
@@ -94,8 +99,16 @@ static int net_notify_listen(struct net_context *c, int argc,
 		return -1;
 	}
 
+	status = messaging_register(c->msg_ctx, NULL, MSG_PVFS_NOTIFY_LE,
+				    net_notify_got_event);
+	if (!NT_STATUS_IS_OK(status)) {
+		d_fprintf(stderr, "messaging_register failed: %s\n",
+			  nt_errstr(status));
+		return -1;
+	}
+
 	status = messaging_send_iov(
-		c->msg_ctx, notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
+		c->msg_ctx, notifyd, msg_type,
 		iov, ARRAY_SIZE(iov), NULL, 0);
 	if (!NT_STATUS_IS_OK(status)) {
 		d_fprintf(stderr, "Sending rec_change to %s returned %s\n",
@@ -126,6 +139,8 @@ static int net_notify_trigger(struct net_context *c, int argc,
 	struct server_id notifyd;
 	struct server_id_buf idbuf;
 	uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE];
+	size_t hdr_len;
+	uint32_t msg_type;
 	struct iovec iov[2];
 	NTSTATUS status;
 	bool ok;
@@ -144,14 +159,16 @@ static int net_notify_trigger(struct net_context *c, int argc,
 
 	printf("notify daemon: %s\n", server_id_str_buf(notifyd, &idbuf));
 
-	notify_trigger_msg_push_hdr((struct timespec) { .tv_sec = 0, },
-				    atoi(argv[1]),
-				    atoi(argv[2]),
-				    hdr);
+	msg_type = notify_trigger_msg_push_hdr(
+		(struct timespec) { .tv_sec = 0, },
+		atoi(argv[1]),
+		atoi(argv[2]),
+		hdr,
+		&hdr_len);
 
 	iov[0] = (struct iovec) {
 		.iov_base = hdr,
-		.iov_len = notify_trigger_msg_hdr_len()
+		.iov_len = hdr_len
 	};
 	iov[1] = (struct iovec) {
 		.iov_base = discard_const_p(char, argv[0]),
@@ -159,7 +176,7 @@ static int net_notify_trigger(struct net_context *c, int argc,
 	};
 
 	status = messaging_send_iov(
-		c->msg_ctx, notifyd, MSG_SMB_NOTIFY_TRIGGER,
+		c->msg_ctx, notifyd, msg_type,
 		iov, ARRAY_SIZE(iov), NULL, 0);
 	if (!NT_STATUS_IS_OK(status)) {
 		d_printf("Sending rec_change to %s returned %s\n",

@@ -67,6 +67,8 @@ int main(int argc, const char *argv[])
 			.subdir_filter = UINT32_MAX
 		};
 		uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
+		size_t hdr_len;
+		uint32_t msg_type;
 		char path[64];
 		size_t len;
 		struct iovec iov[2];
@@ -74,15 +76,16 @@ int main(int argc, const char *argv[])
 
 		len = snprintf(path, sizeof(path), "/tmp%u", i);
 
-		notify_rec_change_msg_push_hdr(&instance, hdr);
+		msg_type = notify_rec_change_msg_push_hdr(
+			&instance, hdr, &hdr_len);
 
 		iov[0].iov_base = hdr;
-		iov[0].iov_len = notify_rec_change_msg_hdr_len();
+		iov[0].iov_len = hdr_len;
 		iov[1].iov_base = path;
 		iov[1].iov_len = len+1;
 
 		status = messaging_send_iov(
-			msg_ctx, notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
+			msg_ctx, notifyd, msg_type,
 			iov, ARRAY_SIZE(iov), NULL, 0);
 		if (!NT_STATUS_IS_OK(status)) {
 			fprintf(stderr, "messaging_send_iov returned %s\n",
@@ -92,10 +95,12 @@ int main(int argc, const char *argv[])
 
 		instance.filter = 0;
 		instance.subdir_filter = 0;
-		notify_rec_change_msg_push_hdr(&instance, hdr);
+		msg_type = notify_rec_change_msg_push_hdr(
+			&instance, hdr, &hdr_len);
+		iov[0].iov_len = hdr_len;
 
 		status = messaging_send_iov(
-			msg_ctx, notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
+			msg_ctx, notifyd, msg_type,
 			iov, ARRAY_SIZE(iov), NULL, 0);
 		if (!NT_STATUS_IS_OK(status)) {
 			fprintf(stderr, "messaging_send_iov returned %s\n",

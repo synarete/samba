@@ -70,7 +70,7 @@ struct notifyd_state {
 
 	/*
 	 * In the cluster case, this is the place where we store a log
-	 * of all MSG_SMB_NOTIFY_REC_CHANGE messages. We just 1:1
+	 * of all MSG_SMB_NOTIFY_REC_CHANGE[_LE] messages. We just 1:1
 	 * forward them to our peer notifyd's in the cluster once a
 	 * second or when the log grows too large.
 	 */
@@ -212,16 +212,29 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 		return tevent_req_post(req, ev);
 	}
 
+	status = messaging_register(msg_ctx, state,
+				    MSG_SMB_NOTIFY_REC_CHANGE_LE,
+				    notifyd_rec_change);
+	if (tevent_req_nterror(req, status)) {
+		goto deregister_rec_change;
+	}
+
 	status = messaging_register(msg_ctx, state, MSG_SMB_NOTIFY_TRIGGER,
 				    notifyd_trigger);
 	if (tevent_req_nterror(req, status)) {
-		goto deregister_rec_change;
+		goto deregister_rec_change_le;
+	}
+
+	status = messaging_register(msg_ctx, state, MSG_SMB_NOTIFY_TRIGGER_LE,
+				    notifyd_trigger);
+	if (tevent_req_nterror(req, status)) {
+		goto deregister_trigger;
 	}
 
 	status = messaging_register(msg_ctx, state, MSG_SMB_NOTIFY_GET_DB,
 				    notifyd_get_db);
 	if (tevent_req_nterror(req, status)) {
-		goto deregister_trigger;
+		goto deregister_trigger_le;
 	}
 
 	names_db = messaging_names_db(msg_ctx);
@@ -289,8 +302,12 @@ deregister_db:
 #endif
 deregister_get_db:
 	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_GET_DB, state);
+deregister_trigger_le:
+	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_TRIGGER_LE, state);
 deregister_trigger:
 	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_TRIGGER, state);
+deregister_rec_change_le:
+	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_REC_CHANGE_LE, state);
 deregister_rec_change:
 	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_REC_CHANGE, state);
 	return tevent_req_post(req, ev);
@@ -574,16 +591,19 @@ static void notifyd_sys_callback(struct sys_notify_context *ctx,
 	struct messaging_context *msg_ctx = talloc_get_type_abort(
 		private_data, struct messaging_context);
 	uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE];
+	size_t hdr_len;
+	uint32_t msg_type;
 	struct iovec iov[4];
 	char slash = '/';
 
-	notify_trigger_msg_push_hdr(timespec_current(),
-				    ev->action,
-				    filter,
-				    hdr);
+	msg_type = notify_trigger_msg_push_hdr(timespec_current(),
+					       ev->action,
+					       filter,
+					       hdr,
+					       &hdr_len);
 
 	iov[0].iov_base = hdr;
-	iov[0].iov_len = notify_trigger_msg_hdr_len();
+	iov[0].iov_len = hdr_len;
 	iov[1].iov_base = discard_const_p(char, ev->dir);
 	iov[1].iov_len = strlen(ev->dir);
 	iov[2].iov_base = &slash;
@@ -593,15 +613,16 @@ static void notifyd_sys_callback(struct sys_notify_context *ctx,
 
 	messaging_send_iov(
 		msg_ctx, messaging_server_id(msg_ctx),
-		MSG_SMB_NOTIFY_TRIGGER, iov, ARRAY_SIZE(iov), NULL, 0);
+		msg_type, iov, ARRAY_SIZE(iov), NULL, 0);
 }
 
-static bool notifyd_parse_rec_change(uint8_t *buf, size_t bufsize,
+static bool notifyd_parse_rec_change(uint32_t msg_type,
+				     uint8_t *buf, size_t bufsize,
 				     struct notify_rec_change_msg *msg)
 {
 	bool ok;
 
-	ok = notify_rec_change_msg_parse(buf, bufsize, msg);
+	ok = notify_rec_change_msg_parse(msg_type, buf, bufsize, msg);
 	if (!ok) {
 		DBG_WARNING("invalid message, ignoring: %zu\n", bufsize);
 		return false;
@@ -631,7 +652,8 @@ static void notifyd_rec_change(struct messaging_context *msg_ctx,
 	DBG_DEBUG("Got %zu bytes from %s\n", data->length,
 		  server_id_str_buf(src, &idbuf));
 
-	ok = notifyd_parse_rec_change(data->data, data->length, &msg);
+	ok = notifyd_parse_rec_change(msg_type, data->data, data->length,
+				      &msg);
 	if (!ok) {
 		return;
 	}
@@ -713,7 +735,8 @@ static void notifyd_trigger(struct messaging_context *msg_ctx,
 
 	tstate.msg_ctx = msg_ctx;
 
-	ok = notify_trigger_msg_parse(data->data, data->length, &tstate.msg);
+	ok = notify_trigger_msg_parse(msg_type, data->data, data->length,
+				      &tstate.msg);
 	if (!ok) {
 		DBG_WARNING("invalid message, ignoring: %zu\n",
 			    data->length);
@@ -784,6 +807,8 @@ static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 {
 	struct notifyd_trigger_state *tstate = private_data;
 	uint8_t hdr[NOTIFY_EVENT_HDR_SIZE];
+	size_t hdr_len;
+	uint32_t msg_type;
 	struct iovec iov[2];
 	size_t path_len = key.dsize;
 	struct notifyd_watcher watcher = {};
@@ -808,7 +833,6 @@ static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 		  (char *)key.dptr);
 
 	iov[0].iov_base = hdr;
-	iov[0].iov_len = notify_event_msg_hdr_len();
 	iov[1].iov_base = discard_const_p(char, tstate->msg.path) + path_len + 1;
 	iov[1].iov_len = strlen((char *)(iov[1].iov_base)) + 1;
 
@@ -838,14 +862,17 @@ static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 			continue;
 		}
 
-		notify_event_msg_push_hdr(tstate->msg.when,
-					  instance->instance.private_data,
-					  tstate->msg.action,
-					  hdr);
+		msg_type = notify_event_msg_push_hdr(
+			tstate->msg.when,
+			instance->instance.private_data,
+			tstate->msg.action,
+			hdr,
+			&hdr_len);
+		iov[0].iov_len = hdr_len;
 
 		status = messaging_send_iov(
 			tstate->msg_ctx, instance->client,
-			MSG_PVFS_NOTIFY, iov, ARRAY_SIZE(iov), NULL, 0);
+			msg_type, iov, ARRAY_SIZE(iov), NULL, 0);
 
 		DBG_DEBUG("messaging_send_iov to %s returned %s\n",
 			  server_id_str_buf(instance->client, &idbuf),
@@ -880,6 +907,8 @@ static void notifyd_send_delete(struct messaging_context *msg_ctx,
 		.private_data = instance->instance.private_data
 	};
 	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
+	size_t hdr_len;
+	uint32_t msg_type;
 	uint8_t nul = 0;
 	struct iovec iov[3];
 	NTSTATUS status;
@@ -888,17 +917,17 @@ static void notifyd_send_delete(struct messaging_context *msg_ctx,
 	 * Send a rec_change to ourselves to delete a dead entry
 	 */
 
-	notify_rec_change_msg_push_hdr(&delete_instance, hdr);
+	msg_type = notify_rec_change_msg_push_hdr(&delete_instance,
+						  hdr,
+						  &hdr_len);
 
-	iov[0] = (struct iovec) {
-		.iov_base = hdr,
-		.iov_len = notify_rec_change_msg_hdr_len() };
+	iov[0] = (struct iovec) { .iov_base = hdr, .iov_len = hdr_len };
 	iov[1] = (struct iovec) { .iov_base = key.dptr, .iov_len = key.dsize };
 	iov[2] = (struct iovec) { .iov_base = &nul, .iov_len = sizeof(nul) };
 
 	status = messaging_send_iov(msg_ctx,
 				    instance->client,
-				    MSG_SMB_NOTIFY_REC_CHANGE,
+				    msg_type,
 				    iov,
 				    ARRAY_SIZE(iov),
 				    NULL,
@@ -1569,7 +1598,8 @@ static void notifyd_apply_reclog(struct notifyd_peer *peer,
 		struct notify_rec_change_msg chg;
 		bool ok;
 
-		ok = notifyd_parse_rec_change(r->buf.data, r->buf.length,
+		ok = notifyd_parse_rec_change(r->msg_type,
+					      r->buf.data, r->buf.length,
 					      &chg);
 		if (!ok) {
 			DBG_INFO("notifyd_parse_rec_change failed\n");
@@ -1600,7 +1630,7 @@ fail:
 }
 
 /*
- * Receive messaging_reclog (log of MSG_SMB_NOTIFY_REC_CHANGE
+ * Receive messaging_reclog (log of MSG_SMB_NOTIFY_REC_CHANGE[_LE]
  * messages) broadcasts by other notifyds. Several cases:
  *
  * We don't know the source. This creates a new peer. Creating a peer

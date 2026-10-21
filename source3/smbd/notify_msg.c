@@ -89,6 +89,15 @@ struct notify_context *notify_init(
 			TALLOC_FREE(ctx);
 			return NULL;
 		}
+		status = messaging_register(msg, ctx, MSG_PVFS_NOTIFY_LE,
+					    notify_handler);
+		if (!NT_STATUS_IS_OK(status)) {
+			DBG_WARNING("messaging_register failed: %s\n",
+				    nt_errstr(status));
+			messaging_deregister(msg, MSG_PVFS_NOTIFY, ctx);
+			TALLOC_FREE(ctx);
+			return NULL;
+		}
 	}
 
 	talloc_set_destructor(ctx, notify_context_destructor);
@@ -99,6 +108,7 @@ struct notify_context *notify_init(
 static int notify_context_destructor(struct notify_context *ctx)
 {
 	if (ctx->callback != NULL) {
+		messaging_deregister(ctx->msg_ctx, MSG_PVFS_NOTIFY_LE, ctx);
 		messaging_deregister(ctx->msg_ctx, MSG_PVFS_NOTIFY, ctx);
 	}
 
@@ -115,7 +125,10 @@ static void notify_handler(struct messaging_context *msg, void *private_data,
 	struct notify_event event;
 	bool ok;
 
-	ok = notify_event_msg_parse(data->data, data->length, &event_msg);
+	ok = notify_event_msg_parse(msg_type,
+				    data->data,
+				    data->length,
+				    &event_msg);
 	if (!ok) {
 		return;
 	}
@@ -139,6 +152,8 @@ NTSTATUS notify_add(struct notify_context *ctx,
 {
 	struct notify_instance instance = {};
 	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
+	size_t hdr_len;
+	uint32_t msg_type;
 	struct iovec iov[2];
 	size_t pathlen;
 	NTSTATUS status;
@@ -161,15 +176,15 @@ NTSTATUS notify_add(struct notify_context *ctx,
 	instance.subdir_filter = subdir_filter;
 	instance.private_data = private_data;
 
-	notify_rec_change_msg_push_hdr(&instance, hdr);
+	msg_type = notify_rec_change_msg_push_hdr(&instance, hdr, &hdr_len);
 
 	iov[0].iov_base = hdr;
-	iov[0].iov_len = notify_rec_change_msg_hdr_len();
+	iov[0].iov_len = hdr_len;
 	iov[1].iov_base = discard_const_p(char, path);
 	iov[1].iov_len = pathlen;
 
 	status =  messaging_send_iov(
-		ctx->msg_ctx, ctx->notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
+		ctx->msg_ctx, ctx->notifyd, msg_type,
 		iov, ARRAY_SIZE(iov), NULL, 0);
 
 	if (!NT_STATUS_IS_OK(status)) {
@@ -186,6 +201,8 @@ NTSTATUS notify_remove(struct notify_context *ctx, void *private_data,
 {
 	struct notify_instance instance = {};
 	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
+	size_t hdr_len;
+	uint32_t msg_type;
 	struct iovec iov[2];
 	NTSTATUS status;
 
@@ -196,15 +213,15 @@ NTSTATUS notify_remove(struct notify_context *ctx, void *private_data,
 
 	instance.private_data = private_data;
 
-	notify_rec_change_msg_push_hdr(&instance, hdr);
+	msg_type = notify_rec_change_msg_push_hdr(&instance, hdr, &hdr_len);
 
 	iov[0].iov_base = hdr;
-	iov[0].iov_len = notify_rec_change_msg_hdr_len();
+	iov[0].iov_len = hdr_len;
 	iov[1].iov_base = path;
 	iov[1].iov_len = strlen(path)+1;
 
 	status = messaging_send_iov(
-		ctx->msg_ctx, ctx->notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
+		ctx->msg_ctx, ctx->notifyd, msg_type,
 		iov, ARRAY_SIZE(iov), NULL, 0);
 
 	return status;
@@ -215,6 +232,8 @@ void notify_trigger(struct notify_context *ctx,
 		    const char *dir, const char *name)
 {
 	uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE];
+	size_t hdr_len;
+	uint32_t msg_type;
 	struct iovec iov[4];
 	char slash = '/';
 
@@ -229,10 +248,11 @@ void notify_trigger(struct notify_context *ctx,
 		return;
 	}
 
-	notify_trigger_msg_push_hdr(timespec_current(), action, filter, hdr);
+	msg_type = notify_trigger_msg_push_hdr(
+		timespec_current(), action, filter, hdr, &hdr_len);
 
 	iov[0].iov_base = hdr;
-	iov[0].iov_len = notify_trigger_msg_hdr_len();
+	iov[0].iov_len = hdr_len;
 	iov[1].iov_base = discard_const_p(char, dir);
 	iov[1].iov_len = strlen(dir);
 	iov[2].iov_base = &slash;
@@ -241,6 +261,6 @@ void notify_trigger(struct notify_context *ctx,
 	iov[3].iov_len = strlen(name)+1;
 
 	messaging_send_iov(
-		ctx->msg_ctx, ctx->notifyd, MSG_SMB_NOTIFY_TRIGGER,
+		ctx->msg_ctx, ctx->notifyd, msg_type,
 		iov, ARRAY_SIZE(iov), NULL, 0);
 }

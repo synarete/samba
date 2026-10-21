@@ -56,6 +56,8 @@ struct tevent_req *fcn_wait_send(
 		.subdir_filter = subdir_filter,
 	};
 	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
+	size_t hdr_len;
+	uint32_t msg_type;
 	struct iovec iov[2];
 	NTSTATUS status;
 
@@ -79,17 +81,17 @@ struct tevent_req *fcn_wait_send(
 	clock_gettime_mono(&instance.creation_time);
 	instance.private_data = state;
 
-	notify_rec_change_msg_push_hdr(&instance, hdr);
+	msg_type = notify_rec_change_msg_push_hdr(&instance, hdr, &hdr_len);
 
 	iov[0].iov_base = hdr;
-	iov[0].iov_len = notify_rec_change_msg_hdr_len();
+	iov[0].iov_len = hdr_len;
 	iov[1].iov_base = discard_const_p(char, path);
 	iov[1].iov_len = strlen(path)+1;
 
 	status = messaging_send_iov(
 		msg_ctx,			/* msg_ctx */
 		notifyd,			/* dst */
-		MSG_SMB_NOTIFY_REC_CHANGE,	/* mst_type */
+		msg_type,			/* mst_type */
 		iov,				/* iov */
 		ARRAY_SIZE(iov),		/* iovlen */
 		NULL,				/* fds */
@@ -113,23 +115,25 @@ static bool fcn_wait_cancel(struct tevent_req *req)
 		.subdir_filter = 0,
 	};
 	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
+	size_t hdr_len;
+	uint32_t msg_type;
 	struct iovec iov[2];
 	NTSTATUS status;
 
 	clock_gettime_mono(&instance.creation_time);
 	instance.private_data = state;
 
-	notify_rec_change_msg_push_hdr(&instance, hdr);
+	msg_type = notify_rec_change_msg_push_hdr(&instance, hdr, &hdr_len);
 
 	iov[0].iov_base = hdr;
-	iov[0].iov_len = notify_rec_change_msg_hdr_len();
+	iov[0].iov_len = hdr_len;
 	iov[1].iov_base = discard_const_p(char, state->path);
 	iov[1].iov_len = strlen(state->path)+1;
 
 	status = messaging_send_iov(
 		state->msg_ctx,			/* msg_ctx */
 		state->notifyd,			/* dst */
-		MSG_SMB_NOTIFY_REC_CHANGE,	/* mst_type */
+		msg_type,			/* mst_type */
 		iov,				/* iov */
 		ARRAY_SIZE(iov),		/* iovlen */
 		NULL,				/* fds */
@@ -165,12 +169,17 @@ static bool fcn_wait_filter(struct messaging_rec *rec, void *private_data)
 	struct fcn_event *evt = NULL;
 	bool ok;
 
-	if (rec->msg_type != MSG_PVFS_NOTIFY) {
+	if (rec->msg_type != MSG_PVFS_NOTIFY &&
+	    rec->msg_type != MSG_PVFS_NOTIFY_LE)
+	{
 		DBG_DEBUG("Ignoring msg %"PRIu32"\n", rec->msg_type);
 		return false;
 	}
 
-	ok = notify_event_msg_parse(rec->buf.data, rec->buf.length, &msg);
+	ok = notify_event_msg_parse(rec->msg_type,
+				    rec->buf.data,
+				    rec->buf.length,
+				    &msg);
 	if (!ok) {
 		DBG_DEBUG("Ignoring invalid (%zu) msg\n", rec->buf.length);
 		return false;

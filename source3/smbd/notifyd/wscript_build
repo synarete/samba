@@ -2,7 +2,7 @@
 
 bld.SAMBA3_SUBSYSTEM('notifyd_msg',
                      source='notifyd_msg.c',
-                     deps='samba-debug ndr NDR_NOTIFYD')
+                     deps='samba-debug ndr NDR_NOTIFYD samba-cluster-support')
 
 bld.SAMBA3_SUBSYSTEM('fcn_wait',
                      source='fcn_wait.c',
