@@ -20,6 +20,7 @@
 #include "includes.h"
 #include "smbd_ratelimitd.h"
 #include "ratelimit_protocol.h"
+#include "lib/cluster_support.h"
 #include "lib/util/time.h"
 #include "lib/util/tevent_ntstatus.h"
 #include "lib/util/tevent_unix.h"
@@ -324,10 +325,19 @@ static void broadcast_summary(struct smbd_ratelimitd_state *state,
 	struct ratelimit_node_summary summary = {0};
 	uint8_t buf[RATELIMIT_NODE_SUMMARY_SIZE] = {0};
 	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	uint32_t msg_type = ratelimit_msg_type_summary(
+		ratelimit_op_from_string(op));
+	libndr_flags ndr_flags = LIBNDR_FLAG_HOST_BYTE_ORDER;
 	enum ndr_err_code ndr_err;
 
 	if (count <= 0) {
 		return;
+	}
+
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		msg_type = ratelimit_msg_type_summary_le(
+			ratelimit_op_from_string(op));
+		ndr_flags = 0;
 	}
 
 	summary.vnn = state->my_vnn;
@@ -338,7 +348,7 @@ static void broadcast_summary(struct smbd_ratelimitd_state *state,
 	ndr_err = ndr_push_struct_into_fixed_blob_flags(
 		&blob,
 		&summary,
-		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		ndr_flags,
 		(ndr_push_flags_fn_t)ndr_push_ratelimit_node_summary);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_ERR("[%s] ndr_push_ratelimit_node_summary failed: %s\n",
@@ -348,8 +358,7 @@ static void broadcast_summary(struct smbd_ratelimitd_state *state,
 	}
 
 	messaging_send_all(state->msg_ctx,
-			   ratelimit_msg_type_summary(
-				   ratelimit_op_from_string(op)),
+			   msg_type,
 			   blob.data,
 			   blob.length);
 

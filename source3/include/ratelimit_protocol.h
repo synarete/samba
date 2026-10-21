@@ -62,6 +62,22 @@ static inline uint32_t ratelimit_msg_type_summary(uint32_t operation)
 	}
 }
 
+/*
+ * The node summaries in little endian on all platforms,
+ * used once cluster level 2.0 is active.
+ */
+static inline uint32_t ratelimit_msg_type_summary_le(uint32_t operation)
+{
+	switch (operation) {
+	case RATELIMIT_OP_READ:
+		return MSG_VFS_AIO_RATELIMIT_READ_NODE_SUMMARY_LE;
+	case RATELIMIT_OP_WRITE:
+		return MSG_VFS_AIO_RATELIMIT_WRITE_NODE_SUMMARY_LE;
+	default:
+		return 0;
+	}
+}
+
 static inline uint32_t ratelimit_op_from_string(const char *op_str)
 {
 	if (strcmp(op_str, "read") == 0) {

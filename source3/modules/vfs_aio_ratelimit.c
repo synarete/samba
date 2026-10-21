@@ -622,6 +622,8 @@ static void handle_node_summary_dispatch(struct messaging_context *msg_ctx,
 	struct ratelimiter *list;
 	struct ratelimiter *rl;
 	struct ratelimit_node_summary summary = {0};
+	libndr_flags ndr_flags = LIBNDR_FLAG_HOST_BYTE_ORDER;
+	bool is_read = false;
 	enum ndr_err_code ndr_err;
 
 	if (data->length != RATELIMIT_NODE_SUMMARY_SIZE) {
@@ -632,13 +634,32 @@ static void handle_node_summary_dispatch(struct messaging_context *msg_ctx,
 		return;
 	}
 
+	switch (msg_type) {
+	case MSG_VFS_AIO_RATELIMIT_READ_NODE_SUMMARY:
+		is_read = true;
+		break;
+	case MSG_VFS_AIO_RATELIMIT_WRITE_NODE_SUMMARY:
+		break;
+	case MSG_VFS_AIO_RATELIMIT_READ_NODE_SUMMARY_LE:
+		is_read = true;
+		ndr_flags = 0;
+		break;
+	case MSG_VFS_AIO_RATELIMIT_WRITE_NODE_SUMMARY_LE:
+		ndr_flags = 0;
+		break;
+	default:
+		DBG_ERR("[%s] Unexpected msg_type 0x%x\n",
+			MODULE_NAME, (unsigned)msg_type);
+		return;
+	}
+
 	frame = talloc_stackframe();
 
 	ndr_err = ndr_pull_struct_blob_all_flags(
 		data,
 		frame,
 		&summary,
-		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		ndr_flags,
 		(ndr_pull_flags_fn_t)ndr_pull_ratelimit_node_summary);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_ERR("[%s] ndr_pull_ratelimit_node_summary failed: %s\n",
@@ -648,9 +669,7 @@ static void handle_node_summary_dispatch(struct messaging_context *msg_ctx,
 		return;
 	}
 
-	list = (msg_type == MSG_VFS_AIO_RATELIMIT_READ_NODE_SUMMARY)
-		       ? read_ratelimiters_list
-		       : write_ratelimiters_list;
+	list = is_read ? read_ratelimiters_list : write_ratelimiters_list;
 
 	for (rl = list; rl != NULL; rl = rl->next) {
 		if (strcmp(summary.share_name, rl->share_name) != 0) {
@@ -1144,6 +1163,11 @@ static void ratelimiter_cleanup(struct ratelimiter *rl)
 						     ratelimit_op_from_string(
 							     rl->op)),
 					     NULL);
+			messaging_deregister(rl->msg_ctx,
+					     ratelimit_msg_type_summary_le(
+						     ratelimit_op_from_string(
+							     rl->op)),
+					     NULL);
 		}
 	}
 
@@ -1283,6 +1307,18 @@ static void ratelimiter_init(TALLOC_CTX *mem_ctx,
 						rl->msg_ctx,
 						NULL,
 						ratelimit_msg_type_summary(
+							ratelimit_op_from_string(
+								rl->op)),
+						handle_node_summary_dispatch);
+					/*
+					 * We need to handle the little
+					 * endian version independent of
+					 * our cluster level.
+					 */
+					messaging_register(
+						rl->msg_ctx,
+						NULL,
+						ratelimit_msg_type_summary_le(
 							ratelimit_op_from_string(
 								rl->op)),
 						handle_node_summary_dispatch);

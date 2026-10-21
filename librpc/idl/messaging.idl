@@ -180,6 +180,13 @@ interface messaging
 		 */
 		MSG_VFS_AIO_RATELIMIT_READ_NODE_SUMMARY	= 0x0900,
 		MSG_VFS_AIO_RATELIMIT_WRITE_NODE_SUMMARY = 0x0901,
+		/*
+		 * The same in little endian on all platforms,
+		 * used once cluster level 2.0 is active,
+		 * the ones above use host byte order.
+		 */
+		MSG_VFS_AIO_RATELIMIT_READ_NODE_SUMMARY_LE = 0x0902,
+		MSG_VFS_AIO_RATELIMIT_WRITE_NODE_SUMMARY_LE = 0x0903,
 
 		/* dbwrap messages 4001-4999 (0x0FA0 - 0x1387) */
 		/* MSG_DBWRAP_TDB2_CHANGES		= 4001, */
