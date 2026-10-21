@@ -7,6 +7,14 @@ import "server_id.idl";
 */
 
 [
+  /*
+   * messaging_reclog is broadcasted by notifyd to all nodes
+   * in a ctdb cluster, so the NDR wire format of all
+   * [public] types and everything they use is protected
+   * by librpc/ABI/messaging.ndrabi,
+   * see librpc/ndr/ndr_abi.h
+   */
+  ndr_abi,
   pointer_default(unique)
 ]
 interface messaging

@@ -149,7 +149,7 @@ bld.SAMBA_PIDL_LIST('PIDL',
                     xattr.idl
                     smb3posix.idl
                     ''',
-                    options='--header --ndr-parser --python',
+                    options='--header --ndr-parser --ndr-abi --python',
                     output_dir='../gen_ndr')
 
 bld.SAMBA_PIDL_LIST('PIDL',
