@@ -45,6 +45,7 @@ bld.SAMBA3_SUBSYSTEM('NDR_CLUSTER_LEVEL',
 # so their wire format needs to be stable,
 # see librpc/ndr/ndr_abi.h
 bld.SAMBA_NDR_ABI('cluster_level', deps='NDR_CLUSTER_LEVEL')
+bld.SAMBA_NDR_ABI('leases_db', deps='NDR_LEASES_DB')
 
 bld.SAMBA3_SUBSYSTEM('NDR_SECRETS',
 	source='gen_ndr/ndr_secrets.c',

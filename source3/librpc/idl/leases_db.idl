@@ -5,6 +5,14 @@ import "smb2_lease_struct.idl";
 import "file_id.idl";
 
 [
+	/*
+	 * The NDR wire format of all [public] types
+	 * (except [no_ndr_abi] ones) and everything
+	 * they use is protected by
+	 * source3/librpc/ABI/leases_db.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
 	pointer_default(unique)
 ]
 interface leases_db
