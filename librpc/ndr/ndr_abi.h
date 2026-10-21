@@ -172,10 +172,16 @@ void ndr_abi_fill_string(struct ndr_abi_state *state, const char **v);
 struct timeval;
 struct timespec;
 struct dom_sid;
+struct security_ace;
 void ndr_abi_fill_timeval(struct ndr_abi_state *state, struct timeval *v);
 void ndr_abi_fill_timeval_legacy(struct ndr_abi_state *state, struct timeval *v);
 void ndr_abi_fill_timespec(struct ndr_abi_state *state, struct timespec *v);
 void ndr_abi_fill_timespec_legacy(struct ndr_abi_state *state, struct timespec *v);
 void ndr_abi_fill_dom_sid(struct ndr_abi_state *state, struct dom_sid *v);
+void ndr_abi_fill_dom_sid2(struct ndr_abi_state *state, struct dom_sid *v);
+void ndr_abi_fill_dom_sid28(struct ndr_abi_state *state, struct dom_sid *v);
+void ndr_abi_fill_dom_sid0(struct ndr_abi_state *state, struct dom_sid *v);
+void ndr_abi_fill_security_ace(struct ndr_abi_state *state,
+			       struct security_ace *v);
 
 #endif /* _LIBRPC_NDR_NDR_ABI_H_ */
