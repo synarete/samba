@@ -1,5 +1,7 @@
 #include "idl_types.h"
 
+import "server_id.idl";
+
 /*
  * The messages exchanged between smbd and notifyd, also
  * between notifyd instances on different ctdb nodes
@@ -67,4 +69,33 @@ interface notifyd
 		hyper private_data;
 		uint32 action;
 	} notify_event_hdr;
+
+	/*
+	 * MSG_SMB_NOTIFY_DB contains a hyper (the index of the
+	 * reclog), followed by dbwrap_marshall() of a database with
+	 * the paths as keys. The values are a notifyd_watcher_rec
+	 * followed by notifyd_instance_rec elements.
+	 *
+	 * The in memory database of notifyd uses the raw C
+	 * structures (struct notifyd_watcher and struct
+	 * notifyd_instance), which have exactly the same layout
+	 * on LP64 platforms if marshalled with
+	 * LIBNDR_FLAG_HOST_BYTE_ORDER, other platforms still
+	 * use the raw C structures.
+	 */
+	const uint32 NOTIFYD_WATCHER_REC_SIZE = 24;
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		uint32 filter;
+		uint32 subdir_filter;
+		uint32 sys_filter;
+		uint32 sys_subdir_filter;
+		/* opaque local handle, ignored by the receiver */
+		hyper sys_watch;
+	} notifyd_watcher_rec;
+
+	const uint32 NOTIFYD_INSTANCE_REC_SIZE = 56;
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		server_id client;
+		notify_rec_change_hdr instance;
+	} notifyd_instance_rec;
 }
