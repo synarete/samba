@@ -1145,6 +1145,7 @@ bld.SAMBA3_BINARY('test_ndr_wire_layouts',
                  source='lib/test_ndr_wire_layouts.c',
                  deps='''
                       samba3-util
+                      file_id_key
                       NDR_SECRETS
                       NDR_OPEN_FILES
                       NDR_RATELIMIT
