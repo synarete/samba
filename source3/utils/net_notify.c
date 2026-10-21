@@ -30,21 +30,17 @@ static void net_notify_got_event(struct messaging_context *msg,
 				 struct server_id server_id,
 				 DATA_BLOB *data)
 {
-	struct notify_event_msg *event_msg;
+	struct notify_event_msg event_msg;
+	bool ok;
 
-	if (data->length < offsetof(struct notify_event_msg, path) + 1) {
-		d_fprintf(stderr, "message too short\n");
+	ok = notify_event_msg_parse(data->data, data->length, &event_msg);
+	if (!ok) {
+		d_fprintf(stderr, "invalid message\n");
 		return;
 	}
-	if (data->data[data->length-1] != 0) {
-		d_fprintf(stderr, "path not 0-terminated\n");
-		return;
-	}
 
-	event_msg = (struct notify_event_msg *)data->data;
-
-	d_printf("%u %s\n", (unsigned)event_msg->action,
-		 event_msg->path);
+	d_printf("%u %s\n", (unsigned)event_msg.action,
+		 event_msg.path);
 }
 
 static int net_notify_listen(struct net_context *c, int argc,
@@ -55,7 +51,8 @@ static int net_notify_listen(struct net_context *c, int argc,
 	struct server_id_db *names_db = messaging_names_db(msg_ctx);
 	struct server_id notifyd;
 	struct server_id_buf idbuf;
-	struct notify_rec_change_msg msg;
+	struct notify_instance instance;
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
 	struct iovec iov[2];
 	NTSTATUS status;
 	bool ok;
@@ -74,13 +71,15 @@ static int net_notify_listen(struct net_context *c, int argc,
 
 	printf("notify daemon: %s\n", server_id_str_buf(notifyd, &idbuf));
 
-	msg = (struct notify_rec_change_msg) {
-		.instance.filter = atoi(argv[1]),
-		.instance.subdir_filter = atoi(argv[2])
+	instance = (struct notify_instance) {
+		.filter = atoi(argv[1]),
+		.subdir_filter = atoi(argv[2])
 	};
+	notify_rec_change_msg_push_hdr(&instance, hdr);
+
 	iov[0] = (struct iovec) {
-		.iov_base = &msg,
-		.iov_len = offsetof(struct notify_rec_change_msg, path)
+		.iov_base = hdr,
+		.iov_len = notify_rec_change_msg_hdr_len()
 	};
 	iov[1] = (struct iovec) {
 		.iov_base = discard_const_p(char, argv[0]),
@@ -126,7 +125,7 @@ static int net_notify_trigger(struct net_context *c, int argc,
 	struct server_id_db *names_db = messaging_names_db(msg_ctx);
 	struct server_id notifyd;
 	struct server_id_buf idbuf;
-	struct notify_trigger_msg msg;
+	uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE];
 	struct iovec iov[2];
 	NTSTATUS status;
 	bool ok;
@@ -145,13 +144,14 @@ static int net_notify_trigger(struct net_context *c, int argc,
 
 	printf("notify daemon: %s\n", server_id_str_buf(notifyd, &idbuf));
 
-	msg = (struct notify_trigger_msg) {
-		.action = atoi(argv[1]), .filter = atoi(argv[2])
-	};
+	notify_trigger_msg_push_hdr((struct timespec) { .tv_sec = 0, },
+				    atoi(argv[1]),
+				    atoi(argv[2]),
+				    hdr);
 
 	iov[0] = (struct iovec) {
-		.iov_base = &msg,
-		.iov_len = offsetof(struct notify_trigger_msg, path)
+		.iov_base = hdr,
+		.iov_len = notify_trigger_msg_hdr_len()
 	};
 	iov[1] = (struct iovec) {
 		.iov_base = discard_const_p(char, argv[0]),

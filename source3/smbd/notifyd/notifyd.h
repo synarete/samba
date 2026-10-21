@@ -23,6 +23,7 @@
 #include "includes.h"
 #include "librpc/gen_ndr/notify.h"
 #include "librpc/gen_ndr/messaging.h"
+#include "librpc/gen_ndr/notifyd.h"
 #include "lib/dbwrap/dbwrap.h"
 #include "lib/dbwrap/dbwrap_rbt.h"
 #include "messages.h"
@@ -86,11 +87,31 @@ struct notify_instance {
 	void *private_data;
 };
 
+/*
+ * The messages consist of a fixed size NDR header
+ * (see source3/librpc/idl/notifyd.idl) followed
+ * by the (nul terminated) path, the following
+ * structures are the parsed representations.
+ *
+ * Note the header length is given by notify_*_msg_hdr_len(),
+ * as it can be smaller than NOTIFY_*_HDR_SIZE on non LP64
+ * platforms.
+ */
+
 /* MSG_SMB_NOTIFY_REC_CHANGE payload */
 struct notify_rec_change_msg {
 	struct notify_instance instance;
-	char path[];
+	const char *path; /* points into the message buffer */
+	size_t pathlen;
 };
+
+size_t notify_rec_change_msg_hdr_len(void);
+void notify_rec_change_msg_push_hdr(
+	const struct notify_instance *instance,
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE]);
+bool notify_rec_change_msg_parse(const uint8_t *buf,
+				 size_t buflen,
+				 struct notify_rec_change_msg *msg);
 
 /*
  * The second message from smbd to notifyd is sent whenever an smbd makes a
@@ -104,8 +125,17 @@ struct notify_trigger_msg {
 	struct timespec when;
 	uint32_t action;
 	uint32_t filter;
-	char path[];
+	const char *path; /* points into the message buffer */
 };
+
+size_t notify_trigger_msg_hdr_len(void);
+void notify_trigger_msg_push_hdr(struct timespec when,
+				 uint32_t action,
+				 uint32_t filter,
+				 uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE]);
+bool notify_trigger_msg_parse(const uint8_t *buf,
+			      size_t buflen,
+			      struct notify_trigger_msg *msg);
 
 /*
  * In response to a MSG_SMB_NOTIFY_TRIGGER message notifyd walks its database
@@ -117,8 +147,17 @@ struct notify_event_msg {
 	struct timespec when;
 	void *private_data;
 	uint32_t action;
-	char path[];
+	const char *path; /* points into the message buffer */
 };
+
+size_t notify_event_msg_hdr_len(void);
+void notify_event_msg_push_hdr(struct timespec when,
+			       void *private_data,
+			       uint32_t action,
+			       uint8_t hdr[NOTIFY_EVENT_HDR_SIZE]);
+bool notify_event_msg_parse(const uint8_t *buf,
+			    size_t buflen,
+			    struct notify_event_msg *msg);
 
 struct sys_notify_context;
 struct ctdbd_connection;
