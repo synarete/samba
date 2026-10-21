@@ -1140,6 +1140,7 @@ bld.SAMBA3_BINARY('test_ndr_wire_layouts',
                  deps='''
                       samba3-util
                       NDR_SECRETS
+                      NDR_RATELIMIT
                       messages_util
                       NDR_MESSAGING
                       cmocka

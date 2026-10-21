@@ -23,6 +23,7 @@
 
 #include "includes.h"
 #include "librpc/gen_ndr/ndr_secrets.h"
+#include "librpc/gen_ndr/ndr_ratelimit.h"
 #include "lib/util/server_id.h"
 #include "lib/messages_util.h"
 #include "librpc/gen_ndr/ndr_messaging.h"
@@ -174,6 +175,169 @@ static void test_ndr_flags_bigendian(void **state)
 }
 
 /*
+ * The packed structures formerly used by vfs_aio_ratelimit
+ * and smbd_ratelimitd.
+ */
+struct legacy_ratelimit_activity_report {
+	uint64_t timestamp_usec;
+	int64_t recent_iops;
+	uint32_t protocol_version;
+	uint32_t operation;
+	int32_t pid;
+	uint32_t inflight_ios;
+	char share_name[256];
+} PACKED_STRUCT;
+
+struct legacy_ratelimit_node_summary {
+	uint32_t vnn;
+	int32_t process_count;
+	uint64_t timestamp_usec;
+	char share_name[256];
+} PACKED_STRUCT;
+
+struct legacy_ratelimit_tdb_record {
+	uint64_t last_usec;
+	float iops_tokens;
+	float bytes_tokens;
+	uint8_t reserved[64 - (8 + 4 + 4)];
+} PACKED_STRUCT;
+
+static void test_ratelimit_activity_report(void **state)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct legacy_ratelimit_activity_report legacy = { .pid = 0, };
+	struct ratelimit_activity_report r = { .pid = 0, };
+	struct ratelimit_activity_report r2 = { .pid = 0, };
+	uint8_t buf[RATELIMIT_ACTIVITY_REPORT_SIZE] = { 0, };
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
+
+	assert_int_equal(sizeof(legacy), RATELIMIT_ACTIVITY_REPORT_SIZE);
+
+	legacy.timestamp_usec = r.timestamp_usec = 0x0102030405060708;
+	legacy.recent_iops = r.recent_iops = -0x1112131415161718;
+	legacy.protocol_version = r.protocol_version = 2;
+	legacy.operation = r.operation = 1;
+	legacy.pid = r.pid = -12345;
+	legacy.inflight_ios = r.inflight_ios = 0x21222324;
+	strlcpy(legacy.share_name, "share", sizeof(legacy.share_name));
+	r.share_name = "share";
+
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &r,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_push_flags_fn_t)ndr_push_ratelimit_activity_report);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(buf, &legacy, sizeof(legacy));
+
+	blob = data_blob_const(&legacy, sizeof(legacy));
+	ndr_err = ndr_pull_struct_blob_all_flags(&blob, frame, &r2,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_pull_flags_fn_t)ndr_pull_ratelimit_activity_report);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_int_equal(r2.timestamp_usec, r.timestamp_usec);
+	assert_int_equal(r2.recent_iops, r.recent_iops);
+	assert_int_equal(r2.protocol_version, r.protocol_version);
+	assert_int_equal(r2.operation, r.operation);
+	assert_int_equal(r2.pid, r.pid);
+	assert_int_equal(r2.inflight_ios, r.inflight_ios);
+	assert_string_equal(r2.share_name, r.share_name);
+
+	TALLOC_FREE(frame);
+}
+
+static void test_ratelimit_node_summary(void **state)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct legacy_ratelimit_node_summary legacy = { .vnn = 0, };
+	struct ratelimit_node_summary r = { .vnn = 0, };
+	struct ratelimit_node_summary r2 = { .vnn = 0, };
+	uint8_t buf[RATELIMIT_NODE_SUMMARY_SIZE] = { 0, };
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
+
+	assert_int_equal(sizeof(legacy), RATELIMIT_NODE_SUMMARY_SIZE);
+
+	legacy.vnn = r.vnn = 0x01020304;
+	legacy.process_count = r.process_count = -7;
+	legacy.timestamp_usec = r.timestamp_usec = 0x1112131415161718;
+	strlcpy(legacy.share_name, "share", sizeof(legacy.share_name));
+	r.share_name = "share";
+
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &r,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_push_flags_fn_t)ndr_push_ratelimit_node_summary);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(buf, &legacy, sizeof(legacy));
+
+	blob = data_blob_const(&legacy, sizeof(legacy));
+	ndr_err = ndr_pull_struct_blob_all_flags(&blob, frame, &r2,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_pull_flags_fn_t)ndr_pull_ratelimit_node_summary);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_int_equal(r2.vnn, r.vnn);
+	assert_int_equal(r2.process_count, r.process_count);
+	assert_int_equal(r2.timestamp_usec, r.timestamp_usec);
+	assert_string_equal(r2.share_name, r.share_name);
+
+	TALLOC_FREE(frame);
+}
+
+static void test_ratelimit_tdb_record(void **state)
+{
+	struct legacy_ratelimit_tdb_record legacy = { .last_usec = 0, };
+	struct ratelimit_tdb_record r = { .last_usec = 0, };
+	struct ratelimit_tdb_record r2 = { .last_usec = 0, };
+	uint8_t buf[RATELIMIT_TDB_RECORD_SIZE] = { 0, };
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
+
+	assert_int_equal(sizeof(legacy), RATELIMIT_TDB_RECORD_SIZE);
+
+	legacy.last_usec = r.last_usec = 0x0102030405060708;
+	legacy.iops_tokens = r.iops_tokens = 1.5f;
+	legacy.bytes_tokens = r.bytes_tokens = -2.25f;
+
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &r,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_push_flags_fn_t)ndr_push_ratelimit_tdb_record);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(buf, &legacy, sizeof(legacy));
+
+	blob = data_blob_const(&legacy, sizeof(legacy));
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &r2,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_pull_flags_fn_t)ndr_pull_ratelimit_tdb_record);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(&r, &r2, sizeof(r));
+
+	/*
+	 * The floats need to be IEEE 754 single precision
+	 * values in the selected byte order (1.5 is 0x3fc00000,
+	 * -2.25 is 0xc0100000).
+	 */
+	blob = data_blob_const(buf, sizeof(buf));
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &r, 0,
+			(ndr_push_flags_fn_t)ndr_push_ratelimit_tdb_record);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_int_equal(PULL_LE_U32(buf, 8), 0x3fc00000);
+	assert_int_equal(PULL_LE_U32(buf, 12), 0xc0100000);
+
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &r,
+			LIBNDR_FLAG_BIGENDIAN,
+			(ndr_push_flags_fn_t)ndr_push_ratelimit_tdb_record);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_int_equal(PULL_BE_U32(buf, 8), 0x3fc00000);
+	assert_int_equal(PULL_BE_U32(buf, 12), 0xc0100000);
+
+	r2 = (struct ratelimit_tdb_record) { .last_usec = 0, };
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &r2,
+			LIBNDR_FLAG_BIGENDIAN,
+			(ndr_pull_flags_fn_t)ndr_pull_ratelimit_tdb_record);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(&r, &r2, sizeof(r));
+}
+
+/*
  * message_hdr_put() and message_hdr_get() are hand-marshalled
  * (little endian), verify they match messaging_hdr.
  */
@@ -229,6 +393,9 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_secrets_domain_sid),
 		cmocka_unit_test(test_secrets_domain_guid),
 		cmocka_unit_test(test_ndr_flags_bigendian),
+		cmocka_unit_test(test_ratelimit_activity_report),
+		cmocka_unit_test(test_ratelimit_node_summary),
+		cmocka_unit_test(test_ratelimit_tdb_record),
 		cmocka_unit_test(test_messaging_hdr),
 	};
 
