@@ -17,6 +17,9 @@
 #include "fcn_wait.h"
 #include "notifyd.h"
 #include "lib/util/tevent_ntstatus.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
+#include "source3/include/messages_send.h"
 
 struct fcn_event {
 	struct fcn_event *prev, *next;
@@ -40,6 +43,23 @@ static void fcn_wait_cleanup(
 static bool fcn_wait_filter(struct messaging_rec *rec, void *private_data);
 static void fcn_wait_done(struct tevent_req *subreq);
 
+static NTSTATUS fcn_wait_send_rec_change(struct messaging_context *msg_ctx,
+					 struct server_id notifyd,
+					 struct timespec creation_time,
+					 uint32_t filter,
+					 uint32_t subdir_filter,
+					 void *private_data,
+					 const char *path)
+{
+	return messaging_send_notify_rec_change(msg_ctx,
+						notifyd,
+						creation_time,
+						filter,
+						subdir_filter,
+						private_data,
+						path);
+}
+
 struct tevent_req *fcn_wait_send(
 	TALLOC_CTX *mem_ctx,
 	struct tevent_context *ev,
@@ -51,11 +71,7 @@ struct tevent_req *fcn_wait_send(
 {
 	struct tevent_req *req = NULL;
 	struct fcn_wait_state *state = NULL;
-	struct notify_rec_change_msg msg = {
-		.instance.filter = filter,
-		.instance.subdir_filter = subdir_filter,
-	};
-	struct iovec iov[2];
+	struct timespec creation_time;
 	NTSTATUS status;
 
 	req = tevent_req_create(mem_ctx, &state, struct fcn_wait_state);
@@ -75,24 +91,16 @@ struct tevent_req *fcn_wait_send(
 	tevent_req_set_callback(state->recv_subreq, fcn_wait_done, req);
 	tevent_req_set_cleanup_fn(req, fcn_wait_cleanup);
 
-	clock_gettime_mono(&msg.instance.creation_time);
-	msg.instance.private_data = state;
-
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
-	iov[1].iov_base = discard_const_p(char, path);
-	iov[1].iov_len = strlen(path)+1;
-
-	status = messaging_send_iov(
-		msg_ctx,			/* msg_ctx */
-		notifyd,			/* dst */
-		MSG_SMB_NOTIFY_REC_CHANGE,	/* mst_type */
-		iov,				/* iov */
-		ARRAY_SIZE(iov),		/* iovlen */
-		NULL,				/* fds */
-		0);				/* num_fds */
+	clock_gettime_mono(&creation_time);
+	status = fcn_wait_send_rec_change(msg_ctx,
+					  notifyd,
+					  creation_time,
+					  filter,
+					  subdir_filter,
+					  state,
+					  path);
 	if (tevent_req_nterror(req, status)) {
-		DBG_DEBUG("messaging_send_iov failed: %s\n",
+		DBG_DEBUG("fcn_wait_send_rec_change failed: %s\n",
 			  nt_errstr(status));
 		return tevent_req_post(req, ev);
 	}
@@ -105,31 +113,19 @@ static bool fcn_wait_cancel(struct tevent_req *req)
 {
 	struct fcn_wait_state *state = tevent_req_data(
 		req, struct fcn_wait_state);
-	struct notify_rec_change_msg msg = {
-		.instance.filter = 0, /* filter==0 is a delete msg */
-		.instance.subdir_filter = 0,
-	};
-	struct iovec iov[2];
+	struct timespec creation_time;
 	NTSTATUS status;
 
-	clock_gettime_mono(&msg.instance.creation_time);
-	msg.instance.private_data = state;
-
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
-	iov[1].iov_base = discard_const_p(char, state->path);
-	iov[1].iov_len = strlen(state->path)+1;
-
-	status = messaging_send_iov(
-		state->msg_ctx,			/* msg_ctx */
-		state->notifyd,			/* dst */
-		MSG_SMB_NOTIFY_REC_CHANGE,	/* mst_type */
-		iov,				/* iov */
-		ARRAY_SIZE(iov),		/* iovlen */
-		NULL,				/* fds */
-		0);				/* num_fds */
+	clock_gettime_mono(&creation_time);
+	status = fcn_wait_send_rec_change(state->msg_ctx,
+					  state->notifyd,
+					  creation_time,
+					  0,
+					  0,
+					  state,
+					  state->path);
 	if (!NT_STATUS_IS_OK(status)) {
-		DBG_DEBUG("messaging_send_iov failed: %s\n",
+		DBG_DEBUG("fcn_wait_send_rec_change failed: %s\n",
 			  nt_errstr(status));
 		return false;
 	}

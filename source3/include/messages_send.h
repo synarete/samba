@@ -141,4 +141,28 @@ NTSTATUS messaging_send_scavenger(struct messaging_context *msg_ctx,
 				  uint64_t open_persistent_id,
 				  uint32_t name_hash);
 
+NTSTATUS messaging_send_notify_rec_change(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct timespec creation_time,
+	uint32_t filter,
+	uint32_t subdir_filter,
+	void *private_data,
+	const char *path);
+
+NTSTATUS messaging_send_notify_trigger(struct messaging_context *msg_ctx,
+				       struct server_id dst,
+				       struct timespec when,
+				       uint32_t action,
+				       uint32_t filter,
+				       const char *path);
+
+NTSTATUS messaging_send_notify_cancel_deleted(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct file_id fid);
+
+NTSTATUS messaging_send_notify_started(struct messaging_context *msg_ctx,
+				       struct server_id dst);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */
