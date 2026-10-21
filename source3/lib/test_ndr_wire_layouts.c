@@ -22,10 +22,76 @@
  */
 
 #include "includes.h"
+#include "librpc/gen_ndr/ndr_secrets.h"
 #include "lib/util/server_id.h"
 #include "lib/messages_util.h"
 #include "librpc/gen_ndr/ndr_messaging.h"
 #include <cmocka.h>
+
+static void fill_pattern(void *ptr, size_t len, uint8_t start)
+{
+	uint8_t *p = ptr;
+	size_t i;
+
+	for (i = 0; i < len; i++) {
+		p[i] = (uint8_t)(start + i);
+	}
+}
+
+/*
+ * SECRETS/SID/<DOMAIN> used a raw struct dom_sid
+ */
+static void test_secrets_domain_sid(void **state)
+{
+	struct dom_sid sid;
+	struct secrets_domain_sid ssid = { .sid = { .num_auths = 0, }, };
+	struct secrets_domain_sid ssid2 = { .sid = { .num_auths = 0, }, };
+	uint8_t raw[sizeof(struct dom_sid)];
+	uint8_t buf[SECRETS_DOMAIN_SID_SIZE] = { 0, };
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
+	int8_t i;
+
+	assert_int_equal(sizeof(raw), SECRETS_DOMAIN_SID_SIZE);
+
+	ZERO_STRUCT(sid);
+	sid.sid_rev_num = 1;
+	sid.num_auths = 4;
+	fill_pattern(sid.id_auth, sizeof(sid.id_auth), 0x10);
+	for (i = 0; i < sid.num_auths; i++) {
+		sid.sub_auths[i] = 0x01020304 * (i + 1);
+	}
+	memcpy(raw, &sid, sizeof(raw));
+
+	ssid.sid = sid;
+
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &ssid,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_push_flags_fn_t)ndr_push_secrets_domain_sid);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(buf, raw, sizeof(raw));
+
+	blob = data_blob_const(raw, sizeof(raw));
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &ssid2,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_sid);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(&ssid, &ssid2, sizeof(ssid));
+
+	/*
+	 * Old versions didn't clear the unused sub_auths,
+	 * they are ignored by dom_sid68.
+	 */
+	sid.sub_auths[sid.num_auths] = 0xffffffff;
+	sid.sub_auths[ARRAY_SIZE(sid.sub_auths) - 1] = 0xffffffff;
+	memcpy(raw, &sid, sizeof(raw));
+	ZERO_STRUCT(ssid2);
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &ssid2,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_sid);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(&ssid, &ssid2, sizeof(ssid));
+}
 
 /*
  * message_hdr_put() and message_hdr_get() are hand-marshalled
@@ -80,6 +146,7 @@ static void test_messaging_hdr(void **state)
 int main(int argc, const char **argv)
 {
 	const struct CMUnitTest tests[] = {
+		cmocka_unit_test(test_secrets_domain_sid),
 		cmocka_unit_test(test_messaging_hdr),
 	};
 
