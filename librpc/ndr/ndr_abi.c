@@ -293,6 +293,88 @@ void ndr_abi_fill_dom_sid(struct ndr_abi_state *state, struct dom_sid *v)
 	}
 }
 
+/*
+ * dom_sid2, dom_sid28 and dom_sid0 are all struct dom_sid,
+ * but with different (hand-written) wire formats,
+ * dom_sid28 only allows up to 5 sub_auths.
+ */
+void ndr_abi_fill_dom_sid2(struct ndr_abi_state *state, struct dom_sid *v)
+{
+	ndr_abi_fill_dom_sid(state, v);
+}
+
+void ndr_abi_fill_dom_sid28(struct ndr_abi_state *state, struct dom_sid *v)
+{
+	ndr_abi_fill_dom_sid(state, v);
+}
+
+void ndr_abi_fill_dom_sid0(struct ndr_abi_state *state, struct dom_sid *v)
+{
+	ndr_abi_fill_dom_sid(state, v);
+}
+
+static void ndr_abi_fill_guid(struct ndr_abi_state *state, struct GUID *v)
+{
+	size_t i;
+
+	v->time_low = ndr_abi_uint(state, 32);
+	v->time_mid = ndr_abi_uint(state, 16);
+	v->time_hi_and_version = ndr_abi_uint(state, 16);
+	for (i = 0; i < ARRAY_SIZE(v->clock_seq); i++) {
+		v->clock_seq[i] = ndr_abi_uint(state, 8);
+	}
+	for (i = 0; i < ARRAY_SIZE(v->node); i++) {
+		v->node[i] = ndr_abi_uint(state, 8);
+	}
+}
+
+/*
+ * security_ace is hand-written, we cycle through
+ * a simple, an object and a callback ACE in order
+ * to cover the different code paths.
+ */
+void ndr_abi_fill_security_ace(struct ndr_abi_state *state,
+			       struct security_ace *v)
+{
+	static const enum security_ace_type types[] = {
+		SEC_ACE_TYPE_ACCESS_ALLOWED,
+		SEC_ACE_TYPE_ACCESS_ALLOWED_OBJECT,
+		SEC_ACE_TYPE_ACCESS_ALLOWED_CALLBACK,
+	};
+	uint64_t n = ndr_abi_uint(state, 8);
+
+	*v = (struct security_ace) {
+		.type = types[n % ARRAY_SIZE(types)],
+	};
+
+	v->flags = ndr_abi_uint(state, 8);
+	v->access_mask = ndr_abi_uint(state, 32);
+
+	switch (v->type) {
+	case SEC_ACE_TYPE_ACCESS_ALLOWED_OBJECT: {
+		struct security_ace_object *o = &v->object.object;
+
+		o->flags = SEC_ACE_OBJECT_TYPE_PRESENT |
+			   SEC_ACE_INHERITED_OBJECT_TYPE_PRESENT;
+		ndr_abi_fill_guid(state, &o->type.type);
+		ndr_abi_fill_guid(state, &o->inherited_type.inherited_type);
+		break;
+	}
+	default:
+		break;
+	}
+
+	ndr_abi_fill_dom_sid(state, &v->trustee);
+
+	switch (v->type) {
+	case SEC_ACE_TYPE_ACCESS_ALLOWED_CALLBACK:
+		ndr_abi_fill_DATA_BLOB(state, &v->coda.conditions);
+		break;
+	default:
+		break;
+	}
+}
+
 static void ndr_abi_print_hex(const DATA_BLOB *blob)
 {
 	size_t ofs;
