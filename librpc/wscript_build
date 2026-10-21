@@ -681,6 +681,10 @@ bld.SAMBA_LIBRARY('ndr',
     abi_match='!ndr_table_* ndr_* GUID_* _ndr_pull_error* _ndr_push_error* _ndr_deepcopy_*',
     )
 
+bld.SAMBA_SUBSYSTEM('NDR_ABI',
+    source='ndr/ndr_abi.c',
+    deps='ndr talloc samba-util')
+
 bld.SAMBA_LIBRARY('dcerpc-binding',
     source='''
     rpc/dcerpc_error.c
