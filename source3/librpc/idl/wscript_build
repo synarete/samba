@@ -22,6 +22,8 @@ bld.SAMBA_PIDL_LIST('PIDL',
                     netsamlogoncache.idl
                     ratelimit.idl
                     notifyd.idl
+                    g_lock.idl
+                    dbwrap_watch.idl
                     ''',
                     options='--includedir=%s --header --ndr-parser --ndr-abi' % topinclude,
                     output_dir='../gen_ndr',
