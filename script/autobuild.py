@@ -175,6 +175,42 @@ builddirs = {
     "docs-xml": "docs-xml"
 }
 
+def latest_stable_fetch():
+    """A shell command that fetches the release this tree upgrades from.
+
+    That is the highest vX-Y-stable branch older than VERSION: 4.26
+    upgrades from v4-25-stable, 5.0 from the last 4.x.
+    SAMBA_LATEST_STABLE_REF overrides it.  The gitlab CI checkout has no
+    stable branches, so the list comes from the gitlab mirror of upstream.
+    """
+    url = "https://gitlab.com/samba-team/samba.git"
+    ref = os.getenv("SAMBA_LATEST_STABLE_REF")
+    if ref is not None:
+        return "git fetch --no-tags --depth=1 %s %s" % (url, ref)
+
+    version = {}
+    with open(os.path.join(gitroot, "VERSION")) as f:
+        for line in f:
+            key, sep, value = line.partition("=")
+            if sep and key.startswith("SAMBA_VERSION_"):
+                version[key] = value.strip()
+
+    major = int(version["SAMBA_VERSION_MAJOR"])
+    minor = int(version["SAMBA_VERSION_MINOR"])
+
+    return (
+        "ref=$(git ls-remote --heads %s 'refs/heads/v*-*-stable' | "
+        "sed -n "
+        "'s|.*refs/heads/v\\([0-9]*\\)-\\([0-9]*\\)-stable$|\\1 \\2|p' | "
+        "awk '$1 < %d || ($1 == %d && $2 < %d)' | "
+        "sort -n -k1,1 -k2,2 | tail -n 1 | "
+        "awk '{ printf \"v%%d-%%d-stable\", $1, $2 }') && "
+        "{ test -n \"$ref\" || "
+        "{ echo 'no stable branch older than %d.%d' >&2; false; }; } && "
+        "git fetch --no-tags --depth=1 %s \"$ref\"" %
+        (url, major, major, minor, major, minor, url))
+
+
 ctdb_configure_params = " --enable-developer ${PREFIX}"
 samba_configure_params = " ${ENABLE_COVERAGE} ${PREFIX} --with-profiling-data --with-prometheus-exporter --with-ratelimitd"
 
@@ -903,6 +939,39 @@ tasks = {
         "sequence": [
             ("random-sleep", random_sleep(900, 1500)),
             ("test", make_test(include_envs=["clusteredmember"])),
+        ],
+    },
+
+    "samba-ctdb-cfl": {
+        "dependency": "samba-ctdb-build",
+        "sequence": [
+            ("random-sleep", random_sleep(300, 900)),
+            ("stable-clone", "git clone --quiet --shared --no-checkout "
+                             "${TEST_SOURCE_DIR} latest-stable"),
+            ("stable-fetch", "cd latest-stable && " + latest_stable_fetch()),
+            ("stable-checkout", "cd latest-stable && "
+                                "git checkout --quiet --detach FETCH_HEAD && "
+                                "git log -1 --oneline"),
+        # Same options as samba-ctdb-build, so that the only difference
+        # between the two halves of a mixed cluster is the version.
+            ("stable-configure", "cd latest-stable && "
+                                 "./configure.developer ${PREFIX} "
+                                 "--with-cluster-support "
+                                 "--with-profiling-data "
+                                 "--with-prometheus-exporter"),
+            ("stable-make", "cd latest-stable && make -j"),
+        # the tests roll the stable nodes forward to this build, so say
+        # what each side offers before they start
+            ("levels-new", "cd ${TEST_SOURCE_DIR} && "
+                           "./bin/net clusterlevel features"),
+            ("levels-old", "cd latest-stable && "
+                           "./bin/net clusterlevel features"),
+
+            ("test", make_test(
+                cmd="SELFTEST_LATEST_STABLE_BINDIR=$(pwd)/latest-stable/bin "
+                    "make testonly",
+                include_envs=["cfl_upgrade"])
+            ),
         ],
     },
 

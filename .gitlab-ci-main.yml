@@ -398,6 +398,9 @@ samba-ctdb-build:
 samba-ctdb:
   extends: .needs_samba-ctdb-build
 
+samba-ctdb-cfl:
+  extends: .needs_samba-ctdb-build
+
 samba-ad-dc-ntvfs:
   extends: .needs_samba-def-build
 
@@ -551,6 +554,7 @@ pages:
     - samba-fuzz
     # - ctdb  # TODO
     - samba-ctdb
+    - samba-ctdb-cfl
     - samba-ad-dc-ntvfs
     - samba-admem-mit
     - samba-addc-mit-4a
