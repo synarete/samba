@@ -62,10 +62,11 @@ int main(int argc, const char *argv[])
 	}
 
 	for (i=0; i<50000; i++) {
-		struct notify_rec_change_msg msg = {
-			.instance.filter = UINT32_MAX,
-			.instance.subdir_filter = UINT32_MAX
+		struct notify_instance instance = {
+			.filter = UINT32_MAX,
+			.subdir_filter = UINT32_MAX
 		};
+		uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
 		char path[64];
 		size_t len;
 		struct iovec iov[2];
@@ -73,8 +74,10 @@ int main(int argc, const char *argv[])
 
 		len = snprintf(path, sizeof(path), "/tmp%u", i);
 
-		iov[0].iov_base = &msg;
-		iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
+		notify_rec_change_msg_push_hdr(&instance, hdr);
+
+		iov[0].iov_base = hdr;
+		iov[0].iov_len = notify_rec_change_msg_hdr_len();
 		iov[1].iov_base = path;
 		iov[1].iov_len = len+1;
 
@@ -87,8 +90,9 @@ int main(int argc, const char *argv[])
 			exit(1);
 		}
 
-		msg.instance.filter = 0;
-		msg.instance.subdir_filter = 0;
+		instance.filter = 0;
+		instance.subdir_filter = 0;
+		notify_rec_change_msg_push_hdr(&instance, hdr);
 
 		status = messaging_send_iov(
 			msg_ctx, notifyd, MSG_SMB_NOTIFY_REC_CHANGE,

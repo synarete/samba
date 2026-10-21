@@ -29,10 +29,31 @@
 #include "librpc/gen_ndr/ndr_secrets.h"
 #include "librpc/gen_ndr/ndr_open_files.h"
 #include "librpc/gen_ndr/ndr_ratelimit.h"
+#include "smbd/notifyd/notifyd.h"
 #include "lib/util/server_id.h"
 #include "lib/messages_util.h"
 #include "librpc/gen_ndr/ndr_messaging.h"
 #include <cmocka.h>
+
+/*
+ * The legacy raw formats have the same layout as the
+ * NDR versions marshalled with LIBNDR_FLAG_HOST_BYTE_ORDER.
+ *
+ * For the not packed C structures containing pointers
+ * or long values that's only true on LP64 platforms,
+ * the code keeps using the raw structures elsewhere.
+ */
+#if (SIZEOF_VOID_P == 8) && (SIZEOF_LONG == 8)
+#define LEGACY_LP64_PLATFORM 1
+#else
+#define LEGACY_LP64_PLATFORM 0
+#endif
+
+#define SKIP_IF_NOT_LEGACY_PLATFORM() do { \
+	if (!LEGACY_LP64_PLATFORM) { \
+		skip(); \
+	} \
+} while (0)
 
 static void fill_pattern(void *ptr, size_t len, uint8_t start)
 {
@@ -497,6 +518,162 @@ static void test_ratelimit_tdb_record(void **state)
 }
 
 /*
+ * The raw C structures formerly used for the notifyd messages
+ */
+struct legacy_notify_instance {
+	struct timespec creation_time;
+	uint32_t filter;
+	uint32_t subdir_filter;
+	void *private_data;
+};
+
+struct legacy_notify_rec_change_msg {
+	struct legacy_notify_instance instance;
+	char path[];
+};
+
+struct legacy_notify_trigger_msg {
+	struct timespec when;
+	uint32_t action;
+	uint32_t filter;
+	char path[];
+};
+
+struct legacy_notify_event_msg {
+	struct timespec when;
+	void *private_data;
+	uint32_t action;
+	char path[];
+};
+
+static void test_notify_rec_change_msg(void **state)
+{
+	struct legacy_notify_rec_change_msg legacy;
+	struct notify_instance instance = {
+		.creation_time = {
+			.tv_sec = 0x0102030405060708,
+			.tv_nsec = 999999999,
+		},
+		.filter = 0x11121314,
+		.subdir_filter = 0x21222324,
+		.private_data = (void *)(uintptr_t)0x3132333435363738,
+	};
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE] = { 0, };
+	uint8_t buf[NOTIFY_REC_CHANGE_HDR_SIZE + 5] = { 0, };
+	struct notify_rec_change_msg msg;
+	bool ok;
+
+	SKIP_IF_NOT_LEGACY_PLATFORM();
+
+	assert_int_equal(offsetof(struct legacy_notify_rec_change_msg, path),
+			 NOTIFY_REC_CHANGE_HDR_SIZE);
+
+	memset(&legacy, 0, sizeof(legacy));
+	legacy.instance.creation_time = instance.creation_time;
+	legacy.instance.filter = instance.filter;
+	legacy.instance.subdir_filter = instance.subdir_filter;
+	legacy.instance.private_data = instance.private_data;
+
+	notify_rec_change_msg_push_hdr(&instance, hdr);
+	assert_memory_equal(hdr, &legacy, sizeof(hdr));
+
+	memcpy(buf, &legacy, NOTIFY_REC_CHANGE_HDR_SIZE);
+	memcpy(buf + NOTIFY_REC_CHANGE_HDR_SIZE, "/foo", 5);
+
+	ok = notify_rec_change_msg_parse(buf, sizeof(buf), &msg);
+	assert_true(ok);
+	assert_int_equal(msg.instance.creation_time.tv_sec,
+			 instance.creation_time.tv_sec);
+	assert_int_equal(msg.instance.creation_time.tv_nsec,
+			 instance.creation_time.tv_nsec);
+	assert_int_equal(msg.instance.filter, instance.filter);
+	assert_int_equal(msg.instance.subdir_filter, instance.subdir_filter);
+	assert_ptr_equal(msg.instance.private_data, instance.private_data);
+	assert_int_equal(msg.pathlen, 5);
+	assert_string_equal(msg.path, "/foo");
+}
+
+static void test_notify_trigger_msg(void **state)
+{
+	struct legacy_notify_trigger_msg legacy;
+	struct timespec when = {
+		.tv_sec = 0x0102030405060708,
+		.tv_nsec = 999999999,
+	};
+	uint8_t hdr[NOTIFY_TRIGGER_HDR_SIZE] = { 0, };
+	uint8_t buf[NOTIFY_TRIGGER_HDR_SIZE + 5] = { 0, };
+	struct notify_trigger_msg msg;
+	bool ok;
+
+	SKIP_IF_NOT_LEGACY_PLATFORM();
+
+	assert_int_equal(offsetof(struct legacy_notify_trigger_msg, path),
+			 NOTIFY_TRIGGER_HDR_SIZE);
+
+	memset(&legacy, 0, sizeof(legacy));
+	legacy.when = when;
+	legacy.action = 0x11121314;
+	legacy.filter = 0x21222324;
+
+	notify_trigger_msg_push_hdr(when, legacy.action, legacy.filter, hdr);
+	assert_memory_equal(hdr, &legacy, sizeof(hdr));
+
+	memcpy(buf, &legacy, NOTIFY_TRIGGER_HDR_SIZE);
+	memcpy(buf + NOTIFY_TRIGGER_HDR_SIZE, "/foo", 5);
+
+	ok = notify_trigger_msg_parse(buf, sizeof(buf), &msg);
+	assert_true(ok);
+	assert_int_equal(msg.when.tv_sec, when.tv_sec);
+	assert_int_equal(msg.when.tv_nsec, when.tv_nsec);
+	assert_int_equal(msg.action, legacy.action);
+	assert_int_equal(msg.filter, legacy.filter);
+	assert_string_equal(msg.path, "/foo");
+}
+
+static void test_notify_event_msg(void **state)
+{
+	struct legacy_notify_event_msg legacy;
+	struct timespec when = {
+		.tv_sec = 0x0102030405060708,
+		.tv_nsec = 999999999,
+	};
+	void *private_data = (void *)(uintptr_t)0x3132333435363738;
+	uint8_t hdr[NOTIFY_EVENT_HDR_SIZE] = { 0, };
+	uint8_t buf[NOTIFY_EVENT_HDR_SIZE + 5] = { 0, };
+	struct notify_event_msg msg;
+	bool ok;
+
+	SKIP_IF_NOT_LEGACY_PLATFORM();
+
+	assert_int_equal(offsetof(struct legacy_notify_event_msg, path),
+			 NOTIFY_EVENT_HDR_SIZE);
+
+	memset(&legacy, 0, sizeof(legacy));
+	legacy.when = when;
+	legacy.private_data = private_data;
+	legacy.action = 0x11121314;
+
+	notify_event_msg_push_hdr(when, private_data, legacy.action, hdr);
+	assert_memory_equal(hdr, &legacy, sizeof(hdr));
+
+	memcpy(buf, &legacy, NOTIFY_EVENT_HDR_SIZE);
+	memcpy(buf + NOTIFY_EVENT_HDR_SIZE, "/foo", 5);
+
+	ok = notify_event_msg_parse(buf, sizeof(buf), &msg);
+	assert_true(ok);
+	assert_int_equal(msg.when.tv_sec, when.tv_sec);
+	assert_int_equal(msg.when.tv_nsec, when.tv_nsec);
+	assert_ptr_equal(msg.private_data, private_data);
+	assert_int_equal(msg.action, legacy.action);
+	assert_string_equal(msg.path, "/foo");
+
+	/* the path needs to be nul terminated */
+	buf[sizeof(buf)-1] = 'x';
+	ok = notify_event_msg_parse(buf, sizeof(buf), &msg);
+	assert_false(ok);
+}
+
+/*
  * message_hdr_put() and message_hdr_get() are hand-marshalled
  * (little endian), verify they match messaging_hdr.
  */
@@ -558,6 +735,9 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_ratelimit_activity_report),
 		cmocka_unit_test(test_ratelimit_node_summary),
 		cmocka_unit_test(test_ratelimit_tdb_record),
+		cmocka_unit_test(test_notify_rec_change_msg),
+		cmocka_unit_test(test_notify_trigger_msg),
+		cmocka_unit_test(test_notify_event_msg),
 		cmocka_unit_test(test_messaging_hdr),
 	};
 
