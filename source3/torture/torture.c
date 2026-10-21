@@ -16432,6 +16432,10 @@ static struct {
 		.fn    = run_g_lock_ping_pong,
 	},
 	{
+		.name  = "LOCAL-G-LOCK-WIRE-FORMAT",
+		.fn    = run_g_lock_wire_format,
+	},
+	{
 		.name  = "LOCAL-CANONICALIZE-PATH",
 		.fn    = run_local_canonicalize_path,
 	},
