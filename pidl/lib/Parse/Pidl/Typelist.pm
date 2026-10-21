@@ -10,7 +10,7 @@ require Exporter;
 @EXPORT_OK = qw(hasType getType resolveType mapTypeName mapTypeSpecifier scalar_is_reference expandAlias
 	mapScalarType addType typeIs is_signed is_scalar enum_type_fn
 	bitmap_type_fn mapType typeHasBody is_fixed_size_scalar
-	is_string_type scalarTypeUsed
+	is_string_type scalarTypeUsed getTypeInterface
 );
 use vars qw($VERSION);
 $VERSION = '0.01';
@@ -20,6 +20,7 @@ use strict;
 use warnings;
 
 my %types = ();
+my %type_interfaces = ();
 
 my @reference_scalars = (
 	"string", "string_array", "nbt_string", "dns_string",
@@ -142,6 +143,12 @@ sub addType($)
 {
 	my $t = shift;
 	$types{$t->{NAME}} = $t;
+}
+
+sub getTypeInterface($)
+{
+	my $t = shift;
+	return $type_interfaces{$t};
 }
 
 sub resolveType($)
@@ -394,6 +401,7 @@ sub LoadIdl($;$)
 			    or $y->{TYPE} eq "PIPE") {
 				$y->{BASEFILE} = $basename;
 				addType($y);
+				$type_interfaces{$y->{NAME}} = $x;
 			}
 		}
 	}
