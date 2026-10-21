@@ -271,6 +271,13 @@ void ndr_abi_fill_DATA_BLOB(struct ndr_abi_state *state, DATA_BLOB *v)
 	}
 }
 
+void ndr_abi_fill_pointer(struct ndr_abi_state *state, void **v)
+{
+	uint64_t val = ndr_abi_uint(state, sizeof(void *) * 8);
+
+	*v = (void *)(uintptr_t)val;
+}
+
 void ndr_abi_fill_string(struct ndr_abi_state *state, const char **v)
 {
 	*v = ndr_abi_string(state);
