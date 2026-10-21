@@ -24,6 +24,7 @@
 #include "lib/util/debug.h"
 #include "librpc/gen_ndr/ndr_notifyd.h"
 #include "notifyd.h"
+#include "notifyd_private.h"
 
 /*
  * The messages consist of a fixed size NDR header
@@ -333,6 +334,321 @@ bool notify_event_msg_parse(const uint8_t *buf,
 		.action = h.action,
 		.path = (const char *)buf + hdr_len,
 	};
+
+	return true;
+}
+
+/*
+ * The raw C structures of the in memory notifyd database
+ * have exactly the same layout as notifyd_watcher_rec
+ * and notifyd_instance_rec in host byte order on LP64
+ * platforms, other platforms keep using the raw C
+ * structures in MSG_SMB_NOTIFY_DB.
+ */
+static bool notifyd_entry_is_ndr(void)
+{
+	return notifyd_msg_is_ndr() &&
+	       sizeof(struct notifyd_watcher) == NOTIFYD_WATCHER_REC_SIZE &&
+	       offsetof(struct notifyd_watcher, sys_watch) == 16 &&
+	       sizeof(struct notifyd_instance) == NOTIFYD_INSTANCE_REC_SIZE &&
+	       offsetof(struct notifyd_instance, instance) == 24;
+}
+
+/*
+ * Calculate the length of the representation of a value of
+ * the in memory notifyd database (struct notifyd_watcher
+ * followed by struct notifyd_instance elements)
+ * used in MSG_SMB_NOTIFY_DB.
+ */
+bool notifyd_entry_wire_len(size_t buflen, size_t *wire_len)
+{
+	size_t num_instances;
+
+	if (buflen < sizeof(struct notifyd_watcher)) {
+		return false;
+	}
+	if ((buflen - sizeof(struct notifyd_watcher)) %
+	    sizeof(struct notifyd_instance) != 0) {
+		return false;
+	}
+	num_instances = (buflen - sizeof(struct notifyd_watcher)) /
+			sizeof(struct notifyd_instance);
+
+	if (!notifyd_entry_is_ndr()) {
+		*wire_len = buflen;
+		return true;
+	}
+
+	*wire_len = NOTIFYD_WATCHER_REC_SIZE +
+		    num_instances * NOTIFYD_INSTANCE_REC_SIZE;
+	return true;
+}
+
+/*
+ * Convert a value of the in memory notifyd database into
+ * the representation used in MSG_SMB_NOTIFY_DB, wire_len
+ * needs to be the result of notifyd_entry_wire_len().
+ */
+bool notifyd_entry_to_wire_buf(const uint8_t *buf,
+			       size_t buflen,
+			       uint8_t *wire,
+			       size_t wire_len)
+{
+	struct notifyd_watcher watcher;
+	size_t expected_len;
+	size_t num_instances;
+	size_t i;
+	DATA_BLOB blob;
+	struct notifyd_watcher_rec w;
+	enum ndr_err_code ndr_err;
+
+	if (!notifyd_entry_wire_len(buflen, &expected_len)) {
+		return false;
+	}
+	if (wire_len != expected_len) {
+		return false;
+	}
+
+	if (!notifyd_entry_is_ndr()) {
+		memcpy(wire, buf, buflen);
+		return true;
+	}
+
+	num_instances = (buflen - sizeof(struct notifyd_watcher)) /
+			sizeof(struct notifyd_instance);
+
+	memcpy(&watcher, buf, sizeof(watcher));
+
+	w = (struct notifyd_watcher_rec) {
+		.filter = watcher.filter,
+		.subdir_filter = watcher.subdir_filter,
+		.sys_filter = watcher.sys_filter,
+		.sys_subdir_filter = watcher.sys_subdir_filter,
+		.sys_watch = (uint64_t)(uintptr_t)watcher.sys_watch,
+	};
+
+	blob = data_blob_const(wire, NOTIFYD_WATCHER_REC_SIZE);
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(
+		&blob, &w, LIBNDR_FLAG_HOST_BYTE_ORDER,
+		(ndr_push_flags_fn_t)ndr_push_notifyd_watcher_rec);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return false;
+	}
+
+	for (i = 0; i < num_instances; i++) {
+		struct notifyd_instance instance;
+		struct notifyd_instance_rec ir;
+
+		memcpy(&instance,
+		       buf + sizeof(struct notifyd_watcher) +
+			       i * sizeof(struct notifyd_instance),
+		       sizeof(instance));
+
+		ir = (struct notifyd_instance_rec) {
+			.client = instance.client,
+			.instance = {
+				.creation_time = notifyd_timespec_from(
+					instance.instance.creation_time),
+				.filter = instance.instance.filter,
+				.subdir_filter =
+					instance.instance.subdir_filter,
+				.private_data = (uint64_t)(uintptr_t)
+					instance.instance.private_data,
+			},
+		};
+
+		blob = data_blob_const(wire + NOTIFYD_WATCHER_REC_SIZE +
+					       i * NOTIFYD_INSTANCE_REC_SIZE,
+				       NOTIFYD_INSTANCE_REC_SIZE);
+		ndr_err = ndr_push_struct_into_fixed_blob_flags(
+			&blob, &ir, LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_push_flags_fn_t)ndr_push_notifyd_instance_rec);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+/*
+ * Convert a value of the in memory notifyd database
+ * (struct notifyd_watcher followed by struct notifyd_instance
+ * elements) into the representation used in MSG_SMB_NOTIFY_DB.
+ */
+bool notifyd_entry_to_wire(TALLOC_CTX *mem_ctx,
+			   const uint8_t *buf,
+			   size_t buflen,
+			   DATA_BLOB *wire)
+{
+	size_t wire_len;
+	bool ok;
+
+	if (!notifyd_entry_wire_len(buflen, &wire_len)) {
+		return false;
+	}
+
+	*wire = data_blob_talloc(mem_ctx, NULL, wire_len);
+	if (wire->data == NULL) {
+		return false;
+	}
+
+	ok = notifyd_entry_to_wire_buf(buf, buflen, wire->data, wire->length);
+	if (!ok) {
+		data_blob_free(wire);
+		return false;
+	}
+
+	return true;
+}
+
+/*
+ * Calculate the length of the in memory representation
+ * of a value received in MSG_SMB_NOTIFY_DB.
+ */
+bool notifyd_entry_native_len(size_t buflen, size_t *native_len)
+{
+	size_t num_instances;
+
+	if (!notifyd_entry_is_ndr()) {
+		if (buflen < sizeof(struct notifyd_watcher)) {
+			return false;
+		}
+		if ((buflen - sizeof(struct notifyd_watcher)) %
+		    sizeof(struct notifyd_instance) != 0) {
+			return false;
+		}
+		*native_len = buflen;
+		return true;
+	}
+
+	if (buflen < NOTIFYD_WATCHER_REC_SIZE) {
+		return false;
+	}
+	if ((buflen - NOTIFYD_WATCHER_REC_SIZE) %
+	    NOTIFYD_INSTANCE_REC_SIZE != 0) {
+		return false;
+	}
+	num_instances = (buflen - NOTIFYD_WATCHER_REC_SIZE) /
+			NOTIFYD_INSTANCE_REC_SIZE;
+
+	*native_len = sizeof(struct notifyd_watcher) +
+		      num_instances * sizeof(struct notifyd_instance);
+	return true;
+}
+
+/*
+ * The reverse of notifyd_entry_to_wire_buf(), native_len
+ * needs to be the result of notifyd_entry_native_len().
+ */
+bool notifyd_entry_from_wire_buf(const uint8_t *buf,
+				 size_t buflen,
+				 uint8_t *native,
+				 size_t native_len)
+{
+	size_t expected_len;
+	size_t num_instances;
+	size_t i;
+	DATA_BLOB blob;
+	struct notifyd_watcher_rec w = { .filter = 0, };
+	struct notifyd_watcher watcher;
+	enum ndr_err_code ndr_err;
+
+	if (!notifyd_entry_native_len(buflen, &expected_len)) {
+		return false;
+	}
+	if (native_len != expected_len) {
+		return false;
+	}
+
+	if (!notifyd_entry_is_ndr()) {
+		memcpy(native, buf, buflen);
+		return true;
+	}
+
+	num_instances = (buflen - NOTIFYD_WATCHER_REC_SIZE) /
+			NOTIFYD_INSTANCE_REC_SIZE;
+
+	blob = data_blob_const(buf, NOTIFYD_WATCHER_REC_SIZE);
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
+		&blob, &w, LIBNDR_FLAG_HOST_BYTE_ORDER,
+		(ndr_pull_flags_fn_t)ndr_pull_notifyd_watcher_rec);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return false;
+	}
+
+	watcher = (struct notifyd_watcher) {
+		.filter = w.filter,
+		.subdir_filter = w.subdir_filter,
+		.sys_filter = w.sys_filter,
+		.sys_subdir_filter = w.sys_subdir_filter,
+		.sys_watch = (void *)(uintptr_t)w.sys_watch,
+	};
+	memcpy(native, &watcher, sizeof(watcher));
+
+	for (i = 0; i < num_instances; i++) {
+		struct notifyd_instance_rec ir = { .client = { .pid = 0, }, };
+		struct notifyd_instance instance;
+
+		blob = data_blob_const(buf + NOTIFYD_WATCHER_REC_SIZE +
+					       i * NOTIFYD_INSTANCE_REC_SIZE,
+				       NOTIFYD_INSTANCE_REC_SIZE);
+		ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
+			&blob, &ir, LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_pull_flags_fn_t)ndr_pull_notifyd_instance_rec);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			return false;
+		}
+
+		instance = (struct notifyd_instance) {
+			.client = ir.client,
+			.instance = {
+				.creation_time = notifyd_timespec_to(
+					ir.instance.creation_time),
+				.filter = ir.instance.filter,
+				.subdir_filter = ir.instance.subdir_filter,
+				.private_data = (void *)(uintptr_t)
+					ir.instance.private_data,
+			},
+		};
+
+		memcpy(native + sizeof(struct notifyd_watcher) +
+			       i * sizeof(struct notifyd_instance),
+		       &instance,
+		       sizeof(instance));
+	}
+
+	return true;
+}
+
+/*
+ * The reverse of notifyd_entry_to_wire()
+ */
+bool notifyd_entry_from_wire(TALLOC_CTX *mem_ctx,
+			     const uint8_t *buf,
+			     size_t buflen,
+			     DATA_BLOB *native)
+{
+	size_t native_len;
+	bool ok;
+
+	if (!notifyd_entry_native_len(buflen, &native_len)) {
+		return false;
+	}
+
+	*native = data_blob_talloc(mem_ctx, NULL, native_len);
+	if (native->data == NULL) {
+		return false;
+	}
+
+	ok = notifyd_entry_from_wire_buf(buf,
+					 buflen,
+					 native->data,
+					 native->length);
+	if (!ok) {
+		data_blob_free(native);
+		return false;
+	}
 
 	return true;
 }

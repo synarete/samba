@@ -22,7 +22,7 @@ bld.SAMBA3_SUBSYSTEM("NDR_RATELIMIT",
 
 bld.SAMBA3_SUBSYSTEM("NDR_NOTIFYD",
                      source='gen_ndr/ndr_notifyd.c',
-                     public_deps='ndr')
+                     public_deps='ndr NDR_SERVER_ID')
 
 bld.SAMBA3_SUBSYSTEM("NDR_G_LOCK",
                      source='gen_ndr/ndr_g_lock.c',
