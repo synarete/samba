@@ -25,6 +25,10 @@ bld.SAMBA_SUBSYSTEM('NDR_NAMED_PIPE_AUTH',
     public_deps='ndr NDR_AUTH'
     )
 
+# Used to talk to samba-dcerpcd, rpcd_* and external
+# rpc services, see librpc/ndr/ndr_abi.h
+bld.SAMBA_NDR_ABI('named_pipe_auth', deps='NDR_NAMED_PIPE_AUTH')
+
 bld.SAMBA_SUBSYSTEM('NDR_DNSSERVER',
     source='gen_ndr/ndr_dnsserver.c ndr/ndr_dnsserver.c',
     public_deps='ndr NDR_DNSP'
