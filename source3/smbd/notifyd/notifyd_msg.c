@@ -501,6 +501,10 @@ bool notify_event_msg_parse(uint32_t msg_type,
  * and notifyd_instance_rec in host byte order on LP64
  * platforms, other platforms keep using the raw C
  * structures in MSG_SMB_NOTIFY_DB.
+ *
+ * Once cluster level 2.0 is active MSG_SMB_NOTIFY_DB_LE
+ * is used instead, notifyd_watcher_rec and
+ * notifyd_instance_rec are little endian on all platforms.
  */
 static bool notifyd_entry_is_ndr(void)
 {
@@ -511,15 +515,50 @@ static bool notifyd_entry_is_ndr(void)
 	       offsetof(struct notifyd_instance, instance) == 24;
 }
 
+uint32_t notifyd_db_msg_type(void)
+{
+	if (notifyd_msg_use_le()) {
+		return MSG_SMB_NOTIFY_DB_LE;
+	}
+	return MSG_SMB_NOTIFY_DB;
+}
+
+static bool notifyd_db_msg_flags(uint32_t msg_type,
+				 libndr_flags *flags,
+				 bool *raw)
+{
+	switch (msg_type) {
+	case MSG_SMB_NOTIFY_DB_LE:
+		*flags = 0;
+		*raw = false;
+		return true;
+	case MSG_SMB_NOTIFY_DB:
+		*flags = LIBNDR_FLAG_HOST_BYTE_ORDER;
+		*raw = !notifyd_entry_is_ndr();
+		return true;
+	}
+
+	DBG_WARNING("unexpected msg_type 0x%"PRIx32"\n", msg_type);
+	return false;
+}
+
 /*
  * Calculate the length of the representation of a value of
  * the in memory notifyd database (struct notifyd_watcher
  * followed by struct notifyd_instance elements)
- * used in MSG_SMB_NOTIFY_DB.
+ * used in MSG_SMB_NOTIFY_DB or MSG_SMB_NOTIFY_DB_LE.
  */
-bool notifyd_entry_wire_len(size_t buflen, size_t *wire_len)
+bool notifyd_entry_wire_len(uint32_t msg_type,
+			    size_t buflen,
+			    size_t *wire_len)
 {
 	size_t num_instances;
+	libndr_flags flags;
+	bool raw;
+
+	if (!notifyd_db_msg_flags(msg_type, &flags, &raw)) {
+		return false;
+	}
 
 	if (buflen < sizeof(struct notifyd_watcher)) {
 		return false;
@@ -531,7 +570,7 @@ bool notifyd_entry_wire_len(size_t buflen, size_t *wire_len)
 	num_instances = (buflen - sizeof(struct notifyd_watcher)) /
 			sizeof(struct notifyd_instance);
 
-	if (!notifyd_entry_is_ndr()) {
+	if (raw) {
 		*wire_len = buflen;
 		return true;
 	}
@@ -543,10 +582,12 @@ bool notifyd_entry_wire_len(size_t buflen, size_t *wire_len)
 
 /*
  * Convert a value of the in memory notifyd database into
- * the representation used in MSG_SMB_NOTIFY_DB, wire_len
+ * the representation used in MSG_SMB_NOTIFY_DB or
+ * MSG_SMB_NOTIFY_DB_LE, wire_len
  * needs to be the result of notifyd_entry_wire_len().
  */
-bool notifyd_entry_to_wire_buf(const uint8_t *buf,
+bool notifyd_entry_to_wire_buf(uint32_t msg_type,
+			       const uint8_t *buf,
 			       size_t buflen,
 			       uint8_t *wire,
 			       size_t wire_len)
@@ -557,16 +598,21 @@ bool notifyd_entry_to_wire_buf(const uint8_t *buf,
 	size_t i;
 	DATA_BLOB blob;
 	struct notifyd_watcher_rec w;
+	libndr_flags flags;
+	bool raw;
 	enum ndr_err_code ndr_err;
 
-	if (!notifyd_entry_wire_len(buflen, &expected_len)) {
+	if (!notifyd_db_msg_flags(msg_type, &flags, &raw)) {
+		return false;
+	}
+	if (!notifyd_entry_wire_len(msg_type, buflen, &expected_len)) {
 		return false;
 	}
 	if (wire_len != expected_len) {
 		return false;
 	}
 
-	if (!notifyd_entry_is_ndr()) {
+	if (raw) {
 		memcpy(wire, buf, buflen);
 		return true;
 	}
@@ -586,7 +632,7 @@ bool notifyd_entry_to_wire_buf(const uint8_t *buf,
 
 	blob = data_blob_const(wire, NOTIFYD_WATCHER_REC_SIZE);
 	ndr_err = ndr_push_struct_into_fixed_blob_flags(
-		&blob, &w, LIBNDR_FLAG_HOST_BYTE_ORDER,
+		&blob, &w, flags,
 		(ndr_push_flags_fn_t)ndr_push_notifyd_watcher_rec);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		return false;
@@ -618,7 +664,7 @@ bool notifyd_entry_to_wire_buf(const uint8_t *buf,
 					       i * NOTIFYD_INSTANCE_REC_SIZE,
 				       NOTIFYD_INSTANCE_REC_SIZE);
 		ndr_err = ndr_push_struct_into_fixed_blob_flags(
-			&blob, &ir, LIBNDR_FLAG_HOST_BYTE_ORDER,
+			&blob, &ir, flags,
 			(ndr_push_flags_fn_t)ndr_push_notifyd_instance_rec);
 		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 			return false;
@@ -631,9 +677,11 @@ bool notifyd_entry_to_wire_buf(const uint8_t *buf,
 /*
  * Convert a value of the in memory notifyd database
  * (struct notifyd_watcher followed by struct notifyd_instance
- * elements) into the representation used in MSG_SMB_NOTIFY_DB.
+ * elements) into the representation used in MSG_SMB_NOTIFY_DB
+ * or MSG_SMB_NOTIFY_DB_LE.
  */
 bool notifyd_entry_to_wire(TALLOC_CTX *mem_ctx,
+			   uint32_t msg_type,
 			   const uint8_t *buf,
 			   size_t buflen,
 			   DATA_BLOB *wire)
@@ -641,7 +689,7 @@ bool notifyd_entry_to_wire(TALLOC_CTX *mem_ctx,
 	size_t wire_len;
 	bool ok;
 
-	if (!notifyd_entry_wire_len(buflen, &wire_len)) {
+	if (!notifyd_entry_wire_len(msg_type, buflen, &wire_len)) {
 		return false;
 	}
 
@@ -650,7 +698,11 @@ bool notifyd_entry_to_wire(TALLOC_CTX *mem_ctx,
 		return false;
 	}
 
-	ok = notifyd_entry_to_wire_buf(buf, buflen, wire->data, wire->length);
+	ok = notifyd_entry_to_wire_buf(msg_type,
+				       buf,
+				       buflen,
+				       wire->data,
+				       wire->length);
 	if (!ok) {
 		data_blob_free(wire);
 		return false;
@@ -661,13 +713,21 @@ bool notifyd_entry_to_wire(TALLOC_CTX *mem_ctx,
 
 /*
  * Calculate the length of the in memory representation
- * of a value received in MSG_SMB_NOTIFY_DB.
+ * of a value received in MSG_SMB_NOTIFY_DB or MSG_SMB_NOTIFY_DB_LE.
  */
-bool notifyd_entry_native_len(size_t buflen, size_t *native_len)
+bool notifyd_entry_native_len(uint32_t msg_type,
+			      size_t buflen,
+			      size_t *native_len)
 {
 	size_t num_instances;
+	libndr_flags flags;
+	bool raw;
 
-	if (!notifyd_entry_is_ndr()) {
+	if (!notifyd_db_msg_flags(msg_type, &flags, &raw)) {
+		return false;
+	}
+
+	if (raw) {
 		if (buflen < sizeof(struct notifyd_watcher)) {
 			return false;
 		}
@@ -698,7 +758,8 @@ bool notifyd_entry_native_len(size_t buflen, size_t *native_len)
  * The reverse of notifyd_entry_to_wire_buf(), native_len
  * needs to be the result of notifyd_entry_native_len().
  */
-bool notifyd_entry_from_wire_buf(const uint8_t *buf,
+bool notifyd_entry_from_wire_buf(uint32_t msg_type,
+				 const uint8_t *buf,
 				 size_t buflen,
 				 uint8_t *native,
 				 size_t native_len)
@@ -709,16 +770,21 @@ bool notifyd_entry_from_wire_buf(const uint8_t *buf,
 	DATA_BLOB blob;
 	struct notifyd_watcher_rec w = { .filter = 0, };
 	struct notifyd_watcher watcher;
+	libndr_flags flags;
+	bool raw;
 	enum ndr_err_code ndr_err;
 
-	if (!notifyd_entry_native_len(buflen, &expected_len)) {
+	if (!notifyd_db_msg_flags(msg_type, &flags, &raw)) {
+		return false;
+	}
+	if (!notifyd_entry_native_len(msg_type, buflen, &expected_len)) {
 		return false;
 	}
 	if (native_len != expected_len) {
 		return false;
 	}
 
-	if (!notifyd_entry_is_ndr()) {
+	if (raw) {
 		memcpy(native, buf, buflen);
 		return true;
 	}
@@ -728,7 +794,7 @@ bool notifyd_entry_from_wire_buf(const uint8_t *buf,
 
 	blob = data_blob_const(buf, NOTIFYD_WATCHER_REC_SIZE);
 	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
-		&blob, &w, LIBNDR_FLAG_HOST_BYTE_ORDER,
+		&blob, &w, flags,
 		(ndr_pull_flags_fn_t)ndr_pull_notifyd_watcher_rec);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		return false;
@@ -751,7 +817,7 @@ bool notifyd_entry_from_wire_buf(const uint8_t *buf,
 					       i * NOTIFYD_INSTANCE_REC_SIZE,
 				       NOTIFYD_INSTANCE_REC_SIZE);
 		ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
-			&blob, &ir, LIBNDR_FLAG_HOST_BYTE_ORDER,
+			&blob, &ir, flags,
 			(ndr_pull_flags_fn_t)ndr_pull_notifyd_instance_rec);
 		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 			return false;
@@ -782,6 +848,7 @@ bool notifyd_entry_from_wire_buf(const uint8_t *buf,
  * The reverse of notifyd_entry_to_wire()
  */
 bool notifyd_entry_from_wire(TALLOC_CTX *mem_ctx,
+			     uint32_t msg_type,
 			     const uint8_t *buf,
 			     size_t buflen,
 			     DATA_BLOB *native)
@@ -789,7 +856,7 @@ bool notifyd_entry_from_wire(TALLOC_CTX *mem_ctx,
 	size_t native_len;
 	bool ok;
 
-	if (!notifyd_entry_native_len(buflen, &native_len)) {
+	if (!notifyd_entry_native_len(msg_type, buflen, &native_len)) {
 		return false;
 	}
 
@@ -798,7 +865,8 @@ bool notifyd_entry_from_wire(TALLOC_CTX *mem_ctx,
 		return false;
 	}
 
-	ok = notifyd_entry_from_wire_buf(buf,
+	ok = notifyd_entry_from_wire_buf(msg_type,
+					 buf,
 					 buflen,
 					 native->data,
 					 native->length);

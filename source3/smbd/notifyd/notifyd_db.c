@@ -20,6 +20,7 @@
 #include "notifyd_db.h"
 
 struct notifyd_parse_db_state {
+	uint32_t msg_type;
 	bool (*fn)(const char *path,
 		   struct server_id server,
 		   const struct notify_instance *instance,
@@ -32,6 +33,7 @@ static bool notifyd_parse_db_parser(TDB_DATA key, TDB_DATA value,
 {
 	struct notifyd_parse_db_state *state = private_data;
 	char path[key.dsize+1];
+	DATA_BLOB native = { .length = 0, };
 	struct notifyd_instance *instances = NULL;
 	size_t num_instances = 0;
 	size_t i;
@@ -40,13 +42,24 @@ static bool notifyd_parse_db_parser(TDB_DATA key, TDB_DATA value,
 	memcpy(path, key.dptr, key.dsize);
 	path[key.dsize] = 0;
 
-	ok = notifyd_parse_entry(value.dptr,
-				 value.dsize,
+	ok = notifyd_entry_from_wire(talloc_tos(),
+				     state->msg_type,
+				     value.dptr,
+				     value.dsize,
+				     &native);
+	if (!ok) {
+		DBG_DEBUG("Could not convert entry for path %s\n", path);
+		return true;
+	}
+
+	ok = notifyd_parse_entry(native.data,
+				 native.length,
 				 NULL,
 				 &instances,
 				 &num_instances);
 	if (!ok) {
 		DBG_DEBUG("Could not parse entry for path %s\n", path);
+		data_blob_free(&native);
 		return true;
 	}
 
@@ -55,14 +68,17 @@ static bool notifyd_parse_db_parser(TDB_DATA key, TDB_DATA value,
 			       &instances[i].instance,
 			       state->private_data);
 		if (!ok) {
+			data_blob_free(&native);
 			return false;
 		}
 	}
 
+	data_blob_free(&native);
 	return true;
 }
 
 static NTSTATUS notifyd_parse_db(
+	uint32_t msg_type,
 	const uint8_t *buf,
 	size_t buflen,
 	uint64_t *log_index,
@@ -73,7 +89,7 @@ static NTSTATUS notifyd_parse_db(
 	void *private_data)
 {
 	struct notifyd_parse_db_state state = {
-		.fn = fn, .private_data = private_data
+		.msg_type = msg_type, .fn = fn, .private_data = private_data
 	};
 	NTSTATUS status;
 
@@ -88,6 +104,12 @@ static NTSTATUS notifyd_parse_db(
 	status = dbwrap_parse_marshall_buf(
 		buf, buflen, notifyd_parse_db_parser, &state);
 	return status;
+}
+
+static bool notify_walk_filter(struct messaging_rec *rec, void *private_data)
+{
+	return (rec->msg_type == MSG_SMB_NOTIFY_DB) ||
+	       (rec->msg_type == MSG_SMB_NOTIFY_DB_LE);
 }
 
 NTSTATUS notify_walk(struct messaging_context *msg_ctx,
@@ -118,7 +140,12 @@ NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 		return NT_STATUS_NO_MEMORY;
 	}
 
-	req = messaging_read_send(ev, ev, msg_ctx, MSG_SMB_NOTIFY_DB);
+	/*
+	 * notifyd replies with MSG_SMB_NOTIFY_DB or
+	 * MSG_SMB_NOTIFY_DB_LE, depending on the cluster level.
+	 */
+	req = messaging_filtered_read_send(
+		ev, ev, msg_ctx, notify_walk_filter, NULL);
 	if (req == NULL) {
 		TALLOC_FREE(ev);
 		return NT_STATUS_NO_MEMORY;
@@ -146,16 +173,20 @@ NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 		return NT_STATUS_INTERNAL_ERROR;
 	}
 
-	ret = messaging_read_recv(req, ev, &rec);
+	ret = messaging_filtered_read_recv(req, ev, &rec);
 	if (ret != 0) {
-		DBG_DEBUG("messaging_read_recv failed: %s\n",
+		DBG_DEBUG("messaging_filtered_read_recv failed: %s\n",
 			  strerror(ret));
 		TALLOC_FREE(ev);
 		return map_nt_error_from_unix(ret);
 	}
 
-	status = notifyd_parse_db(
-		rec->buf.data, rec->buf.length, &log_idx, fn, private_data);
+	status = notifyd_parse_db(rec->msg_type,
+				  rec->buf.data,
+				  rec->buf.length,
+				  &log_idx,
+				  fn,
+				  private_data);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("notifyd_parse_db failed: %s\n",
 			  nt_errstr(status));

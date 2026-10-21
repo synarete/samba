@@ -262,9 +262,15 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 		goto deregister_get_db;
 	}
 
+	status = messaging_register(msg_ctx, state, MSG_SMB_NOTIFY_DB_LE,
+				    notifyd_got_db);
+	if (tevent_req_nterror(req, status)) {
+		goto deregister_db;
+	}
+
 	state->log = talloc_zero(state, struct messaging_reclog);
 	if (tevent_req_nomem(state->log, req)) {
-		goto deregister_db;
+		goto deregister_db_le;
 	}
 
 	subreq = notifyd_broadcast_reclog_send(
@@ -272,7 +278,7 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 		messaging_server_id(msg_ctx),
 		state->log);
 	if (tevent_req_nomem(subreq, req)) {
-		goto deregister_db;
+		goto deregister_db_le;
 	}
 	tevent_req_set_callback(subreq,
 				notifyd_broadcast_reclog_finished,
@@ -280,7 +286,7 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 
 	subreq = notifyd_clean_peers_send(state, ev, state);
 	if (tevent_req_nomem(subreq, req)) {
-		goto deregister_db;
+		goto deregister_db_le;
 	}
 	tevent_req_set_callback(subreq, notifyd_clean_peers_finished,
 				req);
@@ -290,13 +296,15 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 				  notifyd_snoop_broadcast, state);
 	if (ret != 0) {
 		tevent_req_error(req, ret);
-		goto deregister_db;
+		goto deregister_db_le;
 	}
 #endif
 
 	return req;
 
 #ifdef CLUSTER_SUPPORT
+deregister_db_le:
+	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_DB_LE, state);
 deregister_db:
 	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_DB, state);
 #endif
@@ -940,6 +948,7 @@ static void notifyd_send_delete(struct messaging_context *msg_ctx,
 }
 
 struct notifyd_db_marshall_state {
+	uint32_t msg_type;
 	uint8_t *buf;
 	size_t bufsize;
 	size_t dbsize;
@@ -961,7 +970,7 @@ static int notifyd_db_marshall_fn(struct db_record *rec, void *private_data)
 	uint8_t *p = NULL;
 	bool ok;
 
-	ok = notifyd_entry_wire_len(value.dsize, &wire_len);
+	ok = notifyd_entry_wire_len(state->msg_type, value.dsize, &wire_len);
 	if (!ok) {
 		DBG_WARNING("Invalid notifyd entry for %.*s\n",
 			    (int)key.dsize, (char *)key.dptr);
@@ -991,7 +1000,11 @@ static int notifyd_db_marshall_fn(struct db_record *rec, void *private_data)
 
 	SBVAL(p, 0, wire_len);
 	p += 8;
-	ok = notifyd_entry_to_wire_buf(value.dptr, value.dsize, p, wire_len);
+	ok = notifyd_entry_to_wire_buf(state->msg_type,
+				       value.dptr,
+				       value.dsize,
+				       p,
+				       wire_len);
 	if (!ok) {
 		DBG_WARNING("Could not convert notifyd entry for %.*s\n",
 			    (int)key.dsize, (char *)key.dptr);
@@ -1016,7 +1029,10 @@ static void notifyd_get_db(struct messaging_context *msg_ctx,
 	size_t dbsize;
 	uint8_t *buf;
 	struct iovec iov[2];
-	struct notifyd_db_marshall_state mstate = { .ok = true, };
+	struct notifyd_db_marshall_state mstate = {
+		.msg_type = notifyd_db_msg_type(),
+		.ok = true,
+	};
 
 	/*
 	 * The in memory database uses the raw C structures,
@@ -1044,6 +1060,7 @@ static void notifyd_get_db(struct messaging_context *msg_ctx,
 	}
 
 	mstate = (struct notifyd_db_marshall_state) {
+		.msg_type = mstate.msg_type,
 		.buf = buf,
 		.bufsize = dbsize,
 		.ok = true,
@@ -1085,7 +1102,7 @@ static void notifyd_get_db(struct messaging_context *msg_ctx,
 		  server_id_str_buf(messaging_server_id(msg_ctx), &id1),
 		  server_id_str_buf(src, &id2));
 
-	status = messaging_send_iov(msg_ctx, src, MSG_SMB_NOTIFY_DB,
+	status = messaging_send_iov(msg_ctx, src, mstate.msg_type,
 				    iov, ARRAY_SIZE(iov), NULL, 0);
 	TALLOC_FREE(buf);
 	if (!NT_STATUS_IS_OK(status)) {
@@ -1100,6 +1117,7 @@ static int notifyd_add_proxy_syswatches(struct db_record *rec,
 					void *private_data);
 
 struct notifyd_db_unmarshall_state {
+	uint32_t msg_type;
 	struct db_context *db;
 	uint8_t *native;
 	NTSTATUS status;
@@ -1117,7 +1135,9 @@ static bool notifyd_db_unmarshall_fn(TDB_DATA key,
 	size_t native_len;
 	bool ok;
 
-	ok = notifyd_entry_native_len(value.dsize, &native_len);
+	ok = notifyd_entry_native_len(state->msg_type,
+				      value.dsize,
+				      &native_len);
 	if (!ok) {
 		DBG_DEBUG("Invalid notifyd entry for %.*s\n",
 			  (int)key.dsize, (char *)key.dptr);
@@ -1137,7 +1157,8 @@ static bool notifyd_db_unmarshall_fn(TDB_DATA key,
 		state->native = tmp;
 	}
 
-	ok = notifyd_entry_from_wire_buf(value.dptr,
+	ok = notifyd_entry_from_wire_buf(state->msg_type,
+					 value.dptr,
 					 value.dsize,
 					 state->native,
 					 native_len);
@@ -1170,6 +1191,7 @@ static void notifyd_got_db(struct messaging_context *msg_ctx,
 	struct notifyd_peer *p = NULL;
 	struct server_id_buf idbuf;
 	struct notifyd_db_unmarshall_state ustate = {
+		.msg_type = msg_type,
 		.status = NT_STATUS_OK,
 	};
 	NTSTATUS status;

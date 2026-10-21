@@ -10,7 +10,7 @@ bld.SAMBA3_SUBSYSTEM('fcn_wait',
 
 bld.SAMBA3_SUBSYSTEM('notifyd_db',
 		     source='notifyd_entry.c notifyd_db.c',
-                     deps='samba-debug dbwrap errors3')
+                     deps='samba-debug dbwrap errors3 notifyd_msg')
 
 bld.SAMBA3_SUBSYSTEM('notifyd',
 		     source='notifyd.c',

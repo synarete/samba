@@ -86,6 +86,11 @@ interface notifyd
 	 * on LP64 platforms if marshalled with
 	 * LIBNDR_FLAG_HOST_BYTE_ORDER, other platforms still
 	 * use the raw C structures.
+	 *
+	 * Once cluster level 2.0 is active MSG_SMB_NOTIFY_DB_LE
+	 * is used instead, which has the same content, but
+	 * notifyd_watcher_rec and notifyd_instance_rec are
+	 * little endian on all platforms.
 	 */
 	const uint32 NOTIFYD_WATCHER_REC_SIZE = 24;
 	typedef [public,flag(NDR_NOALIGN)] struct {

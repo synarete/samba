@@ -746,17 +746,28 @@ static void test_notifyd_entry(void **state)
 	memcpy(native, &watcher, sizeof(watcher));
 	memcpy(native + sizeof(watcher), instances, sizeof(instances));
 
-	ok = notifyd_entry_to_wire(frame, native, sizeof(native), &wire);
+	ok = notifyd_entry_to_wire(frame,
+				   MSG_SMB_NOTIFY_DB,
+				   native,
+				   sizeof(native),
+				   &wire);
 	assert_true(ok);
 	assert_int_equal(wire.length, sizeof(native));
 	assert_memory_equal(wire.data, native, sizeof(native));
 
-	ok = notifyd_entry_from_wire(frame, wire.data, wire.length, &native2);
+	ok = notifyd_entry_from_wire(frame,
+				     MSG_SMB_NOTIFY_DB,
+				     wire.data,
+				     wire.length,
+				     &native2);
 	assert_true(ok);
 	assert_int_equal(native2.length, sizeof(native));
 	assert_memory_equal(native2.data, native, sizeof(native));
 
-	ok = notifyd_entry_from_wire(frame, wire.data, wire.length - 1,
+	ok = notifyd_entry_from_wire(frame,
+				     MSG_SMB_NOTIFY_DB,
+				     wire.data,
+				     wire.length - 1,
 				     &native2);
 	assert_false(ok);
 
@@ -937,6 +948,127 @@ static void test_notify_msgs_le(void **state)
 }
 
 /*
+ * With cluster level 2.0 MSG_SMB_NOTIFY_DB_LE is used,
+ * the values are little endian on all platforms.
+ *
+ * main() activates the latest level.
+ */
+static void test_notifyd_entry_le(void **state)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct notifyd_watcher watcher;
+	struct notifyd_instance instance;
+	uint8_t native[sizeof(watcher) + sizeof(instance)];
+	uint8_t expected[NOTIFYD_WATCHER_REC_SIZE +
+			 NOTIFYD_INSTANCE_REC_SIZE];
+	uint8_t *e = expected + NOTIFYD_WATCHER_REC_SIZE;
+	DATA_BLOB wire = { .length = 0, };
+	DATA_BLOB native2 = { .length = 0, };
+	struct notifyd_watcher watcher2;
+	struct notifyd_instance instance2;
+	bool ok;
+
+	/* make sure the padding is 0 */
+	memset(&watcher, 0, sizeof(watcher));
+	memset(&instance, 0, sizeof(instance));
+
+	watcher.filter = 0x01020304;
+	watcher.subdir_filter = 0x11121314;
+	watcher.sys_filter = 0x21222324;
+	watcher.sys_subdir_filter = 0x31323334;
+	watcher.sys_watch = (void *)(uintptr_t)0x41424344;
+
+	instance.client = (struct server_id) {
+		.pid = 0x5152535455565758,
+		.task_id = 0x61626364,
+		.vnn = 0x71727374,
+		.unique_id = 0x8182838485868788,
+	};
+	instance.instance = (struct notify_instance) {
+		.creation_time = {
+			.tv_sec = 0x01020304,
+			.tv_nsec = 999999999,
+		},
+		.filter = 0x91929394,
+		.subdir_filter = 0xa1a2a3a4,
+		.private_data = (void *)(uintptr_t)0xb1b2b3b4,
+	};
+
+	memcpy(native, &watcher, sizeof(watcher));
+	memcpy(native + sizeof(watcher), &instance, sizeof(instance));
+
+	PUSH_LE_U32(expected, 0, watcher.filter);
+	PUSH_LE_U32(expected, 4, watcher.subdir_filter);
+	PUSH_LE_U32(expected, 8, watcher.sys_filter);
+	PUSH_LE_U32(expected, 12, watcher.sys_subdir_filter);
+	PUSH_LE_U64(expected, 16, 0x41424344);
+
+	PUSH_LE_U64(e, 0, instance.client.pid);
+	PUSH_LE_U32(e, 8, instance.client.task_id);
+	PUSH_LE_U32(e, 12, instance.client.vnn);
+	PUSH_LE_U64(e, 16, instance.client.unique_id);
+	PUSH_LE_U64(e, 24, instance.instance.creation_time.tv_sec);
+	PUSH_LE_U64(e, 32, instance.instance.creation_time.tv_nsec);
+	PUSH_LE_U32(e, 40, instance.instance.filter);
+	PUSH_LE_U32(e, 44, instance.instance.subdir_filter);
+	PUSH_LE_U64(e, 48, 0xb1b2b3b4);
+
+	assert_int_equal(notifyd_db_msg_type(), MSG_SMB_NOTIFY_DB_LE);
+
+	ok = notifyd_entry_to_wire(frame,
+				   MSG_SMB_NOTIFY_DB_LE,
+				   native,
+				   sizeof(native),
+				   &wire);
+	assert_true(ok);
+	assert_int_equal(wire.length, sizeof(expected));
+	assert_memory_equal(wire.data, expected, sizeof(expected));
+
+	ok = notifyd_entry_from_wire(frame,
+				     MSG_SMB_NOTIFY_DB_LE,
+				     wire.data,
+				     wire.length,
+				     &native2);
+	assert_true(ok);
+	assert_int_equal(native2.length, sizeof(native));
+	memcpy(&watcher2, native2.data, sizeof(watcher2));
+	memcpy(&instance2, native2.data + sizeof(watcher2), sizeof(instance2));
+	assert_int_equal(watcher2.filter, watcher.filter);
+	assert_int_equal(watcher2.subdir_filter, watcher.subdir_filter);
+	assert_int_equal(watcher2.sys_filter, watcher.sys_filter);
+	assert_int_equal(watcher2.sys_subdir_filter,
+			 watcher.sys_subdir_filter);
+	assert_ptr_equal(watcher2.sys_watch, watcher.sys_watch);
+	assert_true(server_id_equal(&instance2.client, &instance.client));
+	assert_int_equal(instance2.instance.creation_time.tv_sec,
+			 instance.instance.creation_time.tv_sec);
+	assert_int_equal(instance2.instance.creation_time.tv_nsec,
+			 instance.instance.creation_time.tv_nsec);
+	assert_int_equal(instance2.instance.filter, instance.instance.filter);
+	assert_int_equal(instance2.instance.subdir_filter,
+			 instance.instance.subdir_filter);
+	assert_ptr_equal(instance2.instance.private_data,
+			 instance.instance.private_data);
+
+	ok = notifyd_entry_from_wire(frame,
+				     MSG_SMB_NOTIFY_DB_LE,
+				     wire.data,
+				     wire.length - 1,
+				     &native2);
+	assert_false(ok);
+
+	/* other message types are rejected */
+	ok = notifyd_entry_from_wire(frame,
+				     MSG_SMB_NOTIFY_GET_DB,
+				     wire.data,
+				     wire.length,
+				     &native2);
+	assert_false(ok);
+
+	TALLOC_FREE(frame);
+}
+
+/*
  * dbwrap_watched_trigger_wakeup() sends the instance
  * of the watcher with SBVAL() as MSG_DBWRAP_MODIFIED
  * payload, verify it matches dbwrap_watch_modified_msg.
@@ -987,6 +1119,7 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_messaging_hdr),
 		cmocka_unit_test(test_notifyd_entry),
 		cmocka_unit_test(test_notify_msgs_le),
+		cmocka_unit_test(test_notifyd_entry_le),
 		cmocka_unit_test(test_dbwrap_watch_modified_msg),
 	};
 

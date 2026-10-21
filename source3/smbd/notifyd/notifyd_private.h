@@ -66,24 +66,36 @@ bool notifyd_parse_entry(uint8_t *data,
 
 /*
  * Conversion of the values between the in memory database
- * and the representation used in MSG_SMB_NOTIFY_DB
- * (see source3/librpc/idl/notifyd.idl)
+ * and the representation used in MSG_SMB_NOTIFY_DB or
+ * MSG_SMB_NOTIFY_DB_LE (see source3/librpc/idl/notifyd.idl)
+ *
+ * notifyd_db_msg_type() returns the message type to use
+ * for sending, depending on the cluster level.
  */
-bool notifyd_entry_wire_len(size_t buflen, size_t *wire_len);
-bool notifyd_entry_to_wire_buf(const uint8_t *buf,
+uint32_t notifyd_db_msg_type(void);
+bool notifyd_entry_wire_len(uint32_t msg_type,
+			    size_t buflen,
+			    size_t *wire_len);
+bool notifyd_entry_to_wire_buf(uint32_t msg_type,
+			       const uint8_t *buf,
 			       size_t buflen,
 			       uint8_t *wire,
 			       size_t wire_len);
 bool notifyd_entry_to_wire(TALLOC_CTX *mem_ctx,
+			   uint32_t msg_type,
 			   const uint8_t *buf,
 			   size_t buflen,
 			   DATA_BLOB *wire);
-bool notifyd_entry_native_len(size_t buflen, size_t *native_len);
-bool notifyd_entry_from_wire_buf(const uint8_t *buf,
+bool notifyd_entry_native_len(uint32_t msg_type,
+			      size_t buflen,
+			      size_t *native_len);
+bool notifyd_entry_from_wire_buf(uint32_t msg_type,
+				 const uint8_t *buf,
 				 size_t buflen,
 				 uint8_t *native,
 				 size_t native_len);
 bool notifyd_entry_from_wire(TALLOC_CTX *mem_ctx,
+			     uint32_t msg_type,
 			     const uint8_t *buf,
 			     size_t buflen,
 			     DATA_BLOB *native);
