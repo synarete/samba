@@ -12,7 +12,7 @@ bld.SAMBA_PIDL_LIST('PIDL',
                        rpcd_witness.idl
                        cluster_level.idl
                     ''',
-                    options='--includedir=%s --header --ndr-parser --client --python' % topinclude,
+                    options='--includedir=%s --header --ndr-parser --ndr-abi --client --python' % topinclude,
                     output_dir='../gen_ndr')
 
 bld.SAMBA_PIDL_LIST('PIDL',
