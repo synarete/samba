@@ -197,6 +197,12 @@ bool secrets_store_domain_guid(const char *domain, const struct GUID *guid)
 {
 	char *protect_ids;
 	const char *key;
+	struct secrets_domain_guid sguid = {
+		.guid = *guid,
+	};
+	uint8_t buf[SECRETS_DOMAIN_GUID_SIZE] = { 0, };
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
 
 	protect_ids = secrets_fetch(protect_ids_keystr(domain), NULL);
 	if (protect_ids) {
@@ -209,41 +215,65 @@ bool secrets_store_domain_guid(const char *domain, const struct GUID *guid)
 	}
 	SAFE_FREE(protect_ids);
 
+	/*
+	 * We used to store a raw struct GUID,
+	 * secrets_domain_guid in host byte order
+	 * has the same layout.
+	 */
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &sguid,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_push_flags_fn_t)ndr_push_secrets_domain_guid);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("ndr_push_secrets_domain_guid failed: %s\n",
+			ndr_errstr(ndr_err));
+		return false;
+	}
+
 	key = domain_guid_keystr(domain);
-	return secrets_store(key, guid, sizeof(struct GUID));
+	return secrets_store(key, blob.data, blob.length);
 }
 
 bool secrets_fetch_domain_guid(const char *domain, struct GUID *guid)
 {
-	struct GUID *dyn_guid;
+	struct secrets_domain_guid sguid = { .guid = { .time_low = 0, }, };
+	DATA_BLOB blob = { .length = 0, };
+	enum ndr_err_code ndr_err;
 	const char *key;
-	size_t size = 0;
 	struct GUID new_guid;
 
 	key = domain_guid_keystr(domain);
-	dyn_guid = (struct GUID *)secrets_fetch(key, &size);
+	blob.data = (uint8_t *)secrets_fetch(key, &blob.length);
 
-	if (!dyn_guid) {
+	if (blob.data == NULL) {
 		if (lp_server_role() == ROLE_DOMAIN_PDC ||
 		    lp_server_role() == ROLE_IPA_DC) {
 			new_guid = GUID_random();
 			if (!secrets_store_domain_guid(domain, &new_guid))
 				return False;
-			dyn_guid = (struct GUID *)secrets_fetch(key, &size);
+			blob.data = (uint8_t *)secrets_fetch(key, &blob.length);
 		}
-		if (dyn_guid == NULL) {
+		if (blob.data == NULL) {
 			return False;
 		}
 	}
 
-	if (size != sizeof(struct GUID)) {
-		DEBUG(1,("UUID size %d is wrong!\n", (int)size));
-		SAFE_FREE(dyn_guid);
+	if (blob.length != SECRETS_DOMAIN_GUID_SIZE) {
+		DEBUG(1,("UUID size %zu is wrong!\n", blob.length));
+		SAFE_FREE(blob.data);
 		return False;
 	}
 
-	*guid = *dyn_guid;
-	SAFE_FREE(dyn_guid);
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &sguid,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_guid);
+	SAFE_FREE(blob.data);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("ndr_pull_secrets_domain_guid failed: %s\n",
+			ndr_errstr(ndr_err));
+		return false;
+	}
+
+	*guid = sguid.guid;
 	return True;
 }
 
