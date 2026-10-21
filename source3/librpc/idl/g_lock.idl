@@ -1,0 +1,38 @@
+#include "idl_types.h"
+
+import "server_id.idl";
+
+/*
+ * The record format used by source3/lib/g_lock.c
+ *
+ * It is hand-marshalled with server_id_put() and SBVAL/SIVAL
+ * (little endian) for performance reasons, this describes
+ * it in order to protect it with [ndr_abi], the
+ * equivalence is verified by LOCAL-G-LOCK-WIRE-FORMAT
+ * (source3/torture/test_g_lock.c).
+ *
+ * It is used in clustered databases like locking.tdb and
+ * also wraps the NDR payloads stored there.
+ */
+
+[
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * source3/librpc/ABI/g_lock.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
+	pointer_default(unique)
+]
+interface g_lock
+{
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		server_id exclusive;
+		hyper unique_lock_epoch;
+		hyper unique_data_epoch;
+		uint32 num_shared;
+		server_id shared[num_shared];
+		[flag(NDR_REMAINING)] DATA_BLOB data;
+	} g_lock_rec;
+}
