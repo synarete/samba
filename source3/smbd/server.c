@@ -701,6 +701,39 @@ static void notifyd_sig_hup_handler(struct tevent_context *ev,
 	reopen_logs();
 }
 
+static NTSTATUS notifyd_started_send_v1(struct messaging_context *msg_ctx,
+					struct server_id dst)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_started m = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status = NT_STATUS_NO_MEMORY;
+
+	ndr_err = messaging_smb_notify_started_push(frame, &m, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx,
+				dst,
+				MSG_SMB_NOTIFY_STARTED_V1,
+				&blob);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS notifyd_started_send(struct messaging_context *msg_ctx,
+				     struct server_id dst)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return notifyd_started_send_v1(msg_ctx, dst);
+	}
+
+	return messaging_send(msg_ctx, dst, MSG_SMB_NOTIFY_STARTED, NULL);
+}
+
 static bool smbd_notifyd_init(struct messaging_context *msg, bool interactive,
 			      struct server_id *ppid)
 {
@@ -763,8 +796,7 @@ static bool smbd_notifyd_init(struct messaging_context *msg, bool interactive,
 	/* Block those signals that we are not handling */
 	BlockSignals(True, SIGUSR1);
 
-	messaging_send(msg, pid_to_procid(getppid()), MSG_SMB_NOTIFY_STARTED,
-		       NULL);
+	notifyd_started_send(msg, pid_to_procid(getppid()));
 
 	ok = tevent_req_poll(req, ev);
 	if (!ok) {
@@ -1978,6 +2010,10 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 			   ID_CACHE_KILL_V1,
 			   smbd_parent_id_cache_kill_v1);
 	messaging_register(msg_ctx, NULL, MSG_SMB_NOTIFY_STARTED,
+			   smb_parent_send_to_children);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_NOTIFY_STARTED_V1,
 			   smb_parent_send_to_children);
 
 	if (parent->quic_tlsp != NULL) {

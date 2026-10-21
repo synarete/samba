@@ -10,12 +10,15 @@
 #
 #  1. Verifies that all three nodes serve SMB traffic at level 1.0.
 #  2. Verifies file I/O (put/get/rm) on each node at level 1.0.
-#  3. Verifies that legacy messages works at level 1.0.
+#  3. Verifies that legacy messages works at level 1.0 (including notify messages).
 #  4. Runs "net clusterlevel upgrade --apply" to raise the level to 2.0.
 #  5. Verifies the new level is reported by "net clusterlevel show".
-#  6. Verifies that new NDR messages works fine.
+#  6. Verifies that new NDR messages works fine (including notify messages).
 #  7. Verifies file I/O (put/get/rm) on each node at level 2.0.
 #  8. Verifies that all three nodes still serve SMB traffic after upgrade.
+#
+# Note: MSG_SMB_NOTIFY (0x030E / MSG_SMB_NOTIFY_V1 0x130E) has no production
+# sender or receiver and is covered only by unit tests (bin/test_ndr_messaging).
 #
 # Expected arguments:
 #   $1  CONFIGURATION  – --configfile=... for node 0 (used by net/smbcontrol)
@@ -637,6 +640,230 @@ smbcontrol_notify_cleanup()
 	return $st
 }
 
+# Verify MSG_SMB_NOTIFY_CANCEL_DELETED via smbtorture smb2.notify.rmdir3
+smbtorture_notify_rmdir()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBTORTURE" "//$NODE0/$SHARE" \
+		-U"${DC_USERNAME}%${DC_PASSWORD}" \
+		smb2.notify.rmdir3 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
+# Verify MSG_SMB_NOTIFY_REC_CHANGE and MSG_SMB_NOTIFY_TRIGGER via smbtorture smb2.notify.dir
+smbtorture_notify_dir()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$SMBTORTURE" "//$NODE0/$SHARE" \
+		-U"${DC_USERNAME}%${DC_PASSWORD}" \
+		smb2.notify.dir 2>&1)
+	local st=$?
+	if [ $st -eq 0 ]; then
+		subunit_pass_test "$name"
+	else
+		echo "$out" | subunit_fail_test "$name"
+	fi
+	return $st
+}
+
+# Test MSG_SMB_NOTIFY_REC_CHANGE and MSG_SMB_NOTIFY_TRIGGER via net notify listen and net notify trigger
+net_notify_trigger_listen()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local testpath="/msg_upgrade_nt_$$"
+	local outfile="$SELFTEST_TMPDIR/net_notify_listen_$$.out"
+	rm -f "$outfile"
+
+	# Start background listener
+	run_as_root "$NET" "$CONF" notify listen "$testpath" 1 0 > "$outfile" 2>&1 &
+	local listen_pid=$!
+
+	# Wait for listener to register (up to 5s)
+	local i=0
+	local registered=0
+	while [ "$i" -lt 10 ]; do
+		if [ -f "$outfile" ] && grep -q "^notify daemon:" "$outfile"; then
+			registered=1
+			break
+		fi
+		sleep 0.5
+		i=$((i + 1))
+	done
+
+	if [ "$registered" -ne 1 ]; then
+		kill "$listen_pid" 2>/dev/null
+		kill -9 "$listen_pid" 2>/dev/null
+		wait "$listen_pid" 2>/dev/null
+		local out
+		out=$(cat "$outfile" 2>/dev/null)
+		rm -f "$outfile"
+		echo "net notify listen failed to start: $out" | subunit_fail_test "$name"
+		return 1
+	fi
+
+	# Send trigger
+	local trig_out
+	trig_out=$(run_as_root "$NET" "$CONF" notify trigger "${testpath}/file1" 1 1 2>&1)
+	local trig_st=$?
+
+	# Wait for event to appear in output (up to 10s)
+	i=0
+	local received=0
+	while [ "$i" -lt 20 ]; do
+		if grep -q "1 file1" "$outfile" 2>/dev/null; then
+			received=1
+			break
+		fi
+		sleep 0.5
+		i=$((i + 1))
+	done
+
+	kill "$listen_pid" 2>/dev/null
+	kill -9 "$listen_pid" 2>/dev/null
+	wait "$listen_pid" 2>/dev/null
+
+	local out
+	out=$(cat "$outfile" 2>/dev/null)
+	rm -f "$outfile"
+
+	if [ "$trig_st" -eq 0 ] && [ "$received" -eq 1 ]; then
+		subunit_pass_test "$name"
+		return 0
+	else
+		echo "Trigger status=$trig_st output=$trig_out; listen output=$out" | \
+			subunit_fail_test "$name"
+		return 1
+	fi
+}
+
+# Test MSG_SMB_NOTIFY_GET_DB, MSG_SMB_NOTIFY_DB, and MSG_SMB_NOTIFY_REC_CHANGES via smbstatus --notify
+smbstatus_notify()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local testpath="/msg_upgrade_db_$$"
+	local outfile="$SELFTEST_TMPDIR/smbstatus_notify_$$.out"
+	rm -f "$outfile"
+
+	# Start background listener to register an active notification watch
+	run_as_root "$NET" "$CONF" notify listen "$testpath" 1 0 > "$outfile" 2>&1 &
+	local listen_pid=$!
+
+	# Wait for listener to register
+	local i=0
+	local registered=0
+	while [ "$i" -lt 10 ]; do
+		if [ -f "$outfile" ] && grep -q "^notify daemon:" "$outfile"; then
+			registered=1
+			break
+		fi
+		sleep 0.5
+		i=$((i + 1))
+	done
+
+	if [ "$registered" -ne 1 ]; then
+		kill "$listen_pid" 2>/dev/null
+		kill -9 "$listen_pid" 2>/dev/null
+		wait "$listen_pid" 2>/dev/null
+		local out
+		out=$(cat "$outfile" 2>/dev/null)
+		rm -f "$outfile"
+		echo "net notify listen failed to start: $out" | subunit_fail_test "$name"
+		return 1
+	fi
+
+	# Hold registration alive for >2s so the 1s cluster reclog broadcast timer fires
+	sleep 3
+
+	local status_out
+	status_out=$(run_as_root "$BINDIR/smbstatus" "$CONF" --notify 2>&1)
+	local status_st=$?
+
+	kill "$listen_pid" 2>/dev/null
+	kill -9 "$listen_pid" 2>/dev/null
+	wait "$listen_pid" 2>/dev/null
+	rm -f "$outfile"
+
+	if [ "$status_st" -eq 0 ] && echo "$status_out" | grep -qF "$testpath"; then
+		subunit_pass_test "$name"
+		return 0
+	else
+		echo "smbstatus --notify status=$status_st output: $status_out" | \
+			subunit_fail_test "$name"
+		return 1
+	fi
+}
+
+# Test MSG_SMB_NOTIFY_STARTED / STARTED_V1 by killing notifyd and verifying restart
+kill_notifyd()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local out
+	out=$(run_as_root "$NET" "$CONF" notify trigger "/msg_upgrade_kill_$$/x" 1 1 2>&1)
+	local old_pid
+	old_pid=$(echo "$out" | sed -n -E 's/^notify daemon: ([0-9]+:)?([0-9]+).*/\2/p')
+
+	if [ -z "$old_pid" ]; then
+		echo "Could not obtain notifyd pid from net notify trigger: $out" | \
+			subunit_fail_test "$name"
+		return 1
+	fi
+
+	run_as_root kill -9 "$old_pid" 2>/dev/null
+
+	# Poll up to 15s for notifyd to be restarted by smbd parent with a new pid
+	local new_pid=""
+	local i=0
+	while [ "$i" -lt 15 ]; do
+		sleep 1
+		out=$(run_as_root "$NET" "$CONF" notify trigger "/msg_upgrade_kill_$$/x" 1 1 2>&1)
+		new_pid=$(echo "$out" | sed -n -E 's/^notify daemon: ([0-9]+:)?([0-9]+).*/\2/p')
+		if [ -n "$new_pid" ] && [ "$new_pid" != "$old_pid" ]; then
+			break
+		fi
+		i=$((i + 1))
+	done
+
+	if [ -z "$new_pid" ] || [ "$new_pid" = "$old_pid" ]; then
+		echo "notifyd was not restarted within 15s (old_pid=$old_pid, out=$out)" | \
+			subunit_fail_test "$name"
+		return 1
+	fi
+
+	# Verify notify subsystem is functional after restart
+	local tort_out
+	tort_out=$(run_as_root "$SMBTORTURE" "//$NODE0/$SHARE" \
+		-U"${DC_USERNAME}%${DC_PASSWORD}" \
+		smb2.notify.dir 2>&1)
+	local tort_st=$?
+
+	if [ "$tort_st" -eq 0 ]; then
+		subunit_pass_test "$name"
+		return 0
+	else
+		echo "smb2.notify.dir failed after notifyd restart: $tort_out" | \
+			subunit_fail_test "$name"
+		return 1
+	fi
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -814,6 +1041,26 @@ smbtorture_persistent_timeout \
 	"step1: smb2.persistent-open.timeout_5 (legacy MSG_SMB_SCAVENGER at level 1.0)" \
 	|| failed=$((failed + 1))
 
+smbtorture_notify_rmdir \
+	"step1: smb2.notify.rmdir3 (legacy MSG_SMB_NOTIFY_CANCEL_DELETED at level 1.0)" \
+	|| failed=$((failed + 1))
+
+smbtorture_notify_dir \
+	"step1: smb2.notify.dir (legacy MSG_SMB_NOTIFY_REC_CHANGE/TRIGGER at level 1.0)" \
+	|| failed=$((failed + 1))
+
+net_notify_trigger_listen \
+	"step1: net notify listen/trigger (legacy MSG_SMB_NOTIFY_REC_CHANGE/TRIGGER at level 1.0)" \
+	|| failed=$((failed + 1))
+
+smbstatus_notify \
+	"step1: smbstatus --notify (legacy MSG_SMB_NOTIFY_GET_DB/DB/REC_CHANGES at level 1.0)" \
+	|| failed=$((failed + 1))
+
+kill_notifyd \
+	"step1: kill notifyd and restart (legacy MSG_SMB_NOTIFY_STARTED at level 1.0)" \
+	|| failed=$((failed + 1))
+
 # ===========================================================================
 # Step 2 – upgrade cluster level from 1.0 to 2.0
 # ===========================================================================
@@ -826,6 +1073,10 @@ cluster_level_upgrade "step2: net clusterlevel upgrade --apply (1.0 -> 2.0)" \
 if ! wait_for_cluster_level "2.0"; then
 	echo "Timed out waiting for cluster level 2.0" >&2
 fi
+
+# Allow a moment for cluster level upgrade broadcast to propagate to all
+# running daemons (smbd, notifyd, cleanupd, etc.)
+sleep 2
 
 cluster_level_show "step2: cluster level is 2.0 after upgrade" "2.0" \
 	|| failed=$((failed + 1))
@@ -924,6 +1175,26 @@ smbcontrol_notify_cleanup \
 
 smbtorture_persistent_timeout \
 	"step3: smb2.persistent-open.timeout_5 (NDR MSG_SMB_SCAVENGER_V1 at level 2.0)" \
+	|| failed=$((failed + 1))
+
+smbtorture_notify_rmdir \
+	"step3: smb2.notify.rmdir3 (NDR MSG_SMB_NOTIFY_CANCEL_DELETED_V1 at level 2.0)" \
+	|| failed=$((failed + 1))
+
+smbtorture_notify_dir \
+	"step3: smb2.notify.dir (NDR MSG_SMB_NOTIFY_REC_CHANGE_V1/TRIGGER_V1 at level 2.0)" \
+	|| failed=$((failed + 1))
+
+net_notify_trigger_listen \
+	"step3: net notify listen/trigger (NDR MSG_SMB_NOTIFY_REC_CHANGE_V1/TRIGGER_V1 at level 2.0)" \
+	|| failed=$((failed + 1))
+
+smbstatus_notify \
+	"step3: smbstatus --notify (NDR MSG_SMB_NOTIFY_GET_DB_V1/DB_V1/REC_CHANGES_V1 at level 2.0)" \
+	|| failed=$((failed + 1))
+
+kill_notifyd \
+	"step3: kill notifyd and restart (NDR MSG_SMB_NOTIFY_STARTED_V1 at level 2.0)" \
 	|| failed=$((failed + 1))
 
 # Verify smbd is alive and file I/O works

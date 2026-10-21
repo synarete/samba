@@ -30,6 +30,8 @@
 #include "util_tdb.h"
 #include "lib/util/server_id_db.h"
 #include "smbd/notifyd/notifyd.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 
 struct notify_context {
 	struct server_id notifyd;
@@ -138,29 +140,71 @@ static void notify_handler(struct messaging_context *msg, void *private_data,
 	ctx->callback(ctx->sconn, event.private_data, event_msg->when, &event);
 }
 
-NTSTATUS notify_add(struct notify_context *ctx,
-		    const char *path, uint32_t filter, uint32_t subdir_filter,
-		    void *private_data)
+static NTSTATUS notify_rec_change_send_v1(struct messaging_context *msg_ctx,
+					  struct server_id dst,
+					  struct timespec creation_time,
+					  uint32_t filter,
+					  uint32_t subdir_filter,
+					  void *private_data,
+					  const char *path)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_rec_change m = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_notify_rec_change_push(frame,
+						       &m,
+						       creation_time,
+						       filter,
+						       subdir_filter,
+						       private_data,
+						       path,
+						       &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING(
+			"messaging_smb_notify_rec_change_push failed: %s\n",
+			ndr_errstr(ndr_err));
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx,
+				dst,
+				MSG_SMB_NOTIFY_REC_CHANGE_V1,
+				&blob);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS notify_rec_change_send(struct messaging_context *msg_ctx,
+				       struct server_id dst,
+				       struct timespec creation_time,
+				       uint32_t filter,
+				       uint32_t subdir_filter,
+				       void *private_data,
+				       const char *path)
 {
 	struct notify_rec_change_msg msg = {};
 	struct iovec iov[2];
 	size_t pathlen;
 	NTSTATUS status;
 
-	if (ctx == NULL) {
-		return NT_STATUS_NOT_IMPLEMENTED;
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return notify_rec_change_send_v1(msg_ctx,
+						 dst,
+						 creation_time,
+						 filter,
+						 subdir_filter,
+						 private_data,
+						 path);
 	}
 
-	DBG_DEBUG("path=[%s], filter=%"PRIu32", subdir_filter=%"PRIu32", "
-		  "private_data=%p\n",
-		  path,
-		  filter,
-		  subdir_filter,
-		  private_data);
+	pathlen = strlen(path) + 1;
 
-	pathlen = strlen(path)+1;
-
-	clock_gettime_mono(&msg.instance.creation_time);
+	msg.instance.creation_time = creation_time;
 	msg.instance.filter = filter;
 	msg.instance.subdir_filter = subdir_filter;
 	msg.instance.private_data = private_data;
@@ -170,10 +214,13 @@ NTSTATUS notify_add(struct notify_context *ctx,
 	iov[1].iov_base = discard_const_p(char, path);
 	iov[1].iov_len = pathlen;
 
-	status =  messaging_send_iov(
-		ctx->msg_ctx, ctx->notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
-		iov, ARRAY_SIZE(iov), NULL, 0);
-
+	status = messaging_send_iov(msg_ctx,
+				    dst,
+				    MSG_SMB_NOTIFY_REC_CHANGE,
+				    iov,
+				    ARRAY_SIZE(iov),
+				    NULL,
+				    0);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("messaging_send_iov returned %s\n",
 			  nt_errstr(status));
@@ -183,52 +230,112 @@ NTSTATUS notify_add(struct notify_context *ctx,
 	return NT_STATUS_OK;
 }
 
-NTSTATUS notify_remove(struct notify_context *ctx, void *private_data,
+NTSTATUS notify_add(struct notify_context *ctx,
+		    const char *path,
+		    uint32_t filter,
+		    uint32_t subdir_filter,
+		    void *private_data)
+{
+	struct timespec creation_time;
+
+	if (ctx == NULL) {
+		return NT_STATUS_NOT_IMPLEMENTED;
+	}
+
+	DBG_DEBUG("path=[%s], filter=%" PRIu32 ", subdir_filter=%" PRIu32 ", "
+		  "private_data=%p\n",
+		  path,
+		  filter,
+		  subdir_filter,
+		  private_data);
+
+	clock_gettime_mono(&creation_time);
+	return notify_rec_change_send(ctx->msg_ctx,
+				      ctx->notifyd,
+				      creation_time,
+				      filter,
+				      subdir_filter,
+				      private_data,
+				      path);
+}
+
+NTSTATUS notify_remove(struct notify_context *ctx,
+		       void *private_data,
 		       char *path)
 {
-	struct notify_rec_change_msg msg = {};
-	struct iovec iov[2];
-	NTSTATUS status;
+	struct timespec creation_time = {0};
 
 	/* see if change notify is enabled at all */
 	if (ctx == NULL) {
 		return NT_STATUS_NOT_IMPLEMENTED;
 	}
 
-	msg.instance.private_data = private_data;
+	return notify_rec_change_send(ctx->msg_ctx,
+				      ctx->notifyd,
+				      creation_time,
+				      0,
+				      0,
+				      private_data,
+				      path);
+}
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
-	iov[1].iov_base = path;
-	iov[1].iov_len = strlen(path)+1;
+static NTSTATUS notify_trigger_send_v1(struct messaging_context *msg_ctx,
+				       struct server_id dst,
+				       struct timespec when,
+				       uint32_t action,
+				       uint32_t filter,
+				       const char *dir,
+				       const char *name)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_trigger m = {};
+	char *path = NULL;
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
 
-	status = messaging_send_iov(
-		ctx->msg_ctx, ctx->notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
-		iov, ARRAY_SIZE(iov), NULL, 0);
+	path = talloc_asprintf(frame, "%s/%s", dir, name);
+	if (path == NULL) {
+		status = NT_STATUS_NO_MEMORY;
+		goto out;
+	}
 
+	ndr_err = messaging_smb_notify_trigger_push(
+		frame, &m, when, action, filter, path, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("messaging_smb_notify_trigger_push failed: %s\n",
+			    ndr_errstr(ndr_err));
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx,
+				dst,
+				MSG_SMB_NOTIFY_TRIGGER_V1,
+				&blob);
+out:
+	TALLOC_FREE(frame);
 	return status;
 }
 
-void notify_trigger(struct notify_context *ctx,
-		    uint32_t action, uint32_t filter,
-		    const char *dir, const char *name)
+static NTSTATUS notify_trigger_send(struct messaging_context *msg_ctx,
+				    struct server_id dst,
+				    struct timespec when,
+				    uint32_t action,
+				    uint32_t filter,
+				    const char *dir,
+				    const char *name)
 {
 	struct notify_trigger_msg msg;
 	struct iovec iov[4];
 	char slash = '/';
 
-	DBG_DEBUG("notify_trigger called action=0x%"PRIx32", "
-		  "filter=0x%"PRIx32", dir=%s, name=%s\n",
-		  action,
-		  filter,
-		  dir,
-		  name);
-
-	if (ctx == NULL) {
-		return;
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return notify_trigger_send_v1(
+			msg_ctx, dst, when, action, filter, dir, name);
 	}
 
-	msg.when = timespec_current();
+	msg.when = when;
 	msg.action = action;
 	msg.filter = filter;
 
@@ -241,7 +348,35 @@ void notify_trigger(struct notify_context *ctx,
 	iov[3].iov_base = discard_const_p(char, name);
 	iov[3].iov_len = strlen(name)+1;
 
-	messaging_send_iov(
-		ctx->msg_ctx, ctx->notifyd, MSG_SMB_NOTIFY_TRIGGER,
-		iov, ARRAY_SIZE(iov), NULL, 0);
+	return messaging_send_iov(msg_ctx,
+				  dst,
+				  MSG_SMB_NOTIFY_TRIGGER,
+				  iov,
+				  ARRAY_SIZE(iov),
+				  NULL,
+				  0);
+}
+
+void notify_trigger(struct notify_context *ctx,
+		    uint32_t action,
+		    uint32_t filter,
+		    const char *dir,
+		    const char *name)
+{
+	struct timespec when;
+
+	DBG_DEBUG("notify_trigger called action=0x%" PRIx32 ", "
+		  "filter=0x%" PRIx32 ", dir=%s, name=%s\n",
+		  action,
+		  filter,
+		  dir,
+		  name);
+
+	if (ctx == NULL) {
+		return;
+	}
+
+	when = timespec_current();
+	notify_trigger_send(
+		ctx->msg_ctx, ctx->notifyd, when, action, filter, dir, name);
 }

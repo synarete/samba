@@ -18,6 +18,8 @@
 #include "notifyd.h"
 #include "notifyd_db.h"
 #include "messages.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 #include "lib/util/server_id.h"
 #include "lib/util/server_id_db.h"
 #include "lib/util/tevent_ntstatus.h"
@@ -34,6 +36,79 @@ struct fcn_test_state {
 
 static void fcn_test_done(struct tevent_req *subreq);
 
+static NTSTATUS fcn_test_trigger_send_v1(struct messaging_context *msg_ctx,
+					 struct server_id notifyd,
+					 const char *trigger_path,
+					 uint32_t trigger_action,
+					 uint32_t trigger_filter)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_trigger msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_notify_trigger_push(frame,
+						    &msg,
+						    timespec_current(),
+						    trigger_action,
+						    trigger_filter,
+						    trigger_path,
+						    &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx,
+				notifyd,
+				MSG_SMB_NOTIFY_TRIGGER_V1,
+				&blob);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS fcn_test_trigger_send(struct messaging_context *msg_ctx,
+				      struct server_id notifyd,
+				      const char *trigger_path,
+				      uint32_t trigger_action,
+				      uint32_t trigger_filter)
+{
+	struct notify_trigger_msg msg;
+	struct iovec iov[2];
+
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return fcn_test_trigger_send_v1(msg_ctx,
+						notifyd,
+						trigger_path,
+						trigger_action,
+						trigger_filter);
+	}
+
+	msg = (struct notify_trigger_msg){
+		.when = timespec_current(),
+		.action = trigger_action,
+		.filter = trigger_filter,
+	};
+	iov[0] = (struct iovec){
+		.iov_base = &msg,
+		.iov_len = offsetof(struct notify_trigger_msg, path),
+	};
+	iov[1] = (struct iovec){
+		.iov_base = discard_const_p(char, trigger_path),
+		.iov_len = strlen(trigger_path) + 1,
+	};
+
+	return messaging_send_iov(msg_ctx,
+				  notifyd,
+				  MSG_SMB_NOTIFY_TRIGGER,
+				  iov,
+				  ARRAY_SIZE(iov),
+				  NULL,
+				  0);
+}
+
 static struct tevent_req *fcn_test_send(
 	TALLOC_CTX *mem_ctx,
 	struct tevent_context *ev,
@@ -48,8 +123,6 @@ static struct tevent_req *fcn_test_send(
 {
 	struct tevent_req *req = NULL;
 	struct fcn_test_state *state = NULL;
-	struct notify_trigger_msg msg;
-	struct iovec iov[2];
 	NTSTATUS status;
 
 	req = tevent_req_create(mem_ctx, &state, struct fcn_test_state);
@@ -70,28 +143,11 @@ static struct tevent_req *fcn_test_send(
 	}
 	tevent_req_set_callback(state->fcn_req, fcn_test_done, req);
 
-	msg = (struct notify_trigger_msg) {
-		.when = timespec_current(),
-		.action = trigger_action,
-		.filter = trigger_filter,
-	};
-	iov[0] = (struct iovec) {
-		.iov_base = &msg,
-		.iov_len = offsetof(struct notify_trigger_msg, path),
-	};
-	iov[1] = (struct iovec) {
-		.iov_base = discard_const_p(char, trigger_path),
-		.iov_len = strlen(trigger_path)+1,
-	};
-
-	status = messaging_send_iov(
-		msg_ctx,
-		notifyd,
-		MSG_SMB_NOTIFY_TRIGGER,
-		iov,
-		ARRAY_SIZE(iov),
-		NULL,
-		0);
+	status = fcn_test_trigger_send(msg_ctx,
+				       notifyd,
+				       trigger_path,
+				       trigger_action,
+				       trigger_filter);
 	if (tevent_req_nterror(req, status)) {
 		return tevent_req_post(req, ev);
 	}
