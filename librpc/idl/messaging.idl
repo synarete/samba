@@ -2,6 +2,7 @@
 
 import "server_id.idl";
 import "file_id.idl";
+import "misc.idl";
 
 /*
    IDL structures for messaging code
@@ -106,6 +107,7 @@ interface messaging
 		MSG_SMB_INJECT_FAULT_V1		= 0x130C,
 		/* MSG_SMB_BLOCKING_LOCK_CANCEL	= 0x030D,  Obsoleted */
 		MSG_SMB_NOTIFY			= 0x030E,
+		MSG_SMB_NOTIFY_V1		= 0x130E,
 		/* MSG_SMB_STAT_CACHE_DELETE	= 0x030F,  Obsoleted */
 
 		/* Samba4 compatibility */
@@ -136,14 +138,21 @@ interface messaging
 
 		/* Cancel a notify, directory got deleted */
 		MSG_SMB_NOTIFY_CANCEL_DELETED   = 0x0319,
+		MSG_SMB_NOTIFY_CANCEL_DELETED_V1 = 0x1319,
 
 		/* notifyd messages */
 		MSG_SMB_NOTIFY_REC_CHANGE	= 0x031A,
+		MSG_SMB_NOTIFY_REC_CHANGE_V1	= 0x131A,
 		MSG_SMB_NOTIFY_TRIGGER		= 0x031B,
+		MSG_SMB_NOTIFY_TRIGGER_V1	= 0x131B,
 		MSG_SMB_NOTIFY_GET_DB		= 0x031C,
+		MSG_SMB_NOTIFY_GET_DB_V1	= 0x131C,
 		MSG_SMB_NOTIFY_DB		= 0x031D,
+		MSG_SMB_NOTIFY_DB_V1		= 0x131D,
 		MSG_SMB_NOTIFY_REC_CHANGES	= 0x031E,
+		MSG_SMB_NOTIFY_REC_CHANGES_V1	= 0x131E,
 		MSG_SMB_NOTIFY_STARTED          = 0x031F,
+		MSG_SMB_NOTIFY_STARTED_V1       = 0x131F,
 		MSG_SMB_SLEEP			= 0x0320,
 		MSG_SMB_SLEEP_V1		= 0x1320,
 
@@ -667,25 +676,6 @@ interface messaging
 		[switch_is(version)] messaging_smb_file_renameU info;
 	} messaging_smb_file_rename;
 
-	/* MSG_SMB_NOTIFY_CLEANUP */
-	typedef [public, v1_enum] enum {
-		MESSAGING_SMB_NOTIFY_CLEANUP_VERSION_1 = 0x00000001
-	} messaging_smb_notify_cleanup_version_values;
-
-	typedef struct {
-	} messaging_smb_notify_cleanup_v1;
-
-	typedef [switch_type(messaging_smb_notify_cleanup_version_values)] union {
-		[case(MESSAGING_SMB_NOTIFY_CLEANUP_VERSION_1)] messaging_smb_notify_cleanup_v1 info1;
-		[default] ;
-	} messaging_smb_notify_cleanupU;
-
-	typedef [public] struct {
-		[value(MESSAGING_SMB_NOTIFY_CLEANUP_VERSION_1)] messaging_smb_notify_cleanup_version_values version;
-		[value(0)] uint32                                      reserved;
-		[switch_is(version)] messaging_smb_notify_cleanupU info;
-	} messaging_smb_notify_cleanup;
-
 	/* MSG_SMB_SCAVENGER */
 	typedef [public, v1_enum] enum {
 		MESSAGING_SMB_SCAVENGER_VERSION_1 = 0x00000001
@@ -708,6 +698,130 @@ interface messaging
 		[switch_is(version)] messaging_smb_scavengerU info;
 	} messaging_smb_scavenger;
 
+	/* Unified version enum for all MSG_SMB_NOTIFY* messages */
+	typedef [public, v1_enum] enum {
+		MESSAGING_SMB_NOTIFY_VERSION_1 = 0x00000001
+	} messaging_smb_notify_version_values;
+
+	/* MSG_SMB_NOTIFY */
+	typedef struct {
+	} messaging_smb_notify_v1;
+
+	typedef [switch_type(messaging_smb_notify_version_values)] union {
+		[case(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_v1 info1;
+		[default] ;
+	} messaging_smb_notifyU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_version_values version;
+		[value(0)] uint32                                   reserved;
+		[switch_is(version)] messaging_smb_notifyU info;
+	} messaging_smb_notify;
+
+	/* MSG_SMB_NOTIFY_CLEANUP */
+	typedef struct {
+	} messaging_smb_notify_cleanup_v1;
+
+	typedef [switch_type(messaging_smb_notify_version_values)] union {
+		[case(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_cleanup_v1 info1;
+		[default] ;
+	} messaging_smb_notify_cleanupU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_version_values version;
+		[value(0)] uint32                                      reserved;
+		[switch_is(version)] messaging_smb_notify_cleanupU info;
+	} messaging_smb_notify_cleanup;
+
+	/* MSG_SMB_NOTIFY_CANCEL_DELETED */
+	typedef struct {
+		file_id fid;
+	} messaging_smb_notify_cancel_deleted_v1;
+
+	typedef [switch_type(messaging_smb_notify_version_values)] union {
+		[case(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_cancel_deleted_v1 info1;
+		[default] ;
+	} messaging_smb_notify_cancel_deletedU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_version_values version;
+		[value(0)] uint32                                       reserved;
+		[switch_is(version)] messaging_smb_notify_cancel_deletedU info;
+	} messaging_smb_notify_cancel_deleted;
+
+	/* MSG_SMB_NOTIFY_REC_CHANGE */
+	typedef struct {
+		hyper      tv_sec;
+		uint32     tv_nsec;
+		uint32     filter;
+		uint32     subdir_filter;
+		pointer    private_data;
+		utf8string path;
+	} messaging_smb_notify_rec_change_v1;
+
+	typedef [switch_type(messaging_smb_notify_version_values)] union {
+		[case(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_rec_change_v1 info1;
+		[default] ;
+	} messaging_smb_notify_rec_changeU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_version_values version;
+		[value(0)] uint32                                  reserved;
+		[switch_is(version)] messaging_smb_notify_rec_changeU info;
+	} messaging_smb_notify_rec_change;
+
+	/* MSG_SMB_NOTIFY_TRIGGER */
+	typedef struct {
+		hyper      tv_sec;
+		uint32     tv_nsec;
+		uint32     action;
+		uint32     filter;
+		utf8string path;
+	} messaging_smb_notify_trigger_v1;
+
+	typedef [switch_type(messaging_smb_notify_version_values)] union {
+		[case(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_trigger_v1 info1;
+		[default] ;
+	} messaging_smb_notify_triggerU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_version_values version;
+		[value(0)] uint32                                   reserved;
+		[switch_is(version)] messaging_smb_notify_triggerU info;
+	} messaging_smb_notify_trigger;
+
+	/* MSG_SMB_NOTIFY_GET_DB */
+	typedef struct {
+	} messaging_smb_notify_get_db_v1;
+
+	typedef [switch_type(messaging_smb_notify_version_values)] union {
+		[case(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_get_db_v1 info1;
+		[default] ;
+	} messaging_smb_notify_get_dbU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_version_values version;
+		[value(0)] uint32                                  reserved;
+		[switch_is(version)] messaging_smb_notify_get_dbU info;
+	} messaging_smb_notify_get_db;
+
+	/* MSG_SMB_NOTIFY_DB */
+	typedef struct {
+		hyper     rec_index;
+		DATA_BLOB db;
+	} messaging_smb_notify_db_v1;
+
+	typedef [switch_type(messaging_smb_notify_version_values)] union {
+		[case(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_db_v1 info1;
+		[default] ;
+	} messaging_smb_notify_dbU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_version_values version;
+		[value(0)] uint32                              reserved;
+		[switch_is(version)] messaging_smb_notify_dbU info;
+	} messaging_smb_notify_db;
+
 	/* messaging struct sent across the sockets and stored in the tdb */
 
 	typedef [public] struct {
@@ -727,6 +841,37 @@ interface messaging
 		uint32 num_recs;
 		messaging_rec *recs[num_recs];
 	} messaging_reclog;
+
+	/* MSG_SMB_NOTIFY_REC_CHANGES */
+	typedef struct {
+		messaging_reclog reclog;
+	} messaging_smb_notify_rec_changes_v1;
+
+	typedef [switch_type(messaging_smb_notify_version_values)] union {
+		[case(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_rec_changes_v1 info1;
+		[default] ;
+	} messaging_smb_notify_rec_changesU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_version_values version;
+		[value(0)] uint32                                      reserved;
+		[switch_is(version)] messaging_smb_notify_rec_changesU info;
+	} messaging_smb_notify_rec_changes;
+
+	/* MSG_SMB_NOTIFY_STARTED */
+	typedef struct {
+	} messaging_smb_notify_started_v1;
+
+	typedef [switch_type(messaging_smb_notify_version_values)] union {
+		[case(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_started_v1 info1;
+		[default] ;
+	} messaging_smb_notify_startedU;
+
+	typedef [public] struct {
+		[value(MESSAGING_SMB_NOTIFY_VERSION_1)] messaging_smb_notify_version_values version;
+		[value(0)] uint32                                   reserved;
+		[switch_is(version)] messaging_smb_notify_startedU info;
+	} messaging_smb_notify_started;
 
         /* This allows this well known service name to be referenced in python and C */
         const string AUTH_EVENT_NAME  = "auth_event";

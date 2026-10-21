@@ -28,6 +28,8 @@
 #include "lib/dbwrap/dbwrap.h"
 #include "lib/dbwrap/dbwrap_rbt.h"
 #include "messages.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 #include "tdb.h"
 #include "util_tdb.h"
 #include "notifyd.h"
@@ -212,13 +214,33 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 		return tevent_req_post(req, ev);
 	}
 
+	status = messaging_register(msg_ctx,
+				    state,
+				    MSG_SMB_NOTIFY_REC_CHANGE_V1,
+				    notifyd_rec_change);
+	if (tevent_req_nterror(req, status)) {
+		goto deregister_rec_change;
+	}
+
 	status = messaging_register(msg_ctx, state, MSG_SMB_NOTIFY_TRIGGER,
 				    notifyd_trigger);
 	if (tevent_req_nterror(req, status)) {
 		goto deregister_rec_change;
 	}
 
+	status = messaging_register(msg_ctx, state, MSG_SMB_NOTIFY_TRIGGER_V1,
+				    notifyd_trigger);
+	if (tevent_req_nterror(req, status)) {
+		goto deregister_rec_change;
+	}
+
 	status = messaging_register(msg_ctx, state, MSG_SMB_NOTIFY_GET_DB,
+				    notifyd_get_db);
+	if (tevent_req_nterror(req, status)) {
+		goto deregister_trigger;
+	}
+
+	status = messaging_register(msg_ctx, state, MSG_SMB_NOTIFY_GET_DB_V1,
 				    notifyd_get_db);
 	if (tevent_req_nterror(req, status)) {
 		goto deregister_trigger;
@@ -244,6 +266,12 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 
 #ifdef CLUSTER_SUPPORT
 	status = messaging_register(msg_ctx, state, MSG_SMB_NOTIFY_DB,
+				    notifyd_got_db);
+	if (tevent_req_nterror(req, status)) {
+		goto deregister_get_db;
+	}
+
+	status = messaging_register(msg_ctx, state, MSG_SMB_NOTIFY_DB_V1,
 				    notifyd_got_db);
 	if (tevent_req_nterror(req, status)) {
 		goto deregister_get_db;
@@ -285,13 +313,17 @@ struct tevent_req *notifyd_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
 
 #ifdef CLUSTER_SUPPORT
 deregister_db:
+	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_DB_V1, state);
 	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_DB, state);
 #endif
 deregister_get_db:
+	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_GET_DB_V1, state);
 	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_GET_DB, state);
 deregister_trigger:
+	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_TRIGGER_V1, state);
 	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_TRIGGER, state);
 deregister_rec_change:
+	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_REC_CHANGE_V1, state);
 	messaging_deregister(msg_ctx, MSG_SMB_NOTIFY_REC_CHANGE, state);
 	return tevent_req_post(req, ev);
 }
@@ -567,34 +599,96 @@ fail:
 	return ok;
 }
 
+static NTSTATUS notifyd_trigger_send_v1(struct messaging_context *msg_ctx,
+					struct server_id dst,
+					struct timespec when,
+					uint32_t action,
+					uint32_t filter,
+					const char *path)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_trigger m = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_notify_trigger_push(frame,
+						    &m,
+						    when,
+						    action,
+						    filter,
+						    path,
+						    &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx, dst, MSG_SMB_NOTIFY_TRIGGER_V1, &blob);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS notifyd_trigger_send(struct messaging_context *msg_ctx,
+				     struct server_id dst,
+				     struct timespec when,
+				     uint32_t action,
+				     uint32_t filter,
+				     const char *dir,
+				     const char *name)
+{
+	struct notify_trigger_msg msg;
+	struct iovec iov[4];
+	char slash = '/';
+	char *path = NULL;
+	NTSTATUS status;
+
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		TALLOC_CTX *frame = talloc_stackframe();
+
+		path = talloc_asprintf(frame, "%s/%s", dir, name);
+		if (path == NULL) {
+			TALLOC_FREE(frame);
+			return NT_STATUS_NO_MEMORY;
+		}
+
+		status = notifyd_trigger_send_v1(msg_ctx, dst, when, action,
+						 filter, path);
+		TALLOC_FREE(frame);
+		return status;
+	}
+
+	msg = (struct notify_trigger_msg) {
+		.when = when,
+		.action = action,
+		.filter = filter,
+	};
+
+	iov[0].iov_base = &msg;
+	iov[0].iov_len = offsetof(struct notify_trigger_msg, path);
+	iov[1].iov_base = discard_const_p(char, dir);
+	iov[1].iov_len = strlen(dir);
+	iov[2].iov_base = &slash;
+	iov[2].iov_len = 1;
+	iov[3].iov_base = discard_const_p(char, name);
+	iov[3].iov_len = strlen(name)+1;
+
+	return messaging_send_iov(
+		msg_ctx, dst,
+		MSG_SMB_NOTIFY_TRIGGER, iov, ARRAY_SIZE(iov), NULL, 0);
+}
+
 static void notifyd_sys_callback(struct sys_notify_context *ctx,
 				 void *private_data, struct notify_event *ev,
 				 uint32_t filter)
 {
 	struct messaging_context *msg_ctx = talloc_get_type_abort(
 		private_data, struct messaging_context);
-	struct notify_trigger_msg msg;
-	struct iovec iov[4];
-	char slash = '/';
 
-	msg = (struct notify_trigger_msg) {
-		.when = timespec_current(),
-		.action = ev->action,
-		.filter = filter,
-	};
-
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_trigger_msg, path);
-	iov[1].iov_base = discard_const_p(char, ev->dir);
-	iov[1].iov_len = strlen(ev->dir);
-	iov[2].iov_base = &slash;
-	iov[2].iov_len = 1;
-	iov[3].iov_base = discard_const_p(char, ev->path);
-	iov[3].iov_len = strlen(ev->path)+1;
-
-	messaging_send_iov(
-		msg_ctx, messaging_server_id(msg_ctx),
-		MSG_SMB_NOTIFY_TRIGGER, iov, ARRAY_SIZE(iov), NULL, 0);
+	notifyd_trigger_send(msg_ctx, messaging_server_id(msg_ctx),
+			     timespec_current(), ev->action, filter,
+			     ev->dir, ev->path);
 }
 
 static bool notifyd_parse_rec_change(uint8_t *buf, size_t bufsize,
@@ -622,33 +716,88 @@ static bool notifyd_parse_rec_change(uint8_t *buf, size_t bufsize,
 	return true;
 }
 
+static bool notifyd_parse_rec_change_v1(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *data,
+	struct messaging_smb_notify_rec_change *m,
+	struct notify_instance *instance,
+	const char **path,
+	size_t *pathlen)
+{
+	enum ndr_err_code ndr_err;
+
+	*m = (struct messaging_smb_notify_rec_change){0};
+
+	ndr_err = messaging_smb_notify_rec_change_pull(mem_ctx, data, m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_NOTIFY_REC_CHANGE_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		return false;
+	}
+
+	*instance = (struct notify_instance){
+		.creation_time =
+			(struct timespec){
+				.tv_sec = m->info.info1.tv_sec,
+				.tv_nsec = m->info.info1.tv_nsec,
+			},
+		.filter = m->info.info1.filter,
+		.subdir_filter = m->info.info1.subdir_filter,
+		.private_data = m->info.info1.private_data,
+	};
+	*path = m->info.info1.path;
+	*pathlen = strlen(*path) + 1;
+
+	return true;
+}
+
 static void notifyd_rec_change(struct messaging_context *msg_ctx,
 			       void *private_data, uint32_t msg_type,
 			       struct server_id src, DATA_BLOB *data)
 {
 	struct notifyd_state *state = talloc_get_type_abort(
 		private_data, struct notifyd_state);
+	TALLOC_CTX *frame = talloc_stackframe();
 	struct server_id_buf idbuf;
-	struct notify_rec_change_msg *msg;
+	struct messaging_smb_notify_rec_change m;
+	struct notify_instance instance;
+	const char *path = NULL;
 	size_t pathlen;
 	bool ok;
-	struct notify_instance instance;
 
 	DBG_DEBUG("Got %zu bytes from %s\n", data->length,
 		  server_id_str_buf(src, &idbuf));
 
-	ok = notifyd_parse_rec_change(data->data, data->length,
-				      &msg, &pathlen);
+	if (msg_type == MSG_SMB_NOTIFY_REC_CHANGE_V1) {
+		ok = notifyd_parse_rec_change_v1(
+			frame, data, &m, &instance, &path, &pathlen);
+	} else {
+		struct notify_rec_change_msg *msg;
+
+		ok = notifyd_parse_rec_change(data->data,
+					      data->length,
+					      &msg,
+					      &pathlen);
+		if (ok) {
+			/* avoid SIGBUS */
+			memcpy(&instance, &msg->instance, sizeof(instance));
+			path = msg->path;
+		}
+	}
 	if (!ok) {
+		TALLOC_FREE(frame);
 		return;
 	}
 
-	memcpy(&instance, &msg->instance, sizeof(instance)); /* avoid SIGBUS */
-
-	ok = notifyd_apply_rec_change(
-		&src, msg->path, pathlen, &instance,
-		state->entries, state->sys_notify_watch, state->sys_notify_ctx,
-		state->msg_ctx);
+	ok = notifyd_apply_rec_change(&src,
+				      path,
+				      pathlen,
+				      &instance,
+				      state->entries,
+				      state->sys_notify_watch,
+				      state->sys_notify_ctx,
+				      state->msg_ctx);
+	TALLOC_FREE(frame);
 	if (!ok) {
 		DBG_DEBUG("notifyd_apply_rec_change failed, ignoring\n");
 		return;
@@ -701,6 +850,7 @@ static void notifyd_rec_change(struct messaging_context *msg_ctx,
 struct notifyd_trigger_state {
 	struct messaging_context *msg_ctx;
 	struct notify_trigger_msg *msg;
+	const char *path;
 	bool recursive;
 	bool covered_by_sys_notify;
 };
@@ -708,34 +858,84 @@ struct notifyd_trigger_state {
 static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 				   void *private_data);
 
+static bool notifyd_parse_trigger(uint8_t *buf, size_t bufsize,
+				  struct notify_trigger_msg *msg,
+				  const char **path)
+{
+	if (bufsize < offsetof(struct notify_trigger_msg, path) + 1) {
+		DBG_WARNING("message too short, ignoring: %zu\n", bufsize);
+		return false;
+	}
+	if (buf[bufsize - 1] != 0) {
+		DBG_WARNING("path not 0-terminated, ignoring\n");
+		return false;
+	}
+	*msg = *(struct notify_trigger_msg *)buf;
+	*path = ((struct notify_trigger_msg *)buf)->path;
+	return true;
+}
+
+static bool notifyd_parse_trigger_v1(TALLOC_CTX *mem_ctx,
+				     const DATA_BLOB *data,
+				     struct messaging_smb_notify_trigger *m,
+				     struct notify_trigger_msg *msg,
+				     const char **path)
+{
+	enum ndr_err_code ndr_err;
+
+	*m = (struct messaging_smb_notify_trigger){0};
+
+	ndr_err = messaging_smb_notify_trigger_pull(mem_ctx, data, m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid MSG_SMB_NOTIFY_TRIGGER_V1: %s\n",
+			    ndr_errstr(ndr_err));
+		return false;
+	}
+
+	*msg = (struct notify_trigger_msg){
+		.when = (struct timespec){
+			.tv_sec = m->info.info1.tv_sec,
+			.tv_nsec = m->info.info1.tv_nsec,
+		},
+		.action = m->info.info1.action,
+		.filter = m->info.info1.filter,
+	};
+	*path = m->info.info1.path;
+	return true;
+}
+
 static void notifyd_trigger(struct messaging_context *msg_ctx,
 			    void *private_data, uint32_t msg_type,
 			    struct server_id src, DATA_BLOB *data)
 {
 	struct notifyd_state *state = talloc_get_type_abort(
 		private_data, struct notifyd_state);
+	TALLOC_CTX *frame = talloc_stackframe();
 	struct server_id my_id = messaging_server_id(msg_ctx);
+	struct messaging_smb_notify_trigger m;
+	struct notify_trigger_msg trigger_msg;
 	struct notifyd_trigger_state tstate;
-	const char *path;
+	const char *path = NULL;
 	const char *p, *next_p;
+	bool ok;
 
-	if (data->length < offsetof(struct notify_trigger_msg, path) + 1) {
-		DBG_WARNING("message too short, ignoring: %zu\n",
-			    data->length);
-		return;
+	if (msg_type == MSG_SMB_NOTIFY_TRIGGER_V1) {
+		ok = notifyd_parse_trigger_v1(
+			frame, data, &m, &trigger_msg, &path);
+	} else {
+		ok = notifyd_parse_trigger(
+			data->data, data->length, &trigger_msg, &path);
 	}
-	if (data->data[data->length-1] != 0) {
-		DBG_WARNING("path not 0-terminated, ignoring\n");;
+	if (!ok) {
+		TALLOC_FREE(frame);
 		return;
 	}
 
 	tstate.msg_ctx = msg_ctx;
-
 	tstate.covered_by_sys_notify = (src.vnn == my_id.vnn);
 	tstate.covered_by_sys_notify &= !server_id_equal(&src, &my_id);
-
-	tstate.msg = (struct notify_trigger_msg *)data->data;
-	path = tstate.msg->path;
+	tstate.msg = &trigger_msg;
+	tstate.path = path;
 
 	DBG_DEBUG("Got trigger_msg action=%"PRIu32", filter=%"PRIu32", "
 		  "path=%s\n",
@@ -746,6 +946,7 @@ static void notifyd_trigger(struct messaging_context *msg_ctx,
 	if (path[0] != '/') {
 		DBG_WARNING("path %s does not start with /, ignoring\n",
 			    path);
+		TALLOC_FREE(frame);
 		return;
 	}
 
@@ -784,6 +985,8 @@ static void notifyd_trigger(struct messaging_context *msg_ctx,
 					    notifyd_trigger_parser, &tstate);
 		}
 	}
+
+	TALLOC_FREE(frame);
 }
 
 static void notifyd_send_delete(struct messaging_context *msg_ctx,
@@ -822,7 +1025,7 @@ static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 
 	iov[0].iov_base = &msg;
 	iov[0].iov_len = offsetof(struct notify_event_msg, path);
-	iov[1].iov_base = tstate->msg->path + path_len + 1;
+	iov[1].iov_base = discard_const_p(char, tstate->path + path_len + 1);
 	iov[1].iov_len = strlen((char *)(iov[1].iov_base)) + 1;
 
 	for (i=0; i<num_instances; i++) {
@@ -882,6 +1085,47 @@ static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
  * record for an smbd that has died.
  */
 
+static void notifyd_send_delete_v1(struct messaging_context *msg_ctx,
+				   TDB_DATA key,
+				   struct notifyd_instance *instance)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_rec_change m = {};
+	char path[key.dsize + 1];
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	memcpy(path, key.dptr, key.dsize);
+	path[key.dsize] = '\0';
+
+	ndr_err = messaging_smb_notify_rec_change_push(
+		frame,
+		&m,
+		(struct timespec){0},
+		0,
+		0,
+		instance->instance.private_data,
+		path,
+		&blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING(
+			"messaging_smb_notify_rec_change_push failed: %s\n",
+			ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx,
+				instance->client,
+				MSG_SMB_NOTIFY_REC_CHANGE_V1,
+				&blob);
+	if (!NT_STATUS_IS_OK(status)) {
+		DBG_WARNING("messaging_send failed: %s\n", nt_errstr(status));
+	}
+out:
+	TALLOC_FREE(frame);
+}
+
 static void notifyd_send_delete(struct messaging_context *msg_ctx,
 				TDB_DATA key,
 				struct notifyd_instance *instance)
@@ -892,6 +1136,11 @@ static void notifyd_send_delete(struct messaging_context *msg_ctx,
 	uint8_t nul = 0;
 	struct iovec iov[3];
 	NTSTATUS status;
+
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		notifyd_send_delete_v1(msg_ctx, key, instance);
+		return;
+	}
 
 	/*
 	 * Send a rec_change to ourselves to delete a dead entry
@@ -915,6 +1164,34 @@ static void notifyd_send_delete(struct messaging_context *msg_ctx,
 		DBG_WARNING("messaging_send_iov failed: %s\n",
 			    nt_errstr(status));
 	}
+}
+
+static void notifyd_send_db_v1(struct messaging_context *msg_ctx,
+			       struct server_id src,
+			       uint64_t rec_index,
+			       uint8_t *buf,
+			       size_t dbsize)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_db m = {};
+	DATA_BLOB blob;
+	DATA_BLOB db_blob = { .data = buf, .length = dbsize };
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_notify_db_push(frame, &m, rec_index, db_blob, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("messaging_smb_notify_db_push failed: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx, src, MSG_SMB_NOTIFY_DB_V1, &blob);
+	if (!NT_STATUS_IS_OK(status)) {
+		DBG_WARNING("messaging_send failed: %s\n", nt_errstr(status));
+	}
+out:
+	TALLOC_FREE(frame);
 }
 
 static void notifyd_get_db(struct messaging_context *msg_ctx,
@@ -952,6 +1229,13 @@ static void notifyd_get_db(struct messaging_context *msg_ctx,
 	if (state->log != NULL) {
 		rec_index = state->log->rec_index;
 	}
+
+	if (msg_type == MSG_SMB_NOTIFY_GET_DB_V1) {
+		notifyd_send_db_v1(msg_ctx, src, rec_index, buf, dbsize);
+		TALLOC_FREE(buf);
+		return;
+	}
+
 	SBVAL(index_buf, 0, rec_index);
 
 	iov[0] = (struct iovec) { .iov_base = index_buf,
@@ -978,17 +1262,40 @@ static void notifyd_get_db(struct messaging_context *msg_ctx,
 static int notifyd_add_proxy_syswatches(struct db_record *rec,
 					void *private_data);
 
+static bool notifyd_parse_got_db_v1(TALLOC_CTX *mem_ctx,
+				    const DATA_BLOB *data,
+				    struct messaging_smb_notify_db *m)
+{
+	enum ndr_err_code ndr_err;
+
+	*m = (struct messaging_smb_notify_db){0};
+
+	ndr_err = messaging_smb_notify_db_pull(mem_ctx, data, m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("messaging_smb_notify_db_pull failed: %s\n",
+			    ndr_errstr(ndr_err));
+		return false;
+	}
+	return true;
+}
+
 static void notifyd_got_db(struct messaging_context *msg_ctx,
 			   void *private_data, uint32_t msg_type,
 			   struct server_id src, DATA_BLOB *data)
 {
 	struct notifyd_state *state = talloc_get_type_abort(
 		private_data, struct notifyd_state);
+	TALLOC_CTX *frame = talloc_stackframe();
 	struct notifyd_peer *p = NULL;
 	struct server_id_buf idbuf;
+	struct messaging_smb_notify_db m;
+	uint64_t rec_index = 0;
+	uint8_t *db_data = NULL;
+	size_t db_len = 0;
 	NTSTATUS status;
 	int count;
 	size_t i;
+	bool ok;
 
 	for (i=0; i<state->num_peers; i++) {
 		if (server_id_equal(&src, &state->peers[i]->pid)) {
@@ -1000,31 +1307,49 @@ static void notifyd_got_db(struct messaging_context *msg_ctx,
 	if (p == NULL) {
 		DBG_DEBUG("Did not find peer for db from %s\n",
 			  server_id_str_buf(src, &idbuf));
+		TALLOC_FREE(frame);
 		return;
 	}
 
-	if (data->length < 8) {
-		DBG_DEBUG("Got short db length %zu from %s\n", data->length,
-			   server_id_str_buf(src, &idbuf));
-		TALLOC_FREE(p);
-		return;
+	if (msg_type == MSG_SMB_NOTIFY_DB_V1) {
+		ok = notifyd_parse_got_db_v1(frame, data, &m);
+		if (!ok) {
+			TALLOC_FREE(frame);
+			TALLOC_FREE(p);
+			return;
+		}
+		rec_index = m.info.info1.rec_index;
+		db_data = m.info.info1.db.data;
+		db_len = m.info.info1.db.length;
+	} else {
+		if (data->length < 8) {
+			DBG_DEBUG("Got short db length %zu from %s\n", data->length,
+				   server_id_str_buf(src, &idbuf));
+			TALLOC_FREE(frame);
+			TALLOC_FREE(p);
+			return;
+		}
+		rec_index = BVAL(data->data, 0);
+		db_data = data->data + 8;
+		db_len = data->length - 8;
 	}
 
-	p->rec_index = BVAL(data->data, 0);
+	p->rec_index = rec_index;
 
 	p->db = db_open_rbt(p);
 	if (p->db == NULL) {
 		DBG_DEBUG("db_open_rbt failed\n");
+		TALLOC_FREE(frame);
 		TALLOC_FREE(p);
 		return;
 	}
 
-	status = dbwrap_unmarshall(p->db, data->data + 8,
-				   data->length - 8);
+	status = dbwrap_unmarshall(p->db, db_data, db_len);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("dbwrap_unmarshall returned %s for db %s\n",
 			  nt_errstr(status),
 			  server_id_str_buf(src, &idbuf));
+		TALLOC_FREE(frame);
 		TALLOC_FREE(p);
 		return;
 	}
@@ -1035,6 +1360,49 @@ static void notifyd_got_db(struct messaging_context *msg_ctx,
 	DBG_DEBUG("Database from %s contained %d records\n",
 		  server_id_str_buf(src, &idbuf),
 		  count);
+
+	TALLOC_FREE(frame);
+}
+
+static void notifyd_broadcast_reclog_v1(struct ctdbd_connection *ctdbd_conn,
+					struct server_id src,
+					struct messaging_reclog *log)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_rec_changes m = {};
+	uint8_t msghdr[MESSAGE_HDR_LENGTH];
+	DATA_BLOB blob;
+	struct iovec iov[2];
+	enum ndr_err_code ndr_err;
+	int ret;
+
+	message_hdr_put(msghdr, MSG_SMB_NOTIFY_REC_CHANGES_V1, src,
+			(struct server_id) {0 });
+	iov[0] = (struct iovec) { .iov_base = msghdr,
+				  .iov_len = sizeof(msghdr) };
+
+	ndr_err = messaging_smb_notify_rec_changes_push(frame, &m, log, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("messaging_smb_notify_rec_changes_push failed: %s\n",
+			    ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return;
+	}
+
+	iov[1] = (struct iovec) { .iov_base = blob.data,
+				  .iov_len = blob.length };
+
+	ret = ctdbd_messaging_send_iov(
+		ctdbd_conn, CTDB_BROADCAST_CONNECTED,
+		CTDB_SRVID_SAMBA_NOTIFY_PROXY, iov, ARRAY_SIZE(iov));
+	TALLOC_FREE(frame);
+	if (ret != 0) {
+		DBG_WARNING("ctdbd_messaging_send failed: %s\n",
+			    strerror(ret));
+		return;
+	}
+
+	log->rec_index += 1;
 }
 
 static void notifyd_broadcast_reclog(struct ctdbd_connection *ctdbd_conn,
@@ -1054,6 +1422,11 @@ static void notifyd_broadcast_reclog(struct ctdbd_connection *ctdbd_conn,
 	DBG_DEBUG("rec_index=%"PRIu64", num_recs=%"PRIu32"\n",
 		  log->rec_index,
 		  log->num_recs);
+
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		notifyd_broadcast_reclog_v1(ctdbd_conn, src, log);
+		goto done;
+	}
 
 	message_hdr_put(msghdr, MSG_SMB_NOTIFY_REC_CHANGES, src,
 			(struct server_id) {0 });
@@ -1348,36 +1721,101 @@ static struct notifyd_peer *notifyd_peer_new(
 	return p;
 }
 
+static NTSTATUS notifyd_get_db_send_v1(struct messaging_context *msg_ctx,
+				       struct server_id dst)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_get_db m = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status = NT_STATUS_NO_MEMORY;
+
+	ndr_err = messaging_smb_notify_get_db_push(frame, &m, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx, dst, MSG_SMB_NOTIFY_GET_DB_V1, &blob);
+out:
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static bool notifyd_parse_reclog(TALLOC_CTX *mem_ctx,
+				 const DATA_BLOB *blob,
+				 struct messaging_reclog **plog)
+{
+	struct messaging_reclog *log;
+	enum ndr_err_code ndr_err;
+
+	log = talloc(mem_ctx, struct messaging_reclog);
+	if (log == NULL) {
+		DBG_DEBUG("talloc failed\n");
+		return false;
+	}
+
+	ndr_err = ndr_pull_struct_blob_all(
+		blob, log, log,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_reclog);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("ndr_pull_messaging_reclog failed: %s\n",
+			  ndr_errstr(ndr_err));
+		TALLOC_FREE(log);
+		return false;
+	}
+	*plog = log;
+	return true;
+}
+
+static bool notifyd_parse_reclog_v1(TALLOC_CTX *mem_ctx,
+				    const DATA_BLOB *blob,
+				    struct messaging_smb_notify_rec_changes *m,
+				    struct messaging_reclog **plog)
+{
+	enum ndr_err_code ndr_err;
+
+	*m = (struct messaging_smb_notify_rec_changes){0};
+
+	ndr_err = messaging_smb_notify_rec_changes_pull(mem_ctx, blob, m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_smb_notify_rec_changes_pull failed: %s\n",
+			  ndr_errstr(ndr_err));
+		return false;
+	}
+	*plog = &m->info.info1.reclog;
+	return true;
+}
+
 static void notifyd_apply_reclog(struct notifyd_peer *peer,
-				 const uint8_t *msg, size_t msglen)
+				 uint32_t msg_type,
+				 const uint8_t *msg,
+				 size_t msglen)
 {
 	struct notifyd_state *state = peer->state;
+	TALLOC_CTX *frame = talloc_stackframe();
 	DATA_BLOB blob = { .data = discard_const_p(uint8_t, msg),
 			   .length = msglen };
 	struct server_id_buf idbuf;
-	struct messaging_reclog *log;
-	enum ndr_err_code ndr_err;
+	struct messaging_smb_notify_rec_changes m;
+	struct messaging_reclog *log = NULL;
 	uint32_t i;
+	bool ok;
 
 	if (peer->db == NULL) {
 		/*
 		 * No db yet
 		 */
+		TALLOC_FREE(frame);
 		return;
 	}
 
-	log = talloc(peer, struct messaging_reclog);
-	if (log == NULL) {
-		DBG_DEBUG("talloc failed\n");
-		return;
+	if (msg_type == MSG_SMB_NOTIFY_REC_CHANGES_V1) {
+		ok = notifyd_parse_reclog_v1(frame, &blob, &m, &log);
+	} else {
+		ok = notifyd_parse_reclog(frame, &blob, &log);
 	}
-
-	ndr_err = ndr_pull_struct_blob_all(
-		&blob, log, log,
-		(ndr_pull_flags_fn_t)ndr_pull_messaging_reclog);
-	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		DBG_DEBUG("ndr_pull_messaging_reclog failed: %s\n",
-			  ndr_errstr(ndr_err));
+	if (!ok) {
+		TALLOC_FREE(frame);
 		goto fail;
 	}
 
@@ -1392,33 +1830,59 @@ static void notifyd_apply_reclog(struct notifyd_peer *peer,
 			 log->rec_index,
 			 server_id_str_buf(peer->pid, &idbuf),
 			 peer->rec_index);
+		TALLOC_FREE(frame);
 		goto fail;
 	}
 
 	for (i=0; i<log->num_recs; i++) {
 		struct messaging_rec *r = log->recs[i];
-		struct notify_rec_change_msg *chg;
-		size_t pathlen;
-		bool ok;
+		TALLOC_CTX *rec_frame = talloc_stackframe();
+		struct messaging_smb_notify_rec_change change_m;
 		struct notify_instance instance;
+		const char *path = NULL;
+		size_t pathlen;
 
-		ok = notifyd_parse_rec_change(r->buf.data, r->buf.length,
-					      &chg, &pathlen);
+		if (r->msg_type == MSG_SMB_NOTIFY_REC_CHANGE_V1) {
+			ok = notifyd_parse_rec_change_v1(rec_frame,
+							 &r->buf,
+							 &change_m,
+							 &instance,
+							 &path,
+							 &pathlen);
+		} else {
+			struct notify_rec_change_msg *chg;
+
+			ok = notifyd_parse_rec_change(r->buf.data,
+						      r->buf.length,
+						      &chg,
+						      &pathlen);
+			if (ok) {
+				/* avoid SIGBUS */
+				memcpy(&instance,
+				       &chg->instance,
+				       sizeof(instance));
+				path = chg->path;
+			}
+		}
 		if (!ok) {
 			DBG_INFO("notifyd_parse_rec_change failed\n");
+			TALLOC_FREE(rec_frame);
+			TALLOC_FREE(frame);
 			goto fail;
 		}
 
-		/* avoid SIGBUS */
-		memcpy(&instance, &chg->instance, sizeof(instance));
-
-		ok = notifyd_apply_rec_change(&r->src, chg->path, pathlen,
-					      &instance, peer->db,
+		ok = notifyd_apply_rec_change(&r->src,
+					      path,
+					      pathlen,
+					      &instance,
+					      peer->db,
 					      state->sys_notify_watch,
 					      state->sys_notify_ctx,
 					      state->msg_ctx);
+		TALLOC_FREE(rec_frame);
 		if (!ok) {
 			DBG_INFO("notifyd_apply_rec_change failed\n");
+			TALLOC_FREE(frame);
 			goto fail;
 		}
 	}
@@ -1426,7 +1890,7 @@ static void notifyd_apply_reclog(struct notifyd_peer *peer,
 	peer->rec_index += 1;
 	peer->last_broadcast = time(NULL);
 
-	TALLOC_FREE(log);
+	TALLOC_FREE(frame);
 	return;
 
 fail:
@@ -1475,7 +1939,8 @@ static int notifyd_snoop_broadcast(struct tevent_context *ev,
 	}
 	message_hdr_get(&msg_type, &src, &dst, msg);
 
-	if (msg_type != MSG_SMB_NOTIFY_REC_CHANGES) {
+	if (msg_type != MSG_SMB_NOTIFY_REC_CHANGES &&
+	    msg_type != MSG_SMB_NOTIFY_REC_CHANGES_V1) {
 		DBG_DEBUG("Got message %"PRIu32", ignoring\n", msg_type);
 		return 0;
 	}
@@ -1493,6 +1958,7 @@ static int notifyd_snoop_broadcast(struct tevent_context *ev,
 			DBG_DEBUG("Applying changes to peer %"PRIu32"\n", i);
 
 			notifyd_apply_reclog(state->peers[i],
+					     msg_type,
 					     msg + MESSAGE_HDR_LENGTH,
 					     msglen - MESSAGE_HDR_LENGTH);
 			return 0;
@@ -1508,8 +1974,12 @@ static int notifyd_snoop_broadcast(struct tevent_context *ev,
 		return 0;
 	}
 
-	status = messaging_send_buf(state->msg_ctx, src, MSG_SMB_NOTIFY_GET_DB,
-				    NULL, 0);
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		status = notifyd_get_db_send_v1(state->msg_ctx, src);
+	} else {
+		status = messaging_send_buf(state->msg_ctx, src, MSG_SMB_NOTIFY_GET_DB,
+					    NULL, 0);
+	}
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("messaging_send_buf failed: %s\n",
 			  nt_errstr(status));

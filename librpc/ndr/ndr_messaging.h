@@ -24,6 +24,7 @@
 
 #include "librpc/gen_ndr/messaging.h"
 #include "librpc/gen_ndr/file_id.h"
+#include "librpc/gen_ndr/misc.h"
 
 enum ndr_err_code messaging_debug_push(TALLOC_CTX *mem_ctx,
 				       const struct messaging_debug *msg,
@@ -317,16 +318,6 @@ enum ndr_err_code messaging_smb_file_rename_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_file_rename *msg);
 
-enum ndr_err_code messaging_smb_notify_cleanup_push(
-	TALLOC_CTX *mem_ctx,
-	struct messaging_smb_notify_cleanup *msg,
-	DATA_BLOB *blob);
-
-enum ndr_err_code messaging_smb_notify_cleanup_pull(
-	TALLOC_CTX *mem_ctx,
-	const DATA_BLOB *blob,
-	struct messaging_smb_notify_cleanup *msg);
-
 enum ndr_err_code messaging_smb_scavenger_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_scavenger *msg,
@@ -339,5 +330,108 @@ enum ndr_err_code messaging_smb_scavenger_pull(
 	TALLOC_CTX *mem_ctx,
 	const DATA_BLOB *blob,
 	struct messaging_smb_scavenger *msg);
+
+enum ndr_err_code messaging_smb_notify_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify *msg);
+
+enum ndr_err_code messaging_smb_notify_cleanup_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_cleanup *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_cleanup_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_cleanup *msg);
+
+enum ndr_err_code messaging_smb_notify_cancel_deleted_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_cancel_deleted *msg,
+	struct file_id fid,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_cancel_deleted_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_cancel_deleted *msg);
+
+enum ndr_err_code messaging_smb_notify_rec_change_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_rec_change *msg,
+	struct timespec creation_time,
+	uint32_t filter,
+	uint32_t subdir_filter,
+	void *private_data,
+	const char *path,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_rec_change_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_rec_change *msg);
+
+enum ndr_err_code messaging_smb_notify_trigger_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_trigger *msg,
+	struct timespec when,
+	uint32_t action,
+	uint32_t filter,
+	const char *path,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_trigger_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_trigger *msg);
+
+enum ndr_err_code messaging_smb_notify_get_db_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_get_db *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_get_db_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_get_db *msg);
+
+enum ndr_err_code messaging_smb_notify_db_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_db *msg,
+	uint64_t rec_index,
+	DATA_BLOB db,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_db_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_db *msg);
+
+enum ndr_err_code messaging_smb_notify_rec_changes_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_rec_changes *msg,
+	struct messaging_reclog *reclog,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_rec_changes_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_rec_changes *msg);
+
+enum ndr_err_code messaging_smb_notify_started_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_started *msg,
+	DATA_BLOB *blob);
+
+enum ndr_err_code messaging_smb_notify_started_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_started *msg);
 
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */
