@@ -9,8 +9,23 @@
 
 #define RATELIMITD_SOCKET_NAME "ratelimitd.sock"
 
-/* Protocol version for compatibility checking */
-#define RATELIMIT_PROTOCOL_VERSION 2
+/*
+ * Protocol versions of the activity reports
+ * (struct ratelimit_activity_report):
+ *
+ * RATELIMIT_PROTOCOL_VERSION_2 uses host byte order
+ * (LIBNDR_FLAG_HOST_BYTE_ORDER).
+ *
+ * RATELIMIT_PROTOCOL_VERSION_3 uses little endian on
+ * all platforms, it's used once cluster level 2.0 is active.
+ *
+ * The receiver checks protocol_version (at offset
+ * RATELIMIT_ACTIVITY_REPORT_PROTOCOL_VERSION_OFS)
+ * in little endian first in order to find the format.
+ */
+#define RATELIMIT_PROTOCOL_VERSION_2 2
+#define RATELIMIT_PROTOCOL_VERSION_3 3
+#define RATELIMIT_ACTIVITY_REPORT_PROTOCOL_VERSION_OFS 16
 
 static inline uint64_t time_now_usec(void)
 {

@@ -201,6 +201,8 @@ static void handle_unix_socket_read(struct tevent_context *ev,
 	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
 	struct sockaddr_un from;
 	socklen_t fromlen = sizeof(from);
+	libndr_flags ndr_flags = LIBNDR_FLAG_HOST_BYTE_ORDER;
+	uint32_t protocol_version = RATELIMIT_PROTOCOL_VERSION_2;
 	enum ndr_err_code ndr_err;
 	ssize_t ret;
 
@@ -226,13 +228,24 @@ static void handle_unix_socket_read(struct tevent_context *ev,
 		return;
 	}
 
+	/*
+	 * RATELIMIT_PROTOCOL_VERSION_3 uses little endian,
+	 * RATELIMIT_PROTOCOL_VERSION_2 host byte order.
+	 */
+	if (PULL_LE_U32(buf, RATELIMIT_ACTIVITY_REPORT_PROTOCOL_VERSION_OFS) ==
+	    RATELIMIT_PROTOCOL_VERSION_3)
+	{
+		protocol_version = RATELIMIT_PROTOCOL_VERSION_3;
+		ndr_flags = 0;
+	}
+
 	frame = talloc_stackframe();
 
 	ndr_err = ndr_pull_struct_blob_all_flags(
 		&blob,
 		frame,
 		&report,
-		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		ndr_flags,
 		(ndr_pull_flags_fn_t)ndr_pull_ratelimit_activity_report);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_ERR("[%s] ndr_pull_ratelimit_activity_report failed: %s\n",
@@ -258,11 +271,11 @@ static void handle_unix_socket_read(struct tevent_context *ev,
 		  ratelimit_op_to_string(report.operation),
 		  report.recent_iops);
 
-	if (report.protocol_version != RATELIMIT_PROTOCOL_VERSION) {
+	if (report.protocol_version != protocol_version) {
 		DBG_ERR("[%s] Protocol mismatch: got %u, expected %u\n",
 			MODULE_NAME,
 			report.protocol_version,
-			RATELIMIT_PROTOCOL_VERSION);
+			protocol_version);
 		TALLOC_FREE(frame);
 		return;
 	}

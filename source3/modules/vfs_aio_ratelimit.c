@@ -467,6 +467,7 @@ static void report_to_daemon(struct ratelimiter *rl)
 	struct ratelimit_activity_report report = {0};
 	uint8_t buf[RATELIMIT_ACTIVITY_REPORT_SIZE] = {0};
 	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	libndr_flags ndr_flags = LIBNDR_FLAG_HOST_BYTE_ORDER;
 	enum ndr_err_code ndr_err;
 	ssize_t ret;
 
@@ -480,7 +481,11 @@ static void report_to_daemon(struct ratelimiter *rl)
 	}
 
 	/* Build report */
-	report.protocol_version = RATELIMIT_PROTOCOL_VERSION;
+	report.protocol_version = RATELIMIT_PROTOCOL_VERSION_2;
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		report.protocol_version = RATELIMIT_PROTOCOL_VERSION_3;
+		ndr_flags = 0;
+	}
 	report.pid = (int32_t)getpid();
 	report.share_name = rl->share_name;
 	report.operation = ratelimit_op_from_string(rl->op);
@@ -491,7 +496,7 @@ static void report_to_daemon(struct ratelimiter *rl)
 	ndr_err = ndr_push_struct_into_fixed_blob_flags(
 		&blob,
 		&report,
-		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		ndr_flags,
 		(ndr_push_flags_fn_t)ndr_push_ratelimit_activity_report);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_ERR("[%s snum:%d %s] ndr_push_ratelimit_activity_report "
