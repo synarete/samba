@@ -1,0 +1,66 @@
+#include "idl_types.h"
+
+/*
+ * Formats used by vfs_aio_ratelimit and smbd_ratelimitd
+ *
+ * These used to be packed C structures in host byte order,
+ * the NDR representations have exactly the same layout,
+ * if marshalled with LIBNDR_FLAG_HOST_BYTE_ORDER.
+ */
+
+[
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * source3/librpc/ABI/ratelimit.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
+	pointer_default(unique)
+]
+interface ratelimit
+{
+	const uint32 RATELIMIT_SHARE_NAME_LEN = 256;
+
+	/*
+	 * Activity report from an smbd process (vfs_aio_ratelimit)
+	 * to the local smbd_ratelimitd via a unix datagram socket.
+	 */
+	const uint32 RATELIMIT_ACTIVITY_REPORT_SIZE = 288;
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		hyper timestamp_usec;
+		int64 recent_iops;
+		uint32 protocol_version;
+		uint32 operation;
+		int32 pid;
+		uint32 inflight_ios;
+		/* RATELIMIT_SHARE_NAME_LEN, nul padded */
+		[charset(UTF8)] uint8 share_name[256];
+	} ratelimit_activity_report;
+
+	/*
+	 * Node summary broadcast from smbd_ratelimitd
+	 * to all smbd processes in the cluster
+	 * (MSG_VFS_AIO_RATELIMIT_{READ,WRITE}_NODE_SUMMARY).
+	 */
+	const uint32 RATELIMIT_NODE_SUMMARY_SIZE = 272;
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		uint32 vnn;
+		int32 process_count;
+		hyper timestamp_usec;
+		/* RATELIMIT_SHARE_NAME_LEN, nul padded */
+		[charset(UTF8)] uint8 share_name[256];
+	} ratelimit_node_summary;
+
+	/*
+	 * Record in aio_ratelimit.tdb (key: "share/<service>/<op>").
+	 */
+	const uint32 RATELIMIT_TDB_RECORD_SIZE = 64;
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		hyper last_usec;
+		float iops_tokens;
+		float bytes_tokens;
+		/* Reserved for future extensions */
+		uint8 reserved[48];
+	} ratelimit_tdb_record;
+}
