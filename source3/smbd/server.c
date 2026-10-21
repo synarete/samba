@@ -702,6 +702,12 @@ static void notifyd_sig_hup_handler(struct tevent_context *ev,
 	reopen_logs();
 }
 
+static NTSTATUS notifyd_started_send(struct messaging_context *msg_ctx,
+				     struct server_id dst)
+{
+	return messaging_send_notify_started(msg_ctx, dst);
+}
+
 static bool smbd_notifyd_init(struct messaging_context *msg, bool interactive,
 			      struct server_id *ppid)
 {
@@ -764,8 +770,7 @@ static bool smbd_notifyd_init(struct messaging_context *msg, bool interactive,
 	/* Block those signals that we are not handling */
 	BlockSignals(True, SIGUSR1);
 
-	messaging_send(msg, pid_to_procid(getppid()), MSG_SMB_NOTIFY_STARTED,
-		       NULL);
+	notifyd_started_send(msg, pid_to_procid(getppid()));
 
 	ok = tevent_req_poll(req, ev);
 	if (!ok) {
@@ -1952,6 +1957,10 @@ static bool open_sockets_smbd(struct smbd_parent_context *parent,
 			   ID_CACHE_KILL_V1,
 			   smbd_parent_id_cache_kill_v1);
 	messaging_register(msg_ctx, NULL, MSG_SMB_NOTIFY_STARTED,
+			   smb_parent_send_to_children);
+	messaging_register(msg_ctx,
+			   NULL,
+			   MSG_SMB_NOTIFY_STARTED_V1,
 			   smb_parent_send_to_children);
 
 	if (parent->quic_tlsp != NULL) {

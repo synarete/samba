@@ -66,39 +66,63 @@ int main(int argc, const char *argv[])
 	}
 
 	for (i=0; i<50000; i++) {
-		struct notify_rec_change_msg msg = {
-			.instance.filter = UINT32_MAX,
-			.instance.subdir_filter = UINT32_MAX
-		};
+		struct messaging_smb_notify_rec_change rec_msg = {};
 		char path[64];
-		size_t len;
-		struct iovec iov[2];
+		DATA_BLOB blob_rec = data_blob_null;
 		NTSTATUS status;
 
-		len = snprintf(path, sizeof(path), "/tmp%u", i);
+		snprintf(path, sizeof(path), "/tmp%u", i);
 
-		iov[0].iov_base = &msg;
-		iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
-		iov[1].iov_base = path;
-		iov[1].iov_len = len+1;
+		ndr_err = messaging_smb_notify_rec_change_push(
+			frame,
+			&rec_msg,
+			(struct timespec){0},
+			UINT32_MAX,
+			UINT32_MAX,
+			NULL,
+			path,
+			&blob_rec);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			fprintf(stderr,
+				"messaging_smb_notify_rec_change_push "
+				"failed\n");
+			exit(1);
+		}
 
-		status = messaging_send_iov(
-			msg_ctx, notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
-			iov, ARRAY_SIZE(iov), NULL, 0);
+		status = messaging_send(msg_ctx,
+					notifyd,
+					MSG_SMB_NOTIFY_REC_CHANGE_V1,
+					&blob_rec);
 		if (!NT_STATUS_IS_OK(status)) {
-			fprintf(stderr, "messaging_send_iov returned %s\n",
+			fprintf(stderr,
+				"messaging_send returned %s\n",
 				nt_errstr(status));
 			exit(1);
 		}
 
-		msg.instance.filter = 0;
-		msg.instance.subdir_filter = 0;
+		ndr_err = messaging_smb_notify_rec_change_push(
+			frame,
+			&rec_msg,
+			(struct timespec){0},
+			0,
+			0,
+			NULL,
+			path,
+			&blob_rec);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			fprintf(stderr,
+				"messaging_smb_notify_rec_change_push "
+				"failed\n");
+			exit(1);
+		}
 
-		status = messaging_send_iov(
-			msg_ctx, notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
-			iov, ARRAY_SIZE(iov), NULL, 0);
+		status = messaging_send(msg_ctx,
+					notifyd,
+					MSG_SMB_NOTIFY_REC_CHANGE_V1,
+					&blob_rec);
 		if (!NT_STATUS_IS_OK(status)) {
-			fprintf(stderr, "messaging_send_iov returned %s\n",
+			fprintf(stderr,
+				"messaging_send returned %s\n",
 				nt_errstr(status));
 			exit(1);
 		}

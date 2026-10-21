@@ -844,29 +844,34 @@ void reset_delete_on_close_lck_open_id(struct share_mode_lock *lck,
 
 struct set_delete_on_close_state {
 	struct messaging_context *msg_ctx;
-	DATA_BLOB blob;
+	struct file_id fid;
 };
 
-static bool set_delete_on_close_fn(
-	struct share_mode_entry *e,
-	bool *modified,
-	void *private_data)
+static bool notify_cancel_deleted_send(struct messaging_context *msg_ctx,
+				       struct server_id dst,
+				       const struct file_id *fid)
+{
+	NTSTATUS status;
+	struct server_id_buf tmp;
+
+	status = messaging_send_notify_cancel_deleted(msg_ctx, dst, *fid);
+	if (!NT_STATUS_IS_OK(status)) {
+		DBG_DEBUG(
+			"messaging_send_notify_cancel_deleted to %s: %s\n",
+			server_id_str_buf(dst, &tmp),
+			nt_errstr(status));
+		return false;
+	}
+	return true;
+}
+
+static bool set_delete_on_close_fn(struct share_mode_entry *e,
+				   bool *modified,
+				   void *private_data)
 {
 	struct set_delete_on_close_state *state = private_data;
-	NTSTATUS status;
 
-	status = messaging_send(
-		state->msg_ctx,
-		e->pid,
-		MSG_SMB_NOTIFY_CANCEL_DELETED,
-		&state->blob);
-
-	if (!NT_STATUS_IS_OK(status)) {
-		struct server_id_buf tmp;
-		DBG_DEBUG("messaging_send to %s returned %s\n",
-			  server_id_str_buf(e->pid, &tmp),
-			  nt_errstr(status));
-	}
+	notify_cancel_deleted_send(state->msg_ctx, e->pid, &state->fid);
 
 	return false;
 }
@@ -893,7 +898,6 @@ void set_delete_on_close_lck(files_struct *fsp,
 	};
 	uint32_t i;
 	bool ret;
-	enum ndr_err_code ndr_err;
 	NTSTATUS status;
 
 	status = share_mode_lock_access_private_data(lck, &d);
@@ -941,16 +945,7 @@ void set_delete_on_close_lck(files_struct *fsp,
 	ret = add_delete_on_close_token(d, fsp, nt_tok, tok);
 	SMB_ASSERT(ret);
 
-	ndr_err = ndr_push_struct_blob(
-		&state.blob,
-		talloc_tos(),
-		&fsp->file_id,
-		(ndr_push_flags_fn_t)ndr_push_file_id);
-	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		DBG_ERR("ndr_push_file_id failed: %s\n",
-			ndr_errstr(ndr_err));
-		smb_panic(__location__);
-	}
+	state.fid = fsp->file_id;
 
 	ret = share_mode_forall_entries(
 		lck, set_delete_on_close_fn, &state);
@@ -958,8 +953,6 @@ void set_delete_on_close_lck(files_struct *fsp,
 		DBG_ERR("share_mode_forall_entries failed\n");
 		smb_panic(__location__);
 	}
-
-	TALLOC_FREE(state.blob.data);
 }
 
 struct set_delete_on_close_locked_state {

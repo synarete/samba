@@ -23,6 +23,7 @@
 #include "includes.h"
 #include "lib/util/server_id.h"
 #include "librpc/gen_ndr/ndr_open_files.h"
+#include "librpc/gen_ndr/ndr_file_id.h"
 #include "messages_send.h"
 
 /*
@@ -1394,4 +1395,308 @@ NTSTATUS messaging_send_scavenger(struct messaging_context *msg_ctx,
 					       file_id,
 					       open_persistent_id,
 					       name_hash);
+}
+
+/* MSG_SMB_NOTIFY_* */
+
+/*
+ * Legacy payload layouts (must match smbd/notifyd/notifyd.h).
+ * Keep in sync with struct notify_rec_change_msg and
+ * struct notify_trigger_msg.
+ */
+struct _nrc_msg {
+	struct {
+		struct timespec creation_time;
+		uint32_t filter;
+		uint32_t subdir_filter;
+		void *private_data;
+	} instance;
+	char path[];
+};
+
+struct _nt_msg {
+	struct timespec when;
+	uint32_t action;
+	uint32_t filter;
+	char path[];
+};
+
+static NTSTATUS messaging_send_notify_rec_change_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct timespec creation_time,
+	uint32_t filter,
+	uint32_t subdir_filter,
+	void *private_data,
+	const char *path)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_rec_change msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_notify_rec_change_push(frame,
+						       &msg,
+						       creation_time,
+						       filter,
+						       subdir_filter,
+						       private_data,
+						       path,
+						       &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    dst,
+				    MSG_SMB_NOTIFY_REC_CHANGE_V1,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_notify_rec_change_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct timespec creation_time,
+	uint32_t filter,
+	uint32_t subdir_filter,
+	void *private_data,
+	const char *path)
+{
+	struct _nrc_msg hdr = {
+		.instance.creation_time = creation_time,
+		.instance.filter = filter,
+		.instance.subdir_filter = subdir_filter,
+		.instance.private_data = private_data,
+	};
+	struct iovec iov[2];
+
+	iov[0].iov_base = &hdr;
+	iov[0].iov_len  = offsetof(struct _nrc_msg, path);
+	iov[1].iov_base = discard_const_p(char, path);
+	iov[1].iov_len  = strlen(path) + 1;
+
+	return messaging_send_iov(msg_ctx,
+				  dst,
+				  MSG_SMB_NOTIFY_REC_CHANGE,
+				  iov,
+				  ARRAY_SIZE(iov),
+				  NULL,
+				  0);
+}
+
+NTSTATUS messaging_send_notify_rec_change(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct timespec creation_time,
+	uint32_t filter,
+	uint32_t subdir_filter,
+	void *private_data,
+	const char *path)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_notify_rec_change_v1(msg_ctx,
+							   dst,
+							   creation_time,
+							   filter,
+							   subdir_filter,
+							   private_data,
+							   path);
+	}
+	return messaging_send_notify_rec_change_legacy(msg_ctx,
+						       dst,
+						       creation_time,
+						       filter,
+						       subdir_filter,
+						       private_data,
+						       path);
+}
+
+static NTSTATUS messaging_send_notify_trigger_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct timespec when,
+	uint32_t action,
+	uint32_t filter,
+	const char *path)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_trigger msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_notify_trigger_push(
+		frame, &msg, when, action, filter, path, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    dst,
+				    MSG_SMB_NOTIFY_TRIGGER_V1,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_notify_trigger_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct timespec when,
+	uint32_t action,
+	uint32_t filter,
+	const char *path)
+{
+	struct _nt_msg hdr = {
+		.when   = when,
+		.action = action,
+		.filter = filter,
+	};
+	struct iovec iov[2];
+
+	iov[0].iov_base = &hdr;
+	iov[0].iov_len  = offsetof(struct _nt_msg, path);
+	iov[1].iov_base = discard_const_p(char, path);
+	iov[1].iov_len  = strlen(path) + 1;
+
+	return messaging_send_iov(msg_ctx,
+				  dst,
+				  MSG_SMB_NOTIFY_TRIGGER,
+				  iov,
+				  ARRAY_SIZE(iov),
+				  NULL,
+				  0);
+}
+
+NTSTATUS messaging_send_notify_trigger(struct messaging_context *msg_ctx,
+				       struct server_id dst,
+				       struct timespec when,
+				       uint32_t action,
+				       uint32_t filter,
+				       const char *path)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_notify_trigger_v1(
+			msg_ctx, dst, when, action, filter, path);
+	}
+	return messaging_send_notify_trigger_legacy(
+		msg_ctx, dst, when, action, filter, path);
+}
+
+static NTSTATUS messaging_send_notify_cancel_deleted_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct file_id fid)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_cancel_deleted msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_notify_cancel_deleted_push(
+		frame, &msg, fid, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    dst,
+				    MSG_SMB_NOTIFY_CANCEL_DELETED_V1,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_notify_cancel_deleted_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct file_id fid)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = ndr_push_struct_blob(
+		&blob,
+		frame,
+		&fid,
+		(ndr_push_flags_fn_t)ndr_push_file_id);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    dst,
+				    MSG_SMB_NOTIFY_CANCEL_DELETED,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+NTSTATUS messaging_send_notify_cancel_deleted(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct file_id fid)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_notify_cancel_deleted_v1(
+			msg_ctx, dst, fid);
+	}
+	return messaging_send_notify_cancel_deleted_legacy(
+		msg_ctx, dst, fid);
+}
+
+static NTSTATUS messaging_send_notify_started_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_started msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_smb_notify_started_push(frame, &msg, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    dst,
+				    MSG_SMB_NOTIFY_STARTED_V1,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_notify_started_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst)
+{
+	return messaging_send_buf(
+		msg_ctx, dst, MSG_SMB_NOTIFY_STARTED, NULL, 0);
+}
+
+NTSTATUS messaging_send_notify_started(struct messaging_context *msg_ctx,
+				       struct server_id dst)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_notify_started_v1(msg_ctx, dst);
+	}
+	return messaging_send_notify_started_legacy(msg_ctx, dst);
 }
