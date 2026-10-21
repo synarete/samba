@@ -167,4 +167,33 @@ interface open_files
 		[string,charset(UTF8)] char *base_name;
 		[string,charset(UTF8)] char *stream_name;
 	} file_rename_message;
+
+	/*
+	 * A brlock.tdb record consists of a big endian
+	 * uint32 version (SHARE_MODE_DATA_VERSION_1)
+	 * followed by a raw array of struct lock_struct
+	 * in host byte order.
+	 *
+	 * The code uses the raw structure for performance
+	 * reasons, brlock_lock_entry describes the elements.
+	 * It has exactly the same layout (80 bytes) if marshalled
+	 * with LIBNDR_FLAG_HOST_BYTE_ORDER on platforms with
+	 * 8 byte aligned uint64_t (e.g. all 64-bit platforms),
+	 * the reserved fields are the padding of the C structure.
+	 * On other platforms (e.g. i386) the raw layout differs.
+	 */
+	const uint32 BRLOCK_LOCK_ENTRY_SIZE = 80;
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		hyper smblctx;
+		uint32 tid;
+		uint32 reserved1;
+		server_id pid;
+		hyper start;
+		hyper size;
+		hyper fnum;
+		uint32 lock_type;
+		uint32 lock_flav;
+		boolean8 persistent;
+		uint8 reserved2[7];
+	} brlock_lock_entry;
 }
