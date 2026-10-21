@@ -482,7 +482,8 @@ bld.SAMBA_SUBSYSTEM('NDR_MESSAGING',
     public_deps='ndr NDR_SERVER_ID'
     )
 
-# messaging_reclog is broadcasted within a ctdb cluster,
+# messaging_reclog is broadcasted within a ctdb cluster
+# and messaging_hdr is the header of all messages,
 # see librpc/ndr/ndr_abi.h
 bld.SAMBA_NDR_ABI('messaging', deps='NDR_MESSAGING')
 

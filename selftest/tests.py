@@ -606,6 +606,8 @@ if ("HAVE_TCP_USER_TIMEOUT" in config_hash):
                   environ={'SOCKET_WRAPPER_DIR': ''})
 plantestsuite("samba.unittests.adouble", "none",
               [os.path.join(bindir(), "test_adouble")])
+plantestsuite("samba.unittests.ndr_wire_layouts", "none",
+              [os.path.join(bindir(), "test_ndr_wire_layouts")])
 plantestsuite("samba.unittests.gnutls_aead_aes_256_cbc_hmac_sha512", "none",
               [os.path.join(bindir(), "test_gnutls_aead_aes_256_cbc_hmac_sha512")])
 plantestsuite("samba.unittests.gnutls_sp800_108", "none",

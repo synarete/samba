@@ -220,6 +220,22 @@ interface messaging
 		messaging_rec *recs[num_recs];
 	} messaging_reclog;
 
+	/*
+	 * The header of all messages, also between ctdb nodes
+	 * (source3/lib/messages_util.c).
+	 *
+	 * It is hand-marshalled with server_id_put() and SIVAL
+	 * (little endian) for performance reasons, this describes
+	 * it in order to protect it with [ndr_abi], the
+	 * equivalence is verified by source3/lib/test_ndr_wire_layouts.c.
+	 */
+	const uint32 MESSAGING_HDR_LENGTH = 52;
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		server_id dest;
+		server_id src;
+		uint32 msg_type;
+	} messaging_hdr;
+
         /* This allows this well known service name to be referenced in python and C */
         const string AUTH_EVENT_NAME  = "auth_event";
 	const string DSDB_EVENT_NAME = "dsdb_event";
