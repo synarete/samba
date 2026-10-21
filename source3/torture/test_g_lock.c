@@ -27,6 +27,9 @@
 #include "lib/util/util_tdb.h"
 #include "lib/util/tevent_ntstatus.h"
 #include "lib/global_contexts.h"
+#include "lib/dbwrap/dbwrap_rbt.h"
+#include "librpc/gen_ndr/ndr_g_lock.h"
+#include "librpc/gen_ndr/ndr_dbwrap_watch.h"
 
 static bool get_g_lock_ctx(TALLOC_CTX *mem_ctx,
 			   struct tevent_context **ev,
@@ -1399,5 +1402,273 @@ fail:
 	TALLOC_FREE(ctx);
 	TALLOC_FREE(msg);
 	TALLOC_FREE(ev);
+	return ret;
+}
+
+/*
+ * The g_lock records (including the dbwrap_watch layer below)
+ * are hand-marshalled, verify they match the NDR descriptions
+ * in g_lock.idl and dbwrap_watch.idl, which are protected by
+ * the NDR wire format ABI checks.
+ */
+static bool g_lock_check_wire_format(struct db_context *raw,
+				     TDB_DATA key,
+				     uint32_t num_watchers,
+				     const struct server_id *watchers,
+				     struct server_id exclusive,
+				     uint32_t num_shared,
+				     const struct server_id *shared,
+				     DATA_BLOB data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct dbwrap_watch_rec wrec = { .num_watchers = 0, };
+	struct g_lock_rec grec = { .num_shared = 0, };
+	DATA_BLOB raw_blob;
+	DATA_BLOB blob;
+	TDB_DATA value;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+	bool ret = false;
+	uint32_t i;
+
+	status = dbwrap_fetch(raw, frame, key, &value);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "dbwrap_fetch failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+	raw_blob = data_blob_const(value.dptr, value.dsize);
+
+	ndr_err = ndr_pull_struct_blob_all(
+		&raw_blob, frame, &wrec,
+		(ndr_pull_flags_fn_t)ndr_pull_dbwrap_watch_rec);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr, "ndr_pull_dbwrap_watch_rec failed: %s\n",
+			ndr_errstr(ndr_err));
+		goto fail;
+	}
+	if (wrec.num_watchers != num_watchers) {
+		fprintf(stderr, "num_watchers=%"PRIu32", expected %"PRIu32"\n",
+			wrec.num_watchers, num_watchers);
+		goto fail;
+	}
+	for (i = 0; i < num_watchers; i++) {
+		if (!server_id_equal(&wrec.watchers[i].pid, &watchers[i])) {
+			fprintf(stderr, "watchers[%"PRIu32"] mismatch\n", i);
+			goto fail;
+		}
+		if (wrec.watchers[i].instance == 0) {
+			fprintf(stderr, "watchers[%"PRIu32"] no instance\n", i);
+			goto fail;
+		}
+	}
+
+	ndr_err = ndr_pull_struct_blob_all(
+		&wrec.data, frame, &grec,
+		(ndr_pull_flags_fn_t)ndr_pull_g_lock_rec);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr, "ndr_pull_g_lock_rec failed: %s\n",
+			ndr_errstr(ndr_err));
+		goto fail;
+	}
+
+	if (!server_id_equal(&grec.exclusive, &exclusive)) {
+		fprintf(stderr, "exclusive mismatch\n");
+		goto fail;
+	}
+	if (grec.num_shared != num_shared) {
+		fprintf(stderr, "num_shared=%"PRIu32", expected %"PRIu32"\n",
+			grec.num_shared, num_shared);
+		goto fail;
+	}
+	for (i = 0; i < num_shared; i++) {
+		if (!server_id_equal(&grec.shared[i], &shared[i])) {
+			fprintf(stderr, "shared[%"PRIu32"] mismatch\n", i);
+			goto fail;
+		}
+	}
+	if (!data_blob_equal_const_time(&grec.data, &data)) {
+		fprintf(stderr, "data mismatch\n");
+		goto fail;
+	}
+
+	/*
+	 * Pushing it again needs to give exactly
+	 * the same bytes
+	 */
+	ndr_err = ndr_push_struct_blob(
+		&blob, frame, &grec,
+		(ndr_push_flags_fn_t)ndr_push_g_lock_rec);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr, "ndr_push_g_lock_rec failed: %s\n",
+			ndr_errstr(ndr_err));
+		goto fail;
+	}
+	wrec.data = blob;
+	ndr_err = ndr_push_struct_blob(
+		&blob, frame, &wrec,
+		(ndr_push_flags_fn_t)ndr_push_dbwrap_watch_rec);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		fprintf(stderr, "ndr_push_dbwrap_watch_rec failed: %s\n",
+			ndr_errstr(ndr_err));
+		goto fail;
+	}
+	if (!data_blob_equal_const_time(&blob, &raw_blob)) {
+		fprintf(stderr, "NDR representation differs\n");
+		dump_data(0, raw_blob.data, raw_blob.length);
+		dump_data(0, blob.data, blob.length);
+		goto fail;
+	}
+
+	ret = true;
+fail:
+	TALLOC_FREE(frame);
+	return ret;
+}
+
+bool run_g_lock_wire_format(int dummy)
+{
+	struct tevent_context *ev = NULL;
+	struct messaging_context *msg = NULL;
+	struct db_context *backend = NULL;
+	struct db_context *raw = NULL;
+	struct g_lock_ctx *ctx = NULL;
+	TDB_DATA key = string_term_tdb_data("wire_format");
+	uint8_t payload[] = { 'p', 'a', 'y', 'l', 'o', 'a', 'd' };
+	TDB_DATA dbuf = { .dptr = payload, .dsize = sizeof(payload) };
+	struct server_id self;
+	struct server_id none = { .pid = 0, };
+	struct tevent_req *watch_reqs[2] = { NULL, };
+	struct server_id watchers[ARRAY_SIZE(watch_reqs)] = { { .pid = 0, }, };
+	NTSTATUS status;
+	bool ret = false;
+	bool ok;
+	size_t i;
+
+	ev = global_event_context();
+	if (ev == NULL) {
+		fprintf(stderr, "global_event_context failed\n");
+		goto fail;
+	}
+	msg = global_messaging_context();
+	if (msg == NULL) {
+		fprintf(stderr, "global_messaging_context failed\n");
+		goto fail;
+	}
+	self = messaging_server_id(msg);
+
+	/*
+	 * We keep a pointer to the backend in order
+	 * to look at the raw records.
+	 */
+	backend = db_open_rbt(talloc_tos());
+	if (backend == NULL) {
+		fprintf(stderr, "db_open_rbt failed\n");
+		goto fail;
+	}
+	raw = backend;
+
+	ctx = g_lock_ctx_init_backend(talloc_tos(), msg, &backend);
+	if (ctx == NULL) {
+		fprintf(stderr, "g_lock_ctx_init_backend failed\n");
+		goto fail;
+	}
+
+	status = g_lock_lock(ctx, key, G_LOCK_WRITE,
+			     (struct timeval) { .tv_sec = 1 },
+			     NULL, NULL);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "g_lock_lock failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	status = g_lock_writev_data(ctx, key, &dbuf, 1, 0);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "g_lock_writev_data failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	ok = g_lock_check_wire_format(raw, key, 0, NULL, self, 0, NULL,
+				      data_blob_const(payload,
+						      sizeof(payload)));
+	if (!ok) {
+		goto fail;
+	}
+
+	/*
+	 * Watching the data adds watchers to the
+	 * dbwrap_watch layer of the record.
+	 */
+	for (i = 0; i < ARRAY_SIZE(watch_reqs); i++) {
+		watch_reqs[i] = g_lock_watch_data_send(
+			talloc_tos(), ev, ctx, key, none);
+		if (watch_reqs[i] == NULL) {
+			fprintf(stderr, "g_lock_watch_data_send failed\n");
+			goto fail;
+		}
+		watchers[i] = self;
+	}
+
+	ok = g_lock_check_wire_format(raw, key,
+				      ARRAY_SIZE(watchers), watchers,
+				      self, 0, NULL,
+				      data_blob_const(payload,
+						      sizeof(payload)));
+	if (!ok) {
+		goto fail;
+	}
+
+	/*
+	 * Freeing the requests removes the watchers again
+	 */
+	for (i = 0; i < ARRAY_SIZE(watch_reqs); i++) {
+		TALLOC_FREE(watch_reqs[i]);
+	}
+
+	ok = g_lock_check_wire_format(raw, key, 0, NULL, self, 0, NULL,
+				      data_blob_const(payload,
+						      sizeof(payload)));
+	if (!ok) {
+		goto fail;
+	}
+
+	status = g_lock_unlock(ctx, key);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "g_lock_unlock failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	status = g_lock_lock(ctx, key, G_LOCK_READ,
+			     (struct timeval) { .tv_sec = 1 },
+			     NULL, NULL);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "g_lock_lock failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	ok = g_lock_check_wire_format(raw, key, 0, NULL, none, 1, &self,
+				      data_blob_const(payload,
+						      sizeof(payload)));
+	if (!ok) {
+		goto fail;
+	}
+
+	status = g_lock_unlock(ctx, key);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "g_lock_unlock failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	ret = true;
+fail:
+	for (i = 0; i < ARRAY_SIZE(watch_reqs); i++) {
+		TALLOC_FREE(watch_reqs[i]);
+	}
+	TALLOC_FREE(ctx);
 	return ret;
 }
