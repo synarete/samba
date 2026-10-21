@@ -16,6 +16,7 @@ root share_mode_dataB
 root vfs_default_durable_cookie
 root oplock_break_message
 root file_rename_message
+root brlock_lock_entry
 
 struct CLAIM_SECURITY_ATTRIBUTE_RELATIVE_V1 align(5) {
 	[flag(LIBNDR_FLAG_STR_NULLTERM|LIBNDR_FLAG_ALIGN2)] ptr(relative) scalar:string	# name
@@ -31,6 +32,20 @@ struct GUID align(4) {
 	scalar:uint16	# time_hi_and_version
 	array(fixed=2) scalar:uint8	# clock_seq
 	array(fixed=6) scalar:uint8	# node
+}
+
+[flag(LIBNDR_FLAG_NOALIGN)] struct brlock_lock_entry align(8) {
+	scalar:hyper	# smblctx
+	scalar:uint32	# tid
+	scalar:uint32	# reserved1
+	struct:server_id	# pid
+	scalar:hyper	# start
+	scalar:hyper	# size
+	scalar:hyper	# fnum
+	scalar:uint32	# lock_type
+	scalar:uint32	# lock_flav
+	scalar:uint8	# persistent
+	array(fixed=7) scalar:uint8	# reserved2
 }
 
 [flag(LIBNDR_FLAG_NOALIGN),nodiscriminant] union claim_values align(5) {
@@ -2799,4 +2814,35 @@ sample file_rename_message@minimal length(44) {
 #	        servicepath              : NULL
 #	        base_name                : NULL
 #	        stream_name              : NULL
+
+sample brlock_lock_entry length(80) {
+	[0000] 01 02 03 04 05 06 07 08  02 03 04 05 03 04 05 06
+	[0010] 04 05 06 07 08 09 0a 0b  05 06 07 08 06 07 08 09
+	[0020] 07 08 09 0a 0b 0c 0d 0e  08 09 0a 0b 0c 0d 0e 0f
+	[0030] 09 0a 0b 0c 0d 0e 0f 10  0a 0b 0c 0d 0e 0f 10 11
+	[0040] 0b 0c 0d 0e 0c 0d 0e 0f  0d 0e 0f 10 11 12 13 14
+}
+#	    brlock_lock_entry: struct brlock_lock_entry
+#	        smblctx                  : 0x0807060504030201 (578437695752307201)
+#	        tid                      : 0x05040302 (84148994)
+#	        reserved1                : 0x06050403 (100992003)
+#	        pid: struct server_id
+#	            pid                      : 0x0b0a090807060504 (795458214266537220)
+#	            task_id                  : 0x08070605 (134678021)
+#	            vnn                      : 0x09080706 (151521030)
+#	            unique_id                : 0x0e0d0c0b0a090807 (1012478732780767239)
+#	        start                    : 0x0f0e0d0c0b0a0908 (1084818905618843912)
+#	        size                     : 0x100f0e0d0c0b0a09 (1157159078456920585)
+#	        fnum                     : 0x11100f0e0d0c0b0a (1229499251294997258)
+#	        lock_type                : 0x0e0d0c0b (235736075)
+#	        lock_flav                : 0x0f0e0d0c (252579084)
+#	        persistent               : 0x0d (13)
+#	        reserved2: ARRAY(7)
+#	            [0]                      : 0x0e (14)
+#	            [1]                      : 0x0f (15)
+#	            [2]                      : 0x10 (16)
+#	            [3]                      : 0x11 (17)
+#	            [4]                      : 0x12 (18)
+#	            [5]                      : 0x13 (19)
+#	            [6]                      : 0x14 (20)
 
