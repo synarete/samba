@@ -74,6 +74,7 @@
 #include "system/filesys.h"
 #include "lib/global_contexts.h"
 #include "ratelimit_protocol.h"
+#include "lib/cluster_support.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_VFS
@@ -96,7 +97,6 @@
 #define SAVE_INTERVAL_USEC (30 * 1000000L) /* 30 seconds */
 
 /* TDB schema version */
-#define RATELIMIT_TDB_VERSION 1
 
 /* Activity tracking intervals */
 #define ACTIVITY_BROADCAST_INTERVAL_US (1000000L)
@@ -664,52 +664,218 @@ static void handle_node_summary_dispatch(struct messaging_context *msg_ctx,
 	TALLOC_FREE(frame);
 }
 
-static bool ratelimit_tdb_check_version(void)
+#define RATELIMIT_TDB_VERSION_UNKNOWN UINT32_MAX
+
+/*
+ * Returns 0 if there is no "VERSION" record,
+ * RATELIMIT_TDB_VERSION_UNKNOWN if it's invalid,
+ * see ratelimit.idl.
+ */
+static uint32_t ratelimit_tdb_get_version(void)
 {
-	TDB_DATA key = {};
 	TDB_DATA val = {};
 	uint32_t version = 0;
-	int ret;
 
-	if (ratelimit_tdb == NULL) {
-		return false;
-	}
-
-	/* Check for existing version */
-	key = string_tdb_data("VERSION");
-	val = tdb_fetch(ratelimit_tdb, key);
-
+	val = tdb_fetch(ratelimit_tdb, string_tdb_data("VERSION"));
 	if (val.dptr == NULL) {
-		/* No version key - this is a new TDB, write our version */
-		version = RATELIMIT_TDB_VERSION;
-		val = make_tdb_data((uint8_t *)&version, sizeof(version));
-		ret = tdb_store(ratelimit_tdb, key, val, TDB_INSERT);
-		if (ret != 0) {
-			DBG_ERR("[%s] Failed to store TDB version\n",
-				MODULE_NAME);
-			return false;
-		}
-		DBG_DEBUG("[%s] Initialized TDB version %u\n",
-			  MODULE_NAME,
-			  version);
-		return true;
+		return 0;
 	}
 
 	if (val.dsize != sizeof(uint32_t)) {
 		DBG_ERR("[%s] TDB version key has invalid size\n",
 			MODULE_NAME);
 		SAFE_FREE(val.dptr);
-		return false;
+		return RATELIMIT_TDB_VERSION_UNKNOWN;
+	}
+
+	/*
+	 * RATELIMIT_TDB_VERSION_2 is in little endian,
+	 * while RATELIMIT_TDB_VERSION_1 is in host byte order.
+	 */
+	if (PULL_LE_U32(val.dptr, 0) == RATELIMIT_TDB_VERSION_2) {
+		SAFE_FREE(val.dptr);
+		return RATELIMIT_TDB_VERSION_2;
 	}
 
 	memcpy(&version, val.dptr, sizeof(version));
 	SAFE_FREE(val.dptr);
 
-	if (version != RATELIMIT_TDB_VERSION) {
-		DBG_ERR("[%s] TDB version mismatch: found %u, expected %u\n",
-			MODULE_NAME,
-			version,
-			RATELIMIT_TDB_VERSION);
+	if (version == RATELIMIT_TDB_VERSION_1) {
+		return RATELIMIT_TDB_VERSION_1;
+	}
+
+	DBG_ERR("[%s] Unsupported TDB version 0x%x\n",
+		MODULE_NAME,
+		version);
+	return RATELIMIT_TDB_VERSION_UNKNOWN;
+}
+
+static libndr_flags ratelimit_tdb_ndr_flags(uint32_t version)
+{
+	if (version >= RATELIMIT_TDB_VERSION_2) {
+		return 0;
+	}
+
+	return LIBNDR_FLAG_HOST_BYTE_ORDER;
+}
+
+static int ratelimit_tdb_store_version(uint32_t version, int flag)
+{
+	uint8_t buf[sizeof(uint32_t)];
+
+	if (version >= RATELIMIT_TDB_VERSION_2) {
+		PUSH_LE_U32(buf, 0, version);
+	} else {
+		memcpy(buf, &version, sizeof(version));
+	}
+
+	return tdb_store(ratelimit_tdb,
+			 string_tdb_data("VERSION"),
+			 make_tdb_data(buf, sizeof(buf)),
+			 flag);
+}
+
+static int ratelimit_tdb_upgrade_v2_fn(struct tdb_context *tdb,
+				       TDB_DATA key,
+				       TDB_DATA val,
+				       void *private_data)
+{
+	size_t *count = private_data;
+	struct ratelimit_tdb_record record = {};
+	DATA_BLOB blob = data_blob_const(val.dptr, val.dsize);
+	uint8_t buf[RATELIMIT_TDB_RECORD_SIZE] = {0};
+	DATA_BLOB out = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
+
+	if (key.dsize < 6 || memcmp(key.dptr, "share/", 6) != 0) {
+		return 0;
+	}
+
+	if (val.dsize != RATELIMIT_TDB_RECORD_SIZE) {
+		/* The readers ignore this anyway */
+		return 0;
+	}
+
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
+		&blob,
+		&record,
+		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		(ndr_pull_flags_fn_t)ndr_pull_ratelimit_tdb_record);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return 0;
+	}
+
+	ndr_err = ndr_push_struct_into_fixed_blob(
+		&out,
+		&record,
+		(ndr_push_flags_fn_t)ndr_push_ratelimit_tdb_record);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return -1;
+	}
+
+	if (tdb_store(tdb, key, make_tdb_data(buf, sizeof(buf)),
+		      TDB_REPLACE) != 0) {
+		return -1;
+	}
+
+	*count += 1;
+	return 0;
+}
+
+/*
+ * Convert all records from host byte order (version 1)
+ * to little endian (version 2) in a single transaction.
+ */
+static bool ratelimit_tdb_upgrade_v2(void)
+{
+	size_t count = 0;
+	uint32_t version;
+	int ret;
+
+	ret = tdb_transaction_start(ratelimit_tdb);
+	if (ret != 0) {
+		DBG_ERR("[%s] tdb_transaction_start failed\n", MODULE_NAME);
+		return false;
+	}
+
+	version = ratelimit_tdb_get_version();
+	if (version == RATELIMIT_TDB_VERSION_2) {
+		/* Someone else was faster */
+		tdb_transaction_cancel(ratelimit_tdb);
+		return true;
+	}
+	if (version != RATELIMIT_TDB_VERSION_1) {
+		tdb_transaction_cancel(ratelimit_tdb);
+		return false;
+	}
+
+	ret = tdb_traverse(ratelimit_tdb, ratelimit_tdb_upgrade_v2_fn, &count);
+	if (ret < 0) {
+		DBG_ERR("[%s] Failed to convert the records\n", MODULE_NAME);
+		tdb_transaction_cancel(ratelimit_tdb);
+		return false;
+	}
+
+	ret = ratelimit_tdb_store_version(RATELIMIT_TDB_VERSION_2, TDB_REPLACE);
+	if (ret != 0) {
+		tdb_transaction_cancel(ratelimit_tdb);
+		return false;
+	}
+
+	ret = tdb_transaction_commit(ratelimit_tdb);
+	if (ret != 0) {
+		DBG_ERR("[%s] tdb_transaction_commit failed\n", MODULE_NAME);
+		return false;
+	}
+
+	DBG_NOTICE("[%s] Upgraded TDB to version 2, "
+		   "converted %zu records to little endian\n",
+		   MODULE_NAME,
+		   count);
+	return true;
+}
+
+static bool ratelimit_tdb_check_version(void)
+{
+	uint32_t version;
+	int ret;
+
+	if (ratelimit_tdb == NULL) {
+		return false;
+	}
+
+	version = ratelimit_tdb_get_version();
+
+	if (version == 0) {
+		/*
+		 * No version key - this is a new TDB,
+		 * write the version depending on the
+		 * cluster level.
+		 */
+		version = RATELIMIT_TDB_VERSION_1;
+		if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+			version = RATELIMIT_TDB_VERSION_2;
+		}
+		ret = ratelimit_tdb_store_version(version, TDB_INSERT);
+		if (ret != 0) {
+			/* Someone else might have been faster */
+			version = ratelimit_tdb_get_version();
+		}
+	}
+
+	if (version == RATELIMIT_TDB_VERSION_1 &&
+	    CLUSTER_LEVEL_ACTIVE(2, 0))
+	{
+		if (!ratelimit_tdb_upgrade_v2()) {
+			return false;
+		}
+		version = ratelimit_tdb_get_version();
+	}
+
+	if (version != RATELIMIT_TDB_VERSION_1 &&
+	    version != RATELIMIT_TDB_VERSION_2)
+	{
+		DBG_ERR("[%s] TDB version check failed\n", MODULE_NAME);
 		return false;
 	}
 
@@ -783,6 +949,8 @@ static void ratelimit_save_tdb(struct ratelimiter *rl)
 	uint8_t buf[RATELIMIT_TDB_RECORD_SIZE] = {0};
 	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
 	enum ndr_err_code ndr_err;
+	uint32_t version;
+	uint32_t version2;
 	char *servicename = NULL;
 	const struct loadparm_substitution
 		*lp_sub = loadparm_s3_global_substitution();
@@ -802,10 +970,17 @@ static void ratelimit_save_tdb(struct ratelimiter *rl)
 	record.bytes_tokens = rl->bytes_tokens;
 	record.last_usec = rl->last_usec;
 
+	version = ratelimit_tdb_get_version();
+	if (version == 0 || version == RATELIMIT_TDB_VERSION_UNKNOWN) {
+		TALLOC_FREE(key.dptr);
+		return;
+	}
+
+again:
 	ndr_err = ndr_push_struct_into_fixed_blob_flags(
 		&blob,
 		&record,
-		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		ratelimit_tdb_ndr_flags(version),
 		(ndr_push_flags_fn_t)ndr_push_ratelimit_tdb_record);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_ERR("[%s] ndr_push_ratelimit_tdb_record failed: %s\n",
@@ -826,6 +1001,20 @@ static void ratelimit_save_tdb(struct ratelimiter *rl)
 		return;
 	}
 
+	/*
+	 * The database might have been upgraded by another
+	 * process in the meantime, the version only goes up,
+	 * so we only need to store the record again in that case.
+	 */
+	version2 = ratelimit_tdb_get_version();
+	if (version2 != version &&
+	    version2 != 0 &&
+	    version2 != RATELIMIT_TDB_VERSION_UNKNOWN)
+	{
+		version = version2;
+		goto again;
+	}
+
 	DBG_DEBUG("[%s] saved TDB for %s service=%s "
 		  "tokens(i=%.2f,b=%.2f)\n",
 		  MODULE_NAME,
@@ -837,9 +1026,16 @@ static void ratelimit_save_tdb(struct ratelimiter *rl)
 	TALLOC_FREE(key.dptr);
 }
 
+struct ratelimit_parse_tdb_state {
+	struct ratelimiter *rl;
+	uint32_t version;
+};
+
 static int ratelimit_parse_tdb(TDB_DATA key, TDB_DATA val, void *private_data)
 {
-	struct ratelimiter *rl = (struct ratelimiter *)private_data;
+	struct ratelimit_parse_tdb_state *state =
+		(struct ratelimit_parse_tdb_state *)private_data;
+	struct ratelimiter *rl = state->rl;
 	struct ratelimit_tdb_record record = {};
 	DATA_BLOB blob = data_blob_const(val.dptr, val.dsize);
 	enum ndr_err_code ndr_err;
@@ -852,7 +1048,7 @@ static int ratelimit_parse_tdb(TDB_DATA key, TDB_DATA val, void *private_data)
 	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
 		&blob,
 		&record,
-		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		ratelimit_tdb_ndr_flags(state->version),
 		(ndr_pull_flags_fn_t)ndr_pull_ratelimit_tdb_record);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_WARNING("[%s] ndr_pull_ratelimit_tdb_record failed: %s\n",
@@ -876,6 +1072,9 @@ static int ratelimit_parse_tdb(TDB_DATA key, TDB_DATA val, void *private_data)
 
 static void ratelimit_load_tdb(struct ratelimiter *rl)
 {
+	struct ratelimit_parse_tdb_state state = {
+		.rl = rl,
+	};
 	TDB_DATA key = {};
 	int ret;
 	char *servicename = NULL;
@@ -892,7 +1091,23 @@ static void ratelimit_load_tdb(struct ratelimiter *rl)
 		return;
 	}
 
-	ret = tdb_parse_record(ratelimit_tdb, key, ratelimit_parse_tdb, rl);
+again:
+	state.version = ratelimit_tdb_get_version();
+	if (state.version == 0 ||
+	    state.version == RATELIMIT_TDB_VERSION_UNKNOWN)
+	{
+		TALLOC_FREE(key.dptr);
+		return;
+	}
+
+	ret = tdb_parse_record(ratelimit_tdb, key, ratelimit_parse_tdb, &state);
+	if (ret == 0 && ratelimit_tdb_get_version() != state.version) {
+		/*
+		 * The database was upgraded in the meantime,
+		 * the version only goes up.
+		 */
+		goto again;
+	}
 	if (ret != 0) {
 		DBG_DEBUG("[%s] no existing TDB record for %s service=%s\n",
 			  MODULE_NAME,

@@ -54,7 +54,21 @@ interface ratelimit
 
 	/*
 	 * Record in aio_ratelimit.tdb (key: "share/<service>/<op>").
+	 *
+	 * The "VERSION" record of aio_ratelimit.tdb is a uint32:
+	 *
+	 * RATELIMIT_TDB_VERSION_1 is stored in host byte order,
+	 * the records use host byte order (LIBNDR_FLAG_HOST_BYTE_ORDER).
+	 *
+	 * RATELIMIT_TDB_VERSION_2 is stored in little endian,
+	 * the records use little endian on all platforms.
+	 *
+	 * The database is upgraded in a single transaction once
+	 * cluster level 2.0 is active, all readers and writers
+	 * follow the "VERSION" record.
 	 */
+	const uint32 RATELIMIT_TDB_VERSION_1 = 1;
+	const uint32 RATELIMIT_TDB_VERSION_2 = 2;
 	const uint32 RATELIMIT_TDB_RECORD_SIZE = 64;
 	typedef [public,flag(NDR_NOALIGN)] struct {
 		hyper last_usec;
