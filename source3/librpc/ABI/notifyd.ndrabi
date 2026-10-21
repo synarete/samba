@@ -10,6 +10,8 @@ root notifyd_timespec
 root notify_rec_change_hdr
 root notify_trigger_hdr
 root notify_event_hdr
+root notifyd_watcher_rec
+root notifyd_instance_rec
 
 [flag(LIBNDR_FLAG_NOALIGN)] struct notify_event_hdr align(8) {
 	struct:notifyd_timespec	# when
@@ -30,9 +32,29 @@ root notify_event_hdr
 	scalar:uint32	# filter
 }
 
+[flag(LIBNDR_FLAG_NOALIGN)] struct notifyd_instance_rec align(8) {
+	struct:server_id	# client
+	struct:notify_rec_change_hdr	# instance
+}
+
 [flag(LIBNDR_FLAG_NOALIGN)] struct notifyd_timespec align(8) {
 	scalar:int64	# tv_sec
 	scalar:int64	# tv_nsec
+}
+
+[flag(LIBNDR_FLAG_NOALIGN)] struct notifyd_watcher_rec align(8) {
+	scalar:uint32	# filter
+	scalar:uint32	# subdir_filter
+	scalar:uint32	# sys_filter
+	scalar:uint32	# sys_subdir_filter
+	scalar:hyper	# sys_watch
+}
+
+struct server_id align(8) {
+	scalar:hyper	# pid
+	scalar:uint32	# task_id
+	scalar:uint32	# vnn
+	scalar:hyper	# unique_id
 }
 
 sample notifyd_timespec length(16) {
@@ -75,4 +97,35 @@ sample notify_event_hdr length(28) {
 #	            tv_nsec                  : 0x0908070605040302 (650777868590383874)
 #	        private_data             : 0x0a09080706050403 (723118041428460547)
 #	        action                   : 0x07060504 (117835012)
+
+sample notifyd_watcher_rec length(24) {
+	[0000] 01 02 03 04 02 03 04 05  03 04 05 06 04 05 06 07
+	[0010] 05 06 07 08 09 0a 0b 0c
+}
+#	    notifyd_watcher_rec: struct notifyd_watcher_rec
+#	        filter                   : 0x04030201 (67305985)
+#	        subdir_filter            : 0x05040302 (84148994)
+#	        sys_filter               : 0x06050403 (100992003)
+#	        sys_subdir_filter        : 0x07060504 (117835012)
+#	        sys_watch                : 0x0c0b0a0908070605 (867798387104613893)
+
+sample notifyd_instance_rec length(56) {
+	[0000] 01 02 03 04 05 06 07 08  02 03 04 05 03 04 05 06
+	[0010] 04 05 06 07 08 09 0a 0b  05 06 07 08 09 0a 0b 0c
+	[0020] 06 07 08 09 0a 0b 0c 0d  07 08 09 0a 08 09 0a 0b
+	[0030] 09 0a 0b 0c 0d 0e 0f 10
+}
+#	    notifyd_instance_rec: struct notifyd_instance_rec
+#	        client: struct server_id
+#	            pid                      : 0x0807060504030201 (578437695752307201)
+#	            task_id                  : 0x05040302 (84148994)
+#	            vnn                      : 0x06050403 (100992003)
+#	            unique_id                : 0x0b0a090807060504 (795458214266537220)
+#	        instance: struct notify_rec_change_hdr
+#	            creation_time: struct notifyd_timespec
+#	                tv_sec                   : 0x0c0b0a0908070605 (867798387104613893)
+#	                tv_nsec                  : 0x0d0c0b0a09080706 (940138559942690566)
+#	            filter                   : 0x0a090807 (168364039)
+#	            subdir_filter            : 0x0b0a0908 (185207048)
+#	            private_data             : 0x100f0e0d0c0b0a09 (1157159078456920585)
 
