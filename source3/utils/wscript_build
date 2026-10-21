@@ -239,6 +239,7 @@ bld.SAMBA3_BINARY('net',
                  deps='''
                  talloc
                  netapi
+                 notifyd_msg
                  addns
                  samba_intl
                  CMDLINE_S3

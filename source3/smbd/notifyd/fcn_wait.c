@@ -51,10 +51,11 @@ struct tevent_req *fcn_wait_send(
 {
 	struct tevent_req *req = NULL;
 	struct fcn_wait_state *state = NULL;
-	struct notify_rec_change_msg msg = {
-		.instance.filter = filter,
-		.instance.subdir_filter = subdir_filter,
+	struct notify_instance instance = {
+		.filter = filter,
+		.subdir_filter = subdir_filter,
 	};
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
 	struct iovec iov[2];
 	NTSTATUS status;
 
@@ -75,11 +76,13 @@ struct tevent_req *fcn_wait_send(
 	tevent_req_set_callback(state->recv_subreq, fcn_wait_done, req);
 	tevent_req_set_cleanup_fn(req, fcn_wait_cleanup);
 
-	clock_gettime_mono(&msg.instance.creation_time);
-	msg.instance.private_data = state;
+	clock_gettime_mono(&instance.creation_time);
+	instance.private_data = state;
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
+	notify_rec_change_msg_push_hdr(&instance, hdr);
+
+	iov[0].iov_base = hdr;
+	iov[0].iov_len = notify_rec_change_msg_hdr_len();
 	iov[1].iov_base = discard_const_p(char, path);
 	iov[1].iov_len = strlen(path)+1;
 
@@ -105,18 +108,21 @@ static bool fcn_wait_cancel(struct tevent_req *req)
 {
 	struct fcn_wait_state *state = tevent_req_data(
 		req, struct fcn_wait_state);
-	struct notify_rec_change_msg msg = {
-		.instance.filter = 0, /* filter==0 is a delete msg */
-		.instance.subdir_filter = 0,
+	struct notify_instance instance = {
+		.filter = 0, /* filter==0 is a delete msg */
+		.subdir_filter = 0,
 	};
+	uint8_t hdr[NOTIFY_REC_CHANGE_HDR_SIZE];
 	struct iovec iov[2];
 	NTSTATUS status;
 
-	clock_gettime_mono(&msg.instance.creation_time);
-	msg.instance.private_data = state;
+	clock_gettime_mono(&instance.creation_time);
+	instance.private_data = state;
 
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_rec_change_msg, path);
+	notify_rec_change_msg_push_hdr(&instance, hdr);
+
+	iov[0].iov_base = hdr;
+	iov[0].iov_len = notify_rec_change_msg_hdr_len();
 	iov[1].iov_base = discard_const_p(char, state->path);
 	iov[1].iov_len = strlen(state->path)+1;
 
@@ -157,26 +163,18 @@ static bool fcn_wait_filter(struct messaging_rec *rec, void *private_data)
 		req, struct fcn_wait_state);
 	struct notify_event_msg msg = { .action = 0 };
 	struct fcn_event *evt = NULL;
-	size_t evt_size;
+	bool ok;
 
 	if (rec->msg_type != MSG_PVFS_NOTIFY) {
 		DBG_DEBUG("Ignoring msg %"PRIu32"\n", rec->msg_type);
 		return false;
 	}
 
-	/*
-	 * We need at least the trailing '\0' for the path
-	 */
-	if (rec->buf.length < (offsetof(struct notify_event_msg, path) + 1)) {
-		DBG_DEBUG("Ignoring short (%zu) msg\n", rec->buf.length);
+	ok = notify_event_msg_parse(rec->buf.data, rec->buf.length, &msg);
+	if (!ok) {
+		DBG_DEBUG("Ignoring invalid (%zu) msg\n", rec->buf.length);
 		return false;
 	}
-	if (rec->buf.data[rec->buf.length-1] != '\0') {
-		DBG_DEBUG("Expected 0-terminated path\n");
-		return false;
-	}
-
-	memcpy(&msg, rec->buf.data, sizeof(msg));
 
 	if (msg.private_data != state) {
 		DBG_DEBUG("Got private_data=%p, expected %p\n",
@@ -185,20 +183,18 @@ static bool fcn_wait_filter(struct messaging_rec *rec, void *private_data)
 		return false;
 	}
 
-	/*
-	 * The message needs to be copied into evt->msg,
-	 * evt itself starts with the list pointers.
-	 */
-	evt_size = offsetof(struct fcn_event, msg) + rec->buf.length;
-	evt_size = MAX(evt_size, sizeof(struct fcn_event));
-
-	evt = talloc_zero_size(state, evt_size);
+	evt = talloc_zero(state, struct fcn_event);
 	if (evt == NULL) {
-		DBG_DEBUG("talloc_zero_size failed\n");
+		DBG_DEBUG("talloc_zero failed\n");
 		return false;
 	}
-	talloc_set_name_const(evt, "struct fcn_event");
-	memcpy(&evt->msg, rec->buf.data, rec->buf.length);
+	evt->msg = msg;
+	evt->msg.path = talloc_strdup(evt, msg.path);
+	if (evt->msg.path == NULL) {
+		DBG_DEBUG("talloc_strdup failed\n");
+		TALLOC_FREE(evt);
+		return false;
+	}
 
 	/*
 	 * TODO: Sort by timestamp
