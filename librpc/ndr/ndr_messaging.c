@@ -1123,44 +1123,6 @@ enum ndr_err_code messaging_smb_file_rename_pull(
 	return NDR_ERR_SUCCESS;
 }
 
-enum ndr_err_code messaging_smb_notify_cleanup_push(
-	TALLOC_CTX *mem_ctx,
-	struct messaging_smb_notify_cleanup *msg,
-	DATA_BLOB *blob)
-{
-	msg->info.info1 = (struct messaging_smb_notify_cleanup_v1){};
-	return ndr_push_struct_blob(
-		blob,
-		mem_ctx,
-		msg,
-		(ndr_push_flags_fn_t)ndr_push_messaging_smb_notify_cleanup);
-}
-
-enum ndr_err_code messaging_smb_notify_cleanup_pull(
-	TALLOC_CTX *mem_ctx,
-	const DATA_BLOB *blob,
-	struct messaging_smb_notify_cleanup *msg)
-{
-	enum ndr_err_code ndr_err;
-
-	*msg = (struct messaging_smb_notify_cleanup){0};
-
-	ndr_err = ndr_pull_struct_blob(
-		blob,
-		mem_ctx,
-		msg,
-		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_notify_cleanup);
-	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		return ndr_err;
-	}
-
-	if (msg->version != MESSAGING_SMB_NOTIFY_CLEANUP_VERSION_1) {
-		return NDR_ERR_VALIDATE;
-	}
-
-	return NDR_ERR_SUCCESS;
-}
-
 enum ndr_err_code messaging_smb_scavenger_push(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_smb_scavenger *msg,
@@ -1198,6 +1160,377 @@ enum ndr_err_code messaging_smb_scavenger_pull(
 	}
 
 	if (msg->version != MESSAGING_SMB_SCAVENGER_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_notify_push(TALLOC_CTX *mem_ctx,
+					    struct messaging_smb_notify *msg,
+					    DATA_BLOB *blob)
+{
+	msg->info.info1 = (struct messaging_smb_notify_v1){};
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_smb_notify);
+}
+
+enum ndr_err_code messaging_smb_notify_pull(TALLOC_CTX *mem_ctx,
+					    const DATA_BLOB *blob,
+					    struct messaging_smb_notify *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_notify){0};
+
+	ndr_err = ndr_pull_struct_blob(blob,
+				       mem_ctx,
+				       msg,
+				       (ndr_pull_flags_fn_t)
+					       ndr_pull_messaging_smb_notify);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_notify_cleanup_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_cleanup *msg,
+	DATA_BLOB *blob)
+{
+	msg->info.info1 = (struct messaging_smb_notify_cleanup_v1){};
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_notify_cleanup);
+}
+
+enum ndr_err_code messaging_smb_notify_cleanup_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_cleanup *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_notify_cleanup){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_notify_cleanup);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_notify_cancel_deleted_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_cancel_deleted *msg,
+	struct file_id fid,
+	DATA_BLOB *blob)
+{
+	msg->info.info1.fid = fid;
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)
+			ndr_push_messaging_smb_notify_cancel_deleted);
+}
+
+enum ndr_err_code messaging_smb_notify_cancel_deleted_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_cancel_deleted *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_notify_cancel_deleted){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)
+			ndr_pull_messaging_smb_notify_cancel_deleted);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_notify_rec_change_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_rec_change *msg,
+	struct timespec creation_time,
+	uint32_t filter,
+	uint32_t subdir_filter,
+	void *private_data,
+	const char *path,
+	DATA_BLOB *blob)
+{
+	msg->info.info1.tv_sec = creation_time.tv_sec;
+	msg->info.info1.tv_nsec = creation_time.tv_nsec;
+	msg->info.info1.filter = filter;
+	msg->info.info1.subdir_filter = subdir_filter;
+	msg->info.info1.private_data = private_data;
+	msg->info.info1.path = path != NULL ? path : "";
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_notify_rec_change);
+}
+
+enum ndr_err_code messaging_smb_notify_rec_change_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_rec_change *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_notify_rec_change){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_notify_rec_change);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_notify_trigger_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_trigger *msg,
+	struct timespec when,
+	uint32_t action,
+	uint32_t filter,
+	const char *path,
+	DATA_BLOB *blob)
+{
+	msg->info.info1.tv_sec = when.tv_sec;
+	msg->info.info1.tv_nsec = when.tv_nsec;
+	msg->info.info1.action = action;
+	msg->info.info1.filter = filter;
+	msg->info.info1.path = path != NULL ? path : "";
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_notify_trigger);
+}
+
+enum ndr_err_code messaging_smb_notify_trigger_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_trigger *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_notify_trigger){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_notify_trigger);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_notify_get_db_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_get_db *msg,
+	DATA_BLOB *blob)
+{
+	msg->info.info1 = (struct messaging_smb_notify_get_db_v1){};
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_notify_get_db);
+}
+
+enum ndr_err_code messaging_smb_notify_get_db_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_get_db *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_notify_get_db){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_notify_get_db);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_notify_db_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_db *msg,
+	uint64_t rec_index,
+	DATA_BLOB db,
+	DATA_BLOB *blob)
+{
+	msg->info.info1.rec_index = rec_index;
+	msg->info.info1.db = db;
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_smb_notify_db);
+}
+
+enum ndr_err_code messaging_smb_notify_db_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_db *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_notify_db){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_notify_db);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_notify_rec_changes_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_rec_changes *msg,
+	struct messaging_reclog *reclog,
+	DATA_BLOB *blob)
+{
+	if (reclog != NULL) {
+		msg->info.info1.reclog = *reclog;
+	} else {
+		msg->info.info1.reclog = (struct messaging_reclog){0};
+	}
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)
+			ndr_push_messaging_smb_notify_rec_changes);
+}
+
+enum ndr_err_code messaging_smb_notify_rec_changes_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_rec_changes *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_notify_rec_changes){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)
+			ndr_pull_messaging_smb_notify_rec_changes);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code messaging_smb_notify_started_push(
+	TALLOC_CTX *mem_ctx,
+	struct messaging_smb_notify_started *msg,
+	DATA_BLOB *blob)
+{
+	msg->info.info1 = (struct messaging_smb_notify_started_v1){};
+	return ndr_push_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_push_flags_fn_t)ndr_push_messaging_smb_notify_started);
+}
+
+enum ndr_err_code messaging_smb_notify_started_pull(
+	TALLOC_CTX *mem_ctx,
+	const DATA_BLOB *blob,
+	struct messaging_smb_notify_started *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_smb_notify_started){0};
+
+	ndr_err = ndr_pull_struct_blob(
+		blob,
+		mem_ctx,
+		msg,
+		(ndr_pull_flags_fn_t)ndr_pull_messaging_smb_notify_started);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_SMB_NOTIFY_VERSION_1) {
 		return NDR_ERR_VALIDATE;
 	}
 

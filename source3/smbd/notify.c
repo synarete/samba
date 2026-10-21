@@ -24,6 +24,8 @@
 #include "smbd/globals.h"
 #include "../librpc/gen_ndr/ndr_notify.h"
 #include "librpc/gen_ndr/ndr_file_id.h"
+#include "librpc/gen_ndr/ndr_messaging.h"
+#include "librpc/ndr/ndr_messaging.h"
 #include "libcli/security/privileges.h"
 #include "libcli/security/security.h"
 
@@ -511,6 +513,30 @@ done:
 	TALLOC_FREE(fid);
 }
 
+void smbd_notify_cancel_deleted_v1(struct messaging_context *msg,
+				   void *private_data,
+				   uint32_t msg_type,
+				   struct server_id server_id,
+				   DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct smbd_server_connection *sconn = talloc_get_type_abort(
+		private_data, struct smbd_server_connection);
+	struct messaging_smb_notify_cancel_deleted m;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_notify_cancel_deleted_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(10, ("%s: messaging_smb_notify_cancel_deleted_pull failed: %s\n",
+			   __func__, ndr_errstr(ndr_err)));
+		goto out;
+	}
+
+	files_forall(sconn, smbd_notify_cancel_deleted_fn, &m.info.info1.fid);
+out:
+	TALLOC_FREE(frame);
+}
+
 static struct files_struct *smbd_notifyd_reregister(struct files_struct *fsp,
 						    void *private_data)
 {
@@ -555,6 +581,28 @@ void smbd_notifyd_restarted(struct messaging_context *msg,
 	}
 
 	files_forall(sconn, smbd_notifyd_reregister, sconn->notify_ctx);
+}
+
+void smbd_notifyd_restarted_v1(struct messaging_context *msg,
+			       void *private_data,
+			       uint32_t msg_type,
+			       struct server_id server_id,
+			       DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_started m;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_smb_notify_started_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_smb_notify_started_pull failed: %s\n",
+			  ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	smbd_notifyd_restarted(msg, private_data, msg_type, server_id, data);
+out:
+	TALLOC_FREE(frame);
 }
 
 /****************************************************************************
