@@ -193,14 +193,20 @@ static void handle_unix_socket_read(struct tevent_context *ev,
 				    void *private_data)
 {
 	struct smbd_ratelimitd_state *state = private_data;
-	struct ratelimit_activity_report report;
+	TALLOC_CTX *frame = NULL;
+	struct ratelimit_activity_report report = {
+		.timestamp_usec = 0,
+	};
+	uint8_t buf[RATELIMIT_ACTIVITY_REPORT_SIZE] = {0};
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
 	struct sockaddr_un from;
 	socklen_t fromlen = sizeof(from);
+	enum ndr_err_code ndr_err;
 	ssize_t ret;
 
 	ret = recvfrom(state->unix_sock,
-		       &report,
-		       sizeof(report),
+		       buf,
+		       sizeof(buf),
 		       0,
 		       (struct sockaddr *)&from,
 		       &fromlen);
@@ -212,15 +218,37 @@ static void handle_unix_socket_read(struct tevent_context *ev,
 		return;
 	}
 
-	if (ret != sizeof(report)) {
+	if (ret != sizeof(buf)) {
 		DBG_ERR("[%s] Short read: got %zd, expected %zu\n",
 			MODULE_NAME,
 			ret,
-			sizeof(report));
+			sizeof(buf));
 		return;
 	}
 
-	report.share_name[sizeof(report.share_name) - 1] = '\0';
+	frame = talloc_stackframe();
+
+	ndr_err = ndr_pull_struct_blob_all_flags(
+		&blob,
+		frame,
+		&report,
+		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		(ndr_pull_flags_fn_t)ndr_pull_ratelimit_activity_report);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("[%s] ndr_pull_ratelimit_activity_report failed: %s\n",
+			MODULE_NAME,
+			ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return;
+	}
+
+	if (strlen(report.share_name) >= RATELIMIT_SHARE_NAME_LEN) {
+		DBG_ERR("[%s] Share name too long in report from pid=%d\n",
+			MODULE_NAME,
+			report.pid);
+		TALLOC_FREE(frame);
+		return;
+	}
 
 	DBG_DEBUG("[%s] handle_unix_socket_read: received report "
 		  "pid=%d share=%s op=%s recent_iops=%" PRId64 "\n",
@@ -235,11 +263,13 @@ static void handle_unix_socket_read(struct tevent_context *ev,
 			MODULE_NAME,
 			report.protocol_version,
 			RATELIMIT_PROTOCOL_VERSION);
+		TALLOC_FREE(frame);
 		return;
 	}
 
 	update_process_activity(state, &report);
 	state->total_reports_received++;
+	TALLOC_FREE(frame);
 
 	DBG_DEBUG("[%s] handle_unix_socket_read: DONE total_reports=%" PRIu64
 		  "\n",
@@ -279,7 +309,9 @@ static void broadcast_summary(struct smbd_ratelimitd_state *state,
 			      uint64_t timestamp_usec)
 {
 	struct ratelimit_node_summary summary = {0};
-	DATA_BLOB blob;
+	uint8_t buf[RATELIMIT_NODE_SUMMARY_SIZE] = {0};
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
 
 	if (count <= 0) {
 		return;
@@ -288,9 +320,19 @@ static void broadcast_summary(struct smbd_ratelimitd_state *state,
 	summary.vnn = state->my_vnn;
 	summary.process_count = count;
 	summary.timestamp_usec = timestamp_usec;
-	strlcpy(summary.share_name, share_name, sizeof(summary.share_name));
+	summary.share_name = share_name;
 
-	blob = data_blob_const(&summary, sizeof(summary));
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(
+		&blob,
+		&summary,
+		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		(ndr_push_flags_fn_t)ndr_push_ratelimit_node_summary);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("[%s] ndr_push_ratelimit_node_summary failed: %s\n",
+			MODULE_NAME,
+			ndr_errstr(ndr_err));
+		return;
+	}
 
 	messaging_send_all(state->msg_ctx,
 			   ratelimit_msg_type_summary(

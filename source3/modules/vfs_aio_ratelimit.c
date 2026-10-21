@@ -108,15 +108,10 @@
 static unsigned int ref_count = 0;
 static TDB_CONTEXT *ratelimit_tdb;
 
-/* TDB persistence structure */
-struct ratelimit_tdb_record {
-	uint64_t last_usec;
-	float iops_tokens;
-	float bytes_tokens;
-
-	/* Reserved for future extensions, keeps struct size stable */
-	uint8_t reserved[64 - (8 + 4 + 4)];
-} PACKED_STRUCT;
+/*
+ * The TDB persistence structure is struct ratelimit_tdb_record
+ * from source3/librpc/idl/ratelimit.idl
+ */
 
 /* Node-level tracking */
 struct node_count {
@@ -470,6 +465,9 @@ static int connect_to_ratelimitd(void)
 static void report_to_daemon(struct ratelimiter *rl)
 {
 	struct ratelimit_activity_report report = {0};
+	uint8_t buf[RATELIMIT_ACTIVITY_REPORT_SIZE] = {0};
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
 	ssize_t ret;
 
 	if (rl->daemon_sock < 0) {
@@ -484,23 +482,38 @@ static void report_to_daemon(struct ratelimiter *rl)
 	/* Build report */
 	report.protocol_version = RATELIMIT_PROTOCOL_VERSION;
 	report.pid = (int32_t)getpid();
-	strlcpy(report.share_name, rl->share_name, sizeof(report.share_name));
+	report.share_name = rl->share_name;
 	report.operation = ratelimit_op_from_string(rl->op);
 	report.recent_iops = rl->recent_iops;
 	report.inflight_ios = rl->inflight_ios;
 	report.timestamp_usec = time_now_usec();
 
-	/* Send to daemon */
-	ret = send(rl->daemon_sock, &report, sizeof(report), MSG_DONTWAIT);
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(
+		&blob,
+		&report,
+		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		(ndr_push_flags_fn_t)ndr_push_ratelimit_activity_report);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("[%s snum:%d %s] ndr_push_ratelimit_activity_report "
+			"failed: %s\n",
+			MODULE_NAME,
+			rl->snum,
+			rl->op,
+			ndr_errstr(ndr_err));
+		return;
+	}
 
-	if (ret != sizeof(report)) {
+	/* Send to daemon */
+	ret = send(rl->daemon_sock, blob.data, blob.length, MSG_DONTWAIT);
+
+	if (ret != blob.length) {
 		DBG_DEBUG("[%s snum:%d %s] report_to_daemon: send failed "
 			  "ret=%zd expected=%zu errno=%d\n",
 			  MODULE_NAME,
 			  rl->snum,
 			  rl->op,
 			  ret,
-			  sizeof(report),
+			  blob.length,
 			  errno);
 
 		if (errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -600,20 +613,35 @@ static void handle_node_summary_dispatch(struct messaging_context *msg_ctx,
 					 struct server_id server_id,
 					 DATA_BLOB *data)
 {
+	TALLOC_CTX *frame = NULL;
 	struct ratelimiter *list;
 	struct ratelimiter *rl;
-	struct ratelimit_node_summary summary;
+	struct ratelimit_node_summary summary = {0};
+	enum ndr_err_code ndr_err;
 
-	if (data->length != sizeof(struct ratelimit_node_summary)) {
-		DBG_ERR("[%s] Invalid node summary size %zu (expected %zu)\n",
+	if (data->length != RATELIMIT_NODE_SUMMARY_SIZE) {
+		DBG_ERR("[%s] Invalid node summary size %zu (expected %u)\n",
 			MODULE_NAME,
 			data->length,
-			sizeof(struct ratelimit_node_summary));
+			RATELIMIT_NODE_SUMMARY_SIZE);
 		return;
 	}
 
-	memcpy(&summary, data->data, sizeof(summary));
-	summary.share_name[sizeof(summary.share_name) - 1] = '\0';
+	frame = talloc_stackframe();
+
+	ndr_err = ndr_pull_struct_blob_all_flags(
+		data,
+		frame,
+		&summary,
+		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		(ndr_pull_flags_fn_t)ndr_pull_ratelimit_node_summary);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("[%s] ndr_pull_ratelimit_node_summary failed: %s\n",
+			MODULE_NAME,
+			ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return;
+	}
 
 	list = (msg_type == MSG_VFS_AIO_RATELIMIT_READ_NODE_SUMMARY)
 		       ? read_ratelimiters_list
@@ -632,6 +660,8 @@ static void handle_node_summary_dispatch(struct messaging_context *msg_ctx,
 		}
 		handle_node_summary_apply(rl, &summary);
 	}
+
+	TALLOC_FREE(frame);
 }
 
 static bool ratelimit_tdb_check_version(void)
@@ -750,6 +780,9 @@ static void ratelimit_save_tdb(struct ratelimiter *rl)
 	TDB_DATA key = {};
 	TDB_DATA val = {};
 	struct ratelimit_tdb_record record = {};
+	uint8_t buf[RATELIMIT_TDB_RECORD_SIZE] = {0};
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
 	char *servicename = NULL;
 	const struct loadparm_substitution
 		*lp_sub = loadparm_s3_global_substitution();
@@ -769,7 +802,20 @@ static void ratelimit_save_tdb(struct ratelimiter *rl)
 	record.bytes_tokens = rl->bytes_tokens;
 	record.last_usec = rl->last_usec;
 
-	val = make_tdb_data((uint8_t *)&record, sizeof(record));
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(
+		&blob,
+		&record,
+		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		(ndr_push_flags_fn_t)ndr_push_ratelimit_tdb_record);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("[%s] ndr_push_ratelimit_tdb_record failed: %s\n",
+			MODULE_NAME,
+			ndr_errstr(ndr_err));
+		TALLOC_FREE(key.dptr);
+		return;
+	}
+
+	val = make_tdb_data(blob.data, blob.length);
 
 	if (tdb_store(ratelimit_tdb, key, val, TDB_REPLACE) != 0) {
 		DBG_ERR("[%s] Failed to store TDB record for %s service=%s\n",
@@ -795,13 +841,26 @@ static int ratelimit_parse_tdb(TDB_DATA key, TDB_DATA val, void *private_data)
 {
 	struct ratelimiter *rl = (struct ratelimiter *)private_data;
 	struct ratelimit_tdb_record record = {};
+	DATA_BLOB blob = data_blob_const(val.dptr, val.dsize);
+	enum ndr_err_code ndr_err;
 
-	if (val.dsize != sizeof(record)) {
+	if (val.dsize != RATELIMIT_TDB_RECORD_SIZE) {
 		DBG_WARNING("[%s] TDB record size mismatch\n", MODULE_NAME);
 		return -1;
 	}
 
-	memcpy(&record, val.dptr, sizeof(record));
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
+		&blob,
+		&record,
+		LIBNDR_FLAG_HOST_BYTE_ORDER,
+		(ndr_pull_flags_fn_t)ndr_pull_ratelimit_tdb_record);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("[%s] ndr_pull_ratelimit_tdb_record failed: %s\n",
+			    MODULE_NAME,
+			    ndr_errstr(ndr_err));
+		return -1;
+	}
+
 	rl->iops_tokens = record.iops_tokens;
 	rl->bytes_tokens = record.bytes_tokens;
 	rl->last_usec = record.last_usec;
@@ -929,6 +988,24 @@ static void ratelimiter_init(TALLOC_CTX *mem_ctx,
 	rl->bytes_total = 0;
 
 	rl->cluster_mode = lp_clustering();
+
+	if (rl->cluster_mode &&
+	    (servicename == NULL ||
+	     strlen(servicename) >= sizeof(rl->share_name)))
+	{
+		/*
+		 * The share name needs to fit into the
+		 * reports and node summaries
+		 */
+		DBG_ERR("[%s snum:%d %s] Share name [%s] is too long "
+			"(max %zu bytes), disabling cluster mode\n",
+			MODULE_NAME,
+			rl->snum,
+			rl->op,
+			servicename != NULL ? servicename : "",
+			sizeof(rl->share_name) - 1);
+		rl->cluster_mode = false;
+	}
 
 	if (rl->cluster_mode) {
 		rl->msg_ctx = global_messaging_context();
