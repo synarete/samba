@@ -398,6 +398,15 @@ samba-ctdb-build:
 samba-ctdb:
   extends: .needs_samba-ctdb-build
 
+# Start a cluster as a mixed version one at cluster functional level
+# 1.0. Rolls the stable nodes forward to this build and then upgrades the
+# level while running. The level upgrade is one way, so the
+# environment is provisioned again for each testsuite, see samba-ctdb-cfl.
+#
+# Builds the latest stable Samba itself, next to the tests.
+samba-ctdb-cfl:
+  extends: .needs_samba-ctdb-build
+
 samba-ad-dc-ntvfs:
   extends: .needs_samba-def-build
 
@@ -552,6 +561,7 @@ pages:
     # - ctdb  # TODO
     - samba-ctdb-build
     - samba-ctdb
+    - samba-ctdb-cfl
     - samba-ad-dc-ntvfs
     - samba-admem-mit
     - samba-addc-mit-4a

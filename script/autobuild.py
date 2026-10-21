@@ -3,7 +3,7 @@
 # Copyright Andrew Tridgell 2010
 # released under GNU GPL v3 or later
 
-from subprocess import call, check_call, check_output, Popen, PIPE, CalledProcessError
+from subprocess import call, check_call, check_output, Popen, PIPE, CalledProcessError, DEVNULL
 import os
 import tarfile
 import sys
@@ -174,6 +174,50 @@ builddirs = {
     "pidl": "pidl",
     "docs-xml": "docs-xml"
 }
+
+def latest_stable_branch():
+    """The stable branch one release behind this tree.
+
+    VERSION says which release the tree is being developed for, the latest
+    stable is one minor behind it: 4.26 upgrades from v4-25-stable.
+    """
+    version = {}
+    with open(os.path.join(gitroot, "VERSION")) as f:
+        for line in f:
+            key, sep, value = line.partition("=")
+            if sep and key.startswith("SAMBA_VERSION_"):
+                version[key] = value.strip()
+
+    major = int(version["SAMBA_VERSION_MAJOR"])
+    minor = int(version["SAMBA_VERSION_MINOR"])
+    if minor == 0:
+        raise Exception("no stable branch one minor behind %d.%d, "
+                        "name it in SAMBA_LATEST_STABLE_REF" %
+                        (major, minor))
+
+    return "v%d-%d-stable" % (major, minor - 1)
+
+
+latest_stable_ref = os.getenv("SAMBA_LATEST_STABLE_REF")
+if latest_stable_ref is None:
+    latest_stable_ref = latest_stable_branch()
+
+#
+# Take the branch from this checkout if it has origin's copy, whose
+# objects the latest-stable clone already shares. Otherwise fetch it:
+# from CI_REPOSITORY_URL in gitlab CI, where the checkout is only three
+# commits deep (GIT_DEPTH in .gitlab-ci-main.yml), and from upstream
+# anywhere else.
+#
+latest_stable_local = "refs/remotes/origin/%s" % latest_stable_ref
+if call(["git", "-C", gitroot, "rev-parse", "--verify", "--quiet",
+         latest_stable_local], stdout=DEVNULL) == 0:
+    latest_stable_fetch = "git fetch --no-tags %s %s" % (
+        gitroot, latest_stable_local)
+else:
+    latest_stable_fetch = "git fetch --no-tags --depth=1 %s %s" % (
+        os.getenv("CI_REPOSITORY_URL", "https://git.samba.org/samba.git"),
+        latest_stable_ref)
 
 ctdb_configure_params = " --enable-developer ${PREFIX}"
 samba_configure_params = " ${ENABLE_COVERAGE} ${PREFIX} --with-profiling-data --with-prometheus-exporter --with-ratelimitd"
@@ -903,6 +947,59 @@ tasks = {
         "sequence": [
             ("random-sleep", random_sleep(900, 1500)),
             ("test", make_test(include_envs=["clusteredmember"])),
+        ],
+    },
+
+    #
+    # A cluster rolled forward from the latest stable Samba to this tree,
+    # one node at a time, and only then raised to the cluster functional
+    # level this tree adds.
+    #
+    # Every testsuite gets a cluster of its own: cfl_upgrade sets
+    # RESETUP_ENV and selftest provisions it again for each one,
+    # which is what lets a test start below the latest level. Raising it
+    # is one way, cluster_level_activate() refuses to move back down.
+    #
+    "samba-ctdb-cfl": {
+        "dependency": "samba-ctdb-build",
+        "sequence": [
+            ("random-sleep", random_sleep(300, 900)),
+        # the stable Samba the nodes start on, built here rather than in
+        # a task of its own, so that it lives as long as the tests need
+        # it and no longer
+            ("stable-clone", "git clone --quiet --shared --no-checkout "
+                             "${TEST_SOURCE_DIR} latest-stable"),
+            ("stable-fetch", "cd latest-stable && " + latest_stable_fetch),
+            ("stable-checkout", "cd latest-stable && "
+                                "git checkout --quiet --detach FETCH_HEAD && "
+                                "git log -1 --oneline"),
+        # Same options as samba-ctdb-build, so that the only difference
+        # between the two halves of a mixed cluster is the version.
+            ("stable-configure", "cd latest-stable && "
+                                 "./configure.developer ${PREFIX} "
+                                 "--with-cluster-support "
+                                 "--with-profiling-data "
+                                 "--with-prometheus-exporter"),
+            ("stable-make", "cd latest-stable && make -j"),
+        # "smbd -b" only started listing WITH_PROFILE after 4.25, so ask
+        # the build rather than the binary.
+            ("stable-check", "cd latest-stable && "
+                             "./bin/smbd --configfile=/dev/null -b | "
+                             "grep CLUSTER_SUPPORT && "
+                             "grep -q 'define WITH_PROFILE 1' "
+                             "bin/default/include/config.h"),
+        # the tests roll the stable nodes forward to this build, so say
+        # what each side offers before they start
+            ("levels-new", "cd ${TEST_SOURCE_DIR} && "
+                           "./bin/net clusterlevel features"),
+            ("levels-old", "cd latest-stable && "
+                           "./bin/net clusterlevel features"),
+
+            ("test", make_test(
+                cmd="SELFTEST_LATEST_STABLE_BINDIR=$(pwd)/latest-stable/bin "
+                    "make testonly",
+                include_envs=["cfl_upgrade"])
+            ),
         ],
     },
 
