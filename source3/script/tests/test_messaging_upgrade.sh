@@ -12,14 +12,20 @@
 #   - verifies the cluster starts at level 1.0 (abort otherwise),
 #   - verifies that all three nodes serve SMB traffic, including file I/O
 #     (put/get/rm),
-#   - verifies that legacy (non-NDR) messages work.
+#   - verifies that legacy (non-NDR) messages work, including the notify
+#     messages.
 #  Step 2:
 #   - runs "net clusterlevel upgrade --apply" to raise the level to 2.0,
 #   - verifies the new level is reported by "net clusterlevel show".
 #  Step 3 (level 2.0):
-#   - verifies that the new NDR messages work,
+#   - verifies that the new NDR messages work, including the notify
+#     messages,
 #   - verifies that all three nodes still serve SMB traffic, including file
 #     I/O (put/get/rm), after the upgrade.
+#
+# Note: MSG_SMB_NOTIFY (0x030E / MSG_SMB_NOTIFY_V1 0x130E) has no production
+# sender or receiver and is covered only by unit tests
+# (bin/test_ndr_messaging).
 #
 # Expected arguments:
 #   $1  CONF   - --configfile=... for node 0 (used by net/smbcontrol)
@@ -369,6 +375,187 @@ smbtorture_run()
 	subunit_report "$name" "$st" "$out"
 }
 
+# Extract the pid from the "notify daemon: [<vnn>:]<pid>..." line printed by
+# net notify listen/trigger (read from stdin).
+notifyd_pid_from_output()
+{
+	sed -n -E 's/^notify daemon: ([0-9]+:)?([0-9]+).*/\2/p'
+}
+
+# Pid of the background "net notify listen" started by notify_listen_start.
+NOTIFY_LISTEN_PID=""
+
+# Start "net notify listen" in the background, and wait (up to 5s) for it to
+# register with the notify daemon.  Its output is written to a file.
+# On failure, the listener is stopped, the test is reported as failed and
+# 1 is returned.
+#   $1  test name
+#   $2  path to listen on
+#   $3  file to write the output of the listener to
+notify_listen_start()
+{
+	local name="$1"
+	local path="$2"
+	local outfile="$3"
+	local i
+
+	rm -f "$outfile"
+	"${AS_ROOT[@]}" "$NET" "$CONF" notify listen "$path" 1 0 \
+		>"$outfile" 2>&1 &
+	NOTIFY_LISTEN_PID=$!
+
+	for ((i = 0; i < 10; i++)); do
+		if grep -q "^notify daemon:" "$outfile" 2>/dev/null; then
+			return 0
+		fi
+		sleep 0.5
+	done
+
+	notify_listen_stop
+	subunit_report "$name" 1 \
+		"net notify listen failed to start: $(cat "$outfile")"
+	rm -f "$outfile"
+	return 1
+}
+
+# Stop the listener started by notify_listen_start.
+notify_listen_stop()
+{
+	kill -9 "$NOTIFY_LISTEN_PID" 2>/dev/null
+	wait "$NOTIFY_LISTEN_PID" 2>/dev/null
+}
+
+# Test MSG_SMB_NOTIFY_REC_CHANGE and MSG_SMB_NOTIFY_TRIGGER via
+# net notify listen and net notify trigger.
+net_notify_trigger_listen()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local testpath="/msg_upgrade_nt_$$"
+	local outfile="$SELFTEST_TMPDIR/net_notify_listen_$$.out"
+
+	notify_listen_start "$name" "$testpath" "$outfile" || return 1
+
+	# Send trigger
+	local trig_out
+	trig_out=$("${AS_ROOT[@]}" "$NET" "$CONF" notify trigger \
+		"${testpath}/file1" 1 1 2>&1)
+	local trig_st=$?
+
+	# Wait for event to appear in output (up to 10s)
+	local received=0
+	local i
+	for ((i = 0; i < 20; i++)); do
+		if grep -qF "1 file1" "$outfile"; then
+			received=1
+			break
+		fi
+		sleep 0.5
+	done
+
+	notify_listen_stop
+
+	local listen_out
+	listen_out=$(cat "$outfile")
+	rm -f "$outfile"
+
+	local st=0
+	if [ "$trig_st" -ne 0 ] || [ "$received" -ne 1 ]; then
+		st=1
+	fi
+
+	subunit_report "$name" "$st" \
+		"Trigger status=$trig_st output=$trig_out
+Listen output=$listen_out"
+}
+
+# Test MSG_SMB_NOTIFY_GET_DB, MSG_SMB_NOTIFY_DB, and
+# MSG_SMB_NOTIFY_REC_CHANGES via smbstatus --notify.
+smbstatus_notify()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local testpath="/msg_upgrade_db_$$"
+	local outfile="$SELFTEST_TMPDIR/smbstatus_notify_$$.out"
+
+	# Start background listener to register an active notification watch
+	notify_listen_start "$name" "$testpath" "$outfile" || return 1
+
+	# Hold registration alive for >2s so the 1s cluster reclog broadcast
+	# timer fires
+	sleep 3
+
+	local out
+	out=$("${AS_ROOT[@]}" "$SMBSTATUS" "$CONF" --notify 2>&1)
+	local status_st=$?
+
+	notify_listen_stop
+	rm -f "$outfile"
+
+	local st=$status_st
+	if [ $st -eq 0 ] && ! echo "$out" | grep -qF "$testpath"; then
+		st=1
+	fi
+
+	subunit_report "$name" "$st" \
+		"smbstatus --notify status=$status_st output: $out"
+}
+
+# Test MSG_SMB_NOTIFY_STARTED by killing notifyd and verifying restart.
+kill_notifyd()
+{
+	local name="$1"
+	subunit_start_test "$name"
+
+	local testpath="/msg_upgrade_kill_$$/x"
+	local out
+	out=$("${AS_ROOT[@]}" "$NET" "$CONF" notify trigger "$testpath" \
+		1 1 2>&1)
+	local old_pid
+	old_pid=$(echo "$out" | notifyd_pid_from_output)
+
+	if [ -z "$old_pid" ]; then
+		subunit_report "$name" 1 \
+			"Could not obtain notifyd pid from net notify trigger:
+$out"
+		return 1
+	fi
+
+	"${AS_ROOT[@]}" kill -9 "$old_pid" 2>/dev/null
+
+	# Poll up to 15s for notifyd to be restarted by smbd parent with a new
+	# pid
+	local new_pid=""
+	local i
+	for ((i = 0; i < 15; i++)); do
+		sleep 1
+		out=$("${AS_ROOT[@]}" "$NET" "$CONF" notify trigger \
+			"$testpath" 1 1 2>&1)
+		new_pid=$(echo "$out" | notifyd_pid_from_output)
+		if [ -n "$new_pid" ] && [ "$new_pid" != "$old_pid" ]; then
+			break
+		fi
+	done
+
+	if [ -z "$new_pid" ] || [ "$new_pid" = "$old_pid" ]; then
+		subunit_report "$name" 1 \
+			"notifyd not restarted within 15s (old_pid=$old_pid):
+$out"
+		return 1
+	fi
+
+	# Verify notify subsystem is functional after restart
+	local tort_out
+	tort_out=$("${AS_ROOT[@]}" "$SMBTORTURE" "//$NODE0/$SHARE" "$CREDS" \
+		smb2.notify.dir 2>&1)
+	local tort_st=$?
+
+	subunit_report "$name" "$tort_st" \
+		"smb2.notify.dir failed after notifyd restart: $tort_out"
+}
+
 # Apply the cluster functional level upgrade via net
 cluster_level_upgrade()
 {
@@ -544,6 +731,24 @@ run_messaging_tests()
 	# scavenger to reap it.
 	run_msg_test "smb2.persistent-open.timeout_5" "MSG_SMB_SCAVENGER" \
 		smbtorture_run "$CA_SHARE" smb2.persistent-open.timeout_5
+
+	run_msg_test "smb2.notify.rmdir3" "MSG_SMB_NOTIFY_CANCEL_DELETED" \
+		smbtorture_run "$SHARE" smb2.notify.rmdir3
+
+	run_msg_test "smb2.notify.dir" \
+		"MSG_SMB_NOTIFY_REC_CHANGE/TRIGGER" \
+		smbtorture_run "$SHARE" smb2.notify.dir
+
+	run_msg_test "net notify listen/trigger" \
+		"MSG_SMB_NOTIFY_REC_CHANGE/TRIGGER" \
+		net_notify_trigger_listen
+
+	run_msg_test "smbstatus --notify" \
+		"MSG_SMB_NOTIFY_GET_DB/DB/REC_CHANGES" \
+		smbstatus_notify
+
+	run_msg_test "kill notifyd and restart" "MSG_SMB_NOTIFY_STARTED" \
+		kill_notifyd
 }
 
 # ===========================================================================

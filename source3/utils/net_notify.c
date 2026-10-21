@@ -23,6 +23,8 @@
 #include "lib/util/server_id_db.h"
 #include "messages.h"
 #include "source3/smbd/notifyd/notifyd.h"
+#include "librpc/ndr/ndr_messaging.h"
+#include "lib/cluster_support.h"
 
 static void net_notify_got_event(struct messaging_context *msg,
 				 void *private_data,
@@ -45,6 +47,96 @@ static void net_notify_got_event(struct messaging_context *msg,
 
 	d_printf("%u %s\n", (unsigned)event_msg->action,
 		 event_msg->path);
+	fflush(stdout);
+}
+
+static bool net_notify_rec_change_send_v1(struct messaging_context *msg_ctx,
+					  struct server_id notifyd,
+					  uint32_t filter,
+					  uint32_t subdir_filter,
+					  const char *path)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_rec_change msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+	bool ok = false;
+
+	ndr_err = messaging_smb_notify_rec_change_push(frame,
+						       &msg,
+						       (struct timespec){0},
+						       filter,
+						       subdir_filter,
+						       NULL,
+						       path,
+						       &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		d_fprintf(stderr,
+			  "messaging_smb_notify_rec_change_push failed: %s\n",
+			  ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx,
+				notifyd,
+				MSG_SMB_NOTIFY_REC_CHANGE_V1,
+				&blob);
+	if (!NT_STATUS_IS_OK(status)) {
+		struct server_id_buf idbuf;
+		d_fprintf(stderr,
+			  "Sending rec_change to %s returned %s\n",
+			  server_id_str_buf(notifyd, &idbuf),
+			  nt_errstr(status));
+		goto out;
+	}
+	ok = true;
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
+static bool net_notify_rec_change_send(struct messaging_context *msg_ctx,
+				       struct server_id notifyd,
+				       uint32_t filter,
+				       uint32_t subdir_filter,
+				       const char *path)
+{
+	struct notify_rec_change_msg msg;
+	struct iovec iov[2];
+	NTSTATUS status;
+
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return net_notify_rec_change_send_v1(
+			msg_ctx, notifyd, filter, subdir_filter, path);
+	}
+
+	msg = (struct notify_rec_change_msg){
+		.instance.filter = filter,
+		.instance.subdir_filter = subdir_filter,
+	};
+	iov[0] = (struct iovec){
+		.iov_base = &msg,
+		.iov_len = offsetof(struct notify_rec_change_msg, path)};
+	iov[1] = (struct iovec){.iov_base = discard_const_p(char, path),
+				.iov_len = strlen(path) + 1};
+
+	status = messaging_send_iov(msg_ctx,
+				    notifyd,
+				    MSG_SMB_NOTIFY_REC_CHANGE,
+				    iov,
+				    ARRAY_SIZE(iov),
+				    NULL,
+				    0);
+	if (!NT_STATUS_IS_OK(status)) {
+		struct server_id_buf idbuf;
+		d_fprintf(stderr,
+			  "Sending rec_change to %s returned %s\n",
+			  server_id_str_buf(notifyd, &idbuf),
+			  nt_errstr(status));
+		return false;
+	}
+	return true;
 }
 
 static int net_notify_listen(struct net_context *c, int argc,
@@ -55,8 +147,6 @@ static int net_notify_listen(struct net_context *c, int argc,
 	struct server_id_db *names_db = messaging_names_db(msg_ctx);
 	struct server_id notifyd;
 	struct server_id_buf idbuf;
-	struct notify_rec_change_msg msg;
-	struct iovec iov[2];
 	NTSTATUS status;
 	bool ok;
 
@@ -73,19 +163,7 @@ static int net_notify_listen(struct net_context *c, int argc,
 	}
 
 	printf("notify daemon: %s\n", server_id_str_buf(notifyd, &idbuf));
-
-	msg = (struct notify_rec_change_msg) {
-		.instance.filter = atoi(argv[1]),
-		.instance.subdir_filter = atoi(argv[2])
-	};
-	iov[0] = (struct iovec) {
-		.iov_base = &msg,
-		.iov_len = offsetof(struct notify_rec_change_msg, path)
-	};
-	iov[1] = (struct iovec) {
-		.iov_base = discard_const_p(char, argv[0]),
-		.iov_len = strlen(argv[0])+1
-	};
+	fflush(stdout);
 
 	status = messaging_register(c->msg_ctx, NULL, MSG_PVFS_NOTIFY,
 				    net_notify_got_event);
@@ -95,13 +173,9 @@ static int net_notify_listen(struct net_context *c, int argc,
 		return -1;
 	}
 
-	status = messaging_send_iov(
-		c->msg_ctx, notifyd, MSG_SMB_NOTIFY_REC_CHANGE,
-		iov, ARRAY_SIZE(iov), NULL, 0);
-	if (!NT_STATUS_IS_OK(status)) {
-		d_fprintf(stderr, "Sending rec_change to %s returned %s\n",
-			  server_id_str_buf(notifyd, &idbuf),
-			  nt_errstr(status));
+	ok = net_notify_rec_change_send(
+		c->msg_ctx, notifyd, atoi(argv[1]), atoi(argv[2]), argv[0]);
+	if (!ok) {
 		return -1;
 	}
 
@@ -119,16 +193,100 @@ static int net_notify_listen(struct net_context *c, int argc,
 	return 0;
 }
 
-static int net_notify_trigger(struct net_context *c, int argc,
+static bool net_notify_trigger_send_v1(struct messaging_context *msg_ctx,
+				       struct server_id notifyd,
+				       uint32_t action,
+				       uint32_t filter,
+				       const char *path)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_smb_notify_trigger msg = {};
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+	bool ok = false;
+
+	ndr_err = messaging_smb_notify_trigger_push(frame,
+						    &msg,
+						    (struct timespec){0},
+						    action,
+						    filter,
+						    path,
+						    &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		d_fprintf(stderr,
+			  "messaging_smb_notify_trigger_push failed: %s\n",
+			  ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	status = messaging_send(msg_ctx,
+				notifyd,
+				MSG_SMB_NOTIFY_TRIGGER_V1,
+				&blob);
+	if (!NT_STATUS_IS_OK(status)) {
+		struct server_id_buf idbuf;
+		d_fprintf(stderr,
+			  "Sending trigger to %s returned %s\n",
+			  server_id_str_buf(notifyd, &idbuf),
+			  nt_errstr(status));
+		goto out;
+	}
+	ok = true;
+out:
+	TALLOC_FREE(frame);
+	return ok;
+}
+
+static bool net_notify_trigger_send(struct messaging_context *msg_ctx,
+				    struct server_id notifyd,
+				    uint32_t action,
+				    uint32_t filter,
+				    const char *path)
+{
+	struct notify_trigger_msg msg;
+	struct iovec iov[2];
+	NTSTATUS status;
+
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return net_notify_trigger_send_v1(
+			msg_ctx, notifyd, action, filter, path);
+	}
+
+	msg = (struct notify_trigger_msg){.action = action, .filter = filter};
+
+	iov[0] = (struct iovec) {
+		.iov_base = &msg,
+		.iov_len = offsetof(struct notify_trigger_msg, path)
+	};
+	iov[1] = (struct iovec){.iov_base = discard_const_p(char, path),
+				.iov_len = strlen(path) + 1};
+
+	status = messaging_send_iov(msg_ctx,
+				    notifyd,
+				    MSG_SMB_NOTIFY_TRIGGER,
+				    iov,
+				    ARRAY_SIZE(iov),
+				    NULL,
+				    0);
+	if (!NT_STATUS_IS_OK(status)) {
+		struct server_id_buf idbuf;
+		d_printf("Sending rec_change to %s returned %s\n",
+			 server_id_str_buf(notifyd, &idbuf),
+			 nt_errstr(status));
+		return false;
+	}
+	return true;
+}
+
+static int net_notify_trigger(struct net_context *c,
+			      int argc,
 			      const char **argv)
 {
 	struct messaging_context *msg_ctx = c->msg_ctx;
 	struct server_id_db *names_db = messaging_names_db(msg_ctx);
 	struct server_id notifyd;
 	struct server_id_buf idbuf;
-	struct notify_trigger_msg msg;
-	struct iovec iov[2];
-	NTSTATUS status;
 	bool ok;
 
 	if (argc != 3) {
@@ -144,27 +302,11 @@ static int net_notify_trigger(struct net_context *c, int argc,
 	}
 
 	printf("notify daemon: %s\n", server_id_str_buf(notifyd, &idbuf));
+	fflush(stdout);
 
-	msg = (struct notify_trigger_msg) {
-		.action = atoi(argv[1]), .filter = atoi(argv[2])
-	};
-
-	iov[0] = (struct iovec) {
-		.iov_base = &msg,
-		.iov_len = offsetof(struct notify_trigger_msg, path)
-	};
-	iov[1] = (struct iovec) {
-		.iov_base = discard_const_p(char, argv[0]),
-		.iov_len = strlen(argv[0])+1
-	};
-
-	status = messaging_send_iov(
-		c->msg_ctx, notifyd, MSG_SMB_NOTIFY_TRIGGER,
-		iov, ARRAY_SIZE(iov), NULL, 0);
-	if (!NT_STATUS_IS_OK(status)) {
-		d_printf("Sending rec_change to %s returned %s\n",
-			 server_id_str_buf(notifyd, &idbuf),
-			 nt_errstr(status));
+	ok = net_notify_trigger_send(
+		c->msg_ctx, notifyd, atoi(argv[1]), atoi(argv[2]), argv[0]);
+	if (!ok) {
 		return -1;
 	}
 
