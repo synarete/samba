@@ -1160,17 +1160,15 @@ bld.SAMBA3_SUBSYSTEM('fd_handle',
 ########################## BINARIES #################################
 
 smbd_sources = 'smbd/server.c smbd/smbd_cleanupd.c'
+smbd_deps = 'CMDLINE_S3 smbd_base REG_FULL'
 
 if bld.CONFIG_GET('WITH_RATELIMITD'):
     smbd_sources += ' smbd/smbd_ratelimitd.c'
+    smbd_deps += ' NDR_RATELIMIT'
 
 bld.SAMBA3_BINARY('smbd/smbd',
                  source=smbd_sources,
-                 deps='''
-                      CMDLINE_S3
-                      smbd_base
-                      REG_FULL
-                      ''',
+                 deps=smbd_deps,
                  install_path='${SBINDIR}')
 
 
