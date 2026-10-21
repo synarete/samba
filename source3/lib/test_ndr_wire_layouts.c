@@ -233,6 +233,40 @@ static void test_file_id_key(void **state)
 }
 
 /*
+ * push_file_id_16() used SIVAL() for the 32 bit halves
+ * of devid and inode and ignored the extid
+ */
+static void test_file_id_key_16(void **state)
+{
+	struct file_id id = {
+		.devid = 0x0102030405060708,
+		.inode = 0x1112131415161718,
+		.extid = 0x2122232425262728,
+	};
+	struct file_id id2 = { .devid = 0, };
+	uint8_t legacy[FILE_ID_KEY_16_LENGTH];
+	uint8_t buf[FILE_ID_KEY_16_LENGTH] = { 0, };
+	bool ok;
+
+	SIVAL(legacy,  0, id.devid&0xFFFFFFFF);
+	SIVAL(legacy,  4, id.devid>>32);
+	SIVAL(legacy,  8, id.inode&0xFFFFFFFF);
+	SIVAL(legacy, 12, id.inode>>32);
+
+	push_file_id_16(buf, &id);
+	assert_memory_equal(buf, legacy, sizeof(legacy));
+
+	ok = pull_file_id_16(buf, sizeof(buf), &id2);
+	assert_true(ok);
+	assert_int_equal(id2.devid, id.devid);
+	assert_int_equal(id2.inode, id.inode);
+	assert_int_equal(id2.extid, 0);
+
+	ok = pull_file_id_16(buf, sizeof(buf) - 1, &id2);
+	assert_false(ok);
+}
+
+/*
  * brlock.tdb used a raw array of struct lock_struct
  */
 static void test_brlock_lock_entry(void **state)
@@ -519,6 +553,7 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_secrets_domain_guid),
 		cmocka_unit_test(test_ndr_flags_bigendian),
 		cmocka_unit_test(test_file_id_key),
+		cmocka_unit_test(test_file_id_key_16),
 		cmocka_unit_test(test_brlock_lock_entry),
 		cmocka_unit_test(test_ratelimit_activity_report),
 		cmocka_unit_test(test_ratelimit_node_summary),
