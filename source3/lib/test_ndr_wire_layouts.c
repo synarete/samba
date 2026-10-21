@@ -22,6 +22,10 @@
  */
 
 #include "includes.h"
+#include "lib/file_id.h"
+#include "lib/file_id_key.h"
+#include "librpc/gen_ndr/ndr_file_id.h"
+#include "locking/proto.h"
 #include "librpc/gen_ndr/ndr_secrets.h"
 #include "librpc/gen_ndr/ndr_open_files.h"
 #include "librpc/gen_ndr/ndr_ratelimit.h"
@@ -173,6 +177,59 @@ static void test_ndr_flags_bigendian(void **state)
 			LIBNDR_FLAG_BIGENDIAN,
 			(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_sid);
 	assert_false(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+}
+
+/*
+ * The keys of locking.tdb and brlock.tdb used a raw struct file_id
+ */
+static void test_file_id_key(void **state)
+{
+	struct file_id id = {
+		.devid = 0x0102030405060708,
+		.inode = 0x1112131415161718,
+		.extid = 0x2122232425262728,
+	};
+	struct file_id id2 = { .devid = 0, };
+	struct file_id_key key = { .id = id };
+	struct file_id_key key2 = { .id = { .devid = 0, }, };
+	struct file_id_key_buf buf = { .buf = { 0, }, };
+	uint8_t be[FILE_ID_KEY_LENGTH];
+	DATA_BLOB blob = data_blob_const(buf.buf, sizeof(buf.buf));
+	enum ndr_err_code ndr_err;
+	bool ok;
+
+	assert_int_equal(sizeof(id), FILE_ID_KEY_LENGTH);
+
+	push_file_id_24(&buf, &id);
+	assert_memory_equal(buf.buf, &id, sizeof(id));
+
+	ok = pull_file_id_24(buf.buf, sizeof(buf.buf), &id2);
+	assert_true(ok);
+	assert_true(file_id_equal(&id, &id2));
+
+	ok = pull_file_id_24(buf.buf, sizeof(buf.buf) - 1, &id2);
+	assert_false(ok);
+
+	/*
+	 * On big endian platforms each member needs to be
+	 * a big endian uint64, not two big endian uint32
+	 * with the low half first (like udlong).
+	 */
+	PUSH_BE_U64(be, 0, id.devid);
+	PUSH_BE_U64(be, 8, id.inode);
+	PUSH_BE_U64(be, 16, id.extid);
+
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &key,
+			LIBNDR_FLAG_BIGENDIAN,
+			(ndr_push_flags_fn_t)ndr_push_file_id_key);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(buf.buf, be, sizeof(be));
+
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &key2,
+			LIBNDR_FLAG_BIGENDIAN,
+			(ndr_pull_flags_fn_t)ndr_pull_file_id_key);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_true(file_id_equal(&key.id, &key2.id));
 }
 
 /*
@@ -461,6 +518,7 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_secrets_domain_sid),
 		cmocka_unit_test(test_secrets_domain_guid),
 		cmocka_unit_test(test_ndr_flags_bigendian),
+		cmocka_unit_test(test_file_id_key),
 		cmocka_unit_test(test_brlock_lock_entry),
 		cmocka_unit_test(test_ratelimit_activity_report),
 		cmocka_unit_test(test_ratelimit_node_summary),
