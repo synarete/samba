@@ -36,6 +36,7 @@
 */
 
 #include "includes.h"
+#include "lib/file_id_key.h"
 #include "lib/util/time_basic.h"
 #include "system/filesys.h"
 #include "lib/util/server_id.h"
@@ -195,9 +196,11 @@ bool locking_end(void)
  Form a static locking key for a dev/inode pair.
 ******************************************************************/
 
-static TDB_DATA locking_key(const struct file_id *id)
+static TDB_DATA locking_key(const struct file_id *id,
+			    struct file_id_key_buf *buf)
 {
-	return make_tdb_data((const uint8_t *)id, sizeof(*id));
+	push_file_id_24(buf, id);
+	return make_tdb_data(buf->buf, sizeof(buf->buf));
 }
 
 /*******************************************************************
@@ -718,7 +721,8 @@ store:
 
 static NTSTATUS share_mode_data_store(struct share_mode_data *d)
 {
-	TDB_DATA key = locking_key(&d->id);
+	struct file_id_key_buf keybuf;
+	TDB_DATA key = locking_key(&d->id, &keybuf);
 	struct locking_tdb_data *ltdb = NULL;
 	NTSTATUS status;
 
@@ -801,9 +805,10 @@ fail:
  * Key that's locked with g_lock
  */
 static struct file_id share_mode_lock_key_id = {};
+static struct file_id_key_buf share_mode_lock_key_buf = {};
 static TDB_DATA share_mode_lock_key = {
-	.dptr = (uint8_t *)&share_mode_lock_key_id,
-	.dsize = sizeof(share_mode_lock_key_id),
+	.dptr = share_mode_lock_key_buf.buf,
+	.dsize = sizeof(share_mode_lock_key_buf.buf),
 };
 static size_t share_mode_lock_key_refcount = 0;
 
@@ -974,7 +979,8 @@ static NTSTATUS get_share_mode_lock_internal(
 
 	if (share_mode_lock_key_refcount == 0) {
 		if (!share_mode_lock_skip_g_lock) {
-			TDB_DATA key = locking_key(&id);
+			struct file_id_key_buf keybuf;
+			TDB_DATA key = locking_key(&id, &keybuf);
 
 			status = g_lock_lock(
 				lock_ctx,
@@ -989,6 +995,7 @@ static NTSTATUS get_share_mode_lock_internal(
 			}
 		}
 		share_mode_lock_key_id = id;
+		push_file_id_24(&share_mode_lock_key_buf, &id);
 	}
 
 	if (!file_id_equal(&share_mode_lock_key_id, &id)) {
@@ -1211,6 +1218,7 @@ static NTSTATUS fsp_update_share_mode_flags(struct files_struct *fsp)
 {
 	struct fsp_update_share_mode_flags_state state = { .fsp = fsp, };
 	int seqnum = g_lock_seqnum(lock_ctx);
+	struct file_id_key_buf keybuf;
 	TDB_DATA key = {0};
 	NTSTATUS status;
 
@@ -1218,7 +1226,7 @@ static NTSTATUS fsp_update_share_mode_flags(struct files_struct *fsp)
 		return NT_STATUS_OK;
 	}
 
-	key = locking_key(&fsp->file_id);
+	key = locking_key(&fsp->file_id, &keybuf);
 	status = share_mode_g_lock_dump(key,
 			     fsp_update_share_mode_flags_fn,
 			     &state);
@@ -1427,7 +1435,8 @@ struct tevent_req *share_mode_watch_send(
 	struct file_id *id,
 	struct server_id blocker)
 {
-	TDB_DATA key = locking_key(id);
+	struct file_id_key_buf keybuf;
+	TDB_DATA key = locking_key(id, &keybuf);
 	struct tevent_req *req = NULL, *subreq = NULL;
 	struct share_mode_watch_state *state = NULL;
 
@@ -1559,7 +1568,8 @@ struct share_mode_lock *fetch_share_mode_unlocked(TALLOC_CTX *mem_ctx,
 		.mem_ctx = mem_ctx,
 		.id = id,
 	};
-	TDB_DATA key = locking_key(&id);
+	struct file_id_key_buf keybuf;
+	TDB_DATA key = locking_key(&id, &keybuf);
 	NTSTATUS status;
 
 	status = g_lock_dump(
@@ -1573,6 +1583,7 @@ struct share_mode_lock *fetch_share_mode_unlocked(TALLOC_CTX *mem_ctx,
 
 struct fetch_share_mode_state {
 	struct file_id id;
+	struct file_id_key_buf keybuf;
 	struct share_mode_lock *lck;
 	NTSTATUS status;
 };
@@ -1632,7 +1643,7 @@ struct tevent_req *fetch_share_mode_send(TALLOC_CTX *mem_ctx,
 		state,
 		ev,
 		lock_ctx,
-		locking_key(&id),
+		locking_key(&state->id, &state->keybuf),
 		fetch_share_mode_fn,
 		state);
 	if (tevent_req_nomem(subreq, req)) {
@@ -1764,11 +1775,11 @@ static void share_mode_forall_dump_fn(
 	bool ok;
 	struct share_mode_data *d;
 
-	if (state->key.dsize != sizeof(fid)) {
+	ok = pull_file_id_24(state->key.dptr, state->key.dsize, &fid);
+	if (!ok) {
 		DBG_DEBUG("Got invalid key length %zu\n", state->key.dsize);
 		return;
 	}
-	memcpy(&fid, state->key.dptr, sizeof(fid));
 
 	ok = locking_tdb_data_parse(&ltdb, data, datalen);
 	if (!ok) {
@@ -2080,7 +2091,8 @@ bool set_share_mode(struct share_mode_lock *lck,
 		    uint32_t access_mask)
 {
 	struct share_mode_data *d = share_mode_lock_assert_private_data(lck);
-	TDB_DATA key = locking_key(&d->id);
+	struct file_id_key_buf keybuf;
+	TDB_DATA key = locking_key(&d->id, &keybuf);
 	struct server_id my_pid = messaging_server_id(
 		fsp->conn->sconn->msg_ctx);
 	struct locking_tdb_data *ltdb = NULL;
@@ -2342,7 +2354,8 @@ bool share_mode_forall_entries(
 {
 	struct file_id id = share_mode_lock_file_id(lck);
 	struct share_mode_data *d = NULL;
-	TDB_DATA key = locking_key(&id);
+	struct file_id_key_buf keybuf;
+	TDB_DATA key = locking_key(&id, &keybuf);
 	struct locking_tdb_data *ltdb = NULL;
 	uint8_t *share_entries = NULL;
 	size_t num_share_entries;
@@ -2451,11 +2464,12 @@ NTSTATUS share_mode_count_entries(struct file_id fid, size_t *num_share_modes)
 	struct share_mode_count_entries_state state = {
 		.status = NT_STATUS_NOT_FOUND,
 	};
+	struct file_id_key_buf keybuf;
 	NTSTATUS status;
 
 	status = g_lock_dump(
 		lock_ctx,
-		locking_key(&fid),
+		locking_key(&fid, &keybuf),
 		share_mode_count_entries_fn,
 		&state);
 	if (!NT_STATUS_IS_OK(status)) {
@@ -2483,7 +2497,8 @@ static bool share_mode_entry_do(
 		   void *private_data),
 	void *private_data)
 {
-	TDB_DATA key = locking_key(&d->id);
+	struct file_id_key_buf keybuf;
+	TDB_DATA key = locking_key(&d->id, &keybuf);
 	struct locking_tdb_data *ltdb = NULL;
 	size_t idx;
 	bool found = false;
@@ -2823,7 +2838,8 @@ bool reset_share_mode_entry(
 {
 	struct file_id id = share_mode_lock_file_id(lck);
 	struct share_mode_data *d = NULL;
-	TDB_DATA key = locking_key(&id);
+	struct file_id_key_buf keybuf;
+	TDB_DATA key = locking_key(&id, &keybuf);
 	struct locking_tdb_data *ltdb = NULL;
 	struct share_mode_entry e = { .pid.pid = 0 };
 	struct share_mode_entry_buf e_buf;
@@ -3255,7 +3271,8 @@ NTSTATUS _share_mode_do_locked_vfs_denied(
 	};
 
 	if (share_mode_lock_key_refcount == 0) {
-		TDB_DATA key = locking_key(&id);
+		struct file_id_key_buf keybuf;
+		TDB_DATA key = locking_key(&id, &keybuf);
 		NTSTATUS status;
 
 		share_mode_lock_skip_g_lock = true;
@@ -3402,7 +3419,8 @@ NTSTATUS _share_mode_entry_prepare_lock(
 		.private_data = private_data,
 		.location = location,
 	};
-	TDB_DATA key = locking_key(&id);
+	struct file_id_key_buf keybuf;
+	TDB_DATA key = locking_key(&id, &keybuf);
 	NTSTATUS status;
 
 	SMB_ASSERT(share_mode_lock_key_refcount == 0);
@@ -3520,7 +3538,8 @@ NTSTATUS _share_mode_entry_prepare_unlock(
 		.private_data = private_data,
 		.location = location,
 	};
-	TDB_DATA key = locking_key(&prepare_state->__fid);
+	struct file_id_key_buf keybuf;
+	TDB_DATA key = locking_key(&prepare_state->__fid, &keybuf);
 	NTSTATUS status;
 
 	if (prepare_state->__lck_ptr != NULL) {
