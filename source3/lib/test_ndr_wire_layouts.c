@@ -23,6 +23,7 @@
 
 #include "includes.h"
 #include "librpc/gen_ndr/ndr_secrets.h"
+#include "librpc/gen_ndr/ndr_open_files.h"
 #include "librpc/gen_ndr/ndr_ratelimit.h"
 #include "lib/util/server_id.h"
 #include "lib/messages_util.h"
@@ -172,6 +173,73 @@ static void test_ndr_flags_bigendian(void **state)
 			LIBNDR_FLAG_BIGENDIAN,
 			(ndr_pull_flags_fn_t)ndr_pull_secrets_domain_sid);
 	assert_false(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+}
+
+/*
+ * brlock.tdb used a raw array of struct lock_struct
+ */
+static void test_brlock_lock_entry(void **state)
+{
+	struct lock_struct lock;
+	struct brlock_lock_entry e = { .smblctx = 0, };
+	struct brlock_lock_entry e2 = { .smblctx = 0, };
+	uint8_t raw[sizeof(struct lock_struct)];
+	uint8_t buf[BRLOCK_LOCK_ENTRY_SIZE] = { 0, };
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
+
+	/*
+	 * Only platforms with 8 byte aligned uint64_t
+	 * use brlock_lock_entry, see brlock.c
+	 */
+	if (sizeof(struct lock_struct) != BRLOCK_LOCK_ENTRY_SIZE) {
+		skip();
+	}
+
+	assert_int_equal(sizeof(raw), BRLOCK_LOCK_ENTRY_SIZE);
+
+	/* make sure the padding is 0 */
+	memset(&lock, 0, sizeof(lock));
+	lock.context.smblctx = 0x0102030405060708;
+	lock.context.tid = 0x11121314;
+	lock.context.pid = (struct server_id) {
+		.pid = 0x2122232425262728,
+		.task_id = 0x31323334,
+		.vnn = 0x41424344,
+		.unique_id = 0x5152535455565758,
+	};
+	lock.start = 0x6162636465666768;
+	lock.size = 0x7172737475767778;
+	lock.fnum = 0x8182838485868788;
+	lock.lock_type = WRITE_LOCK;
+	lock.lock_flav = POSIX_LOCK;
+	lock.persistent = true;
+	memcpy(raw, &lock, sizeof(raw));
+
+	e = (struct brlock_lock_entry) {
+		.smblctx = lock.context.smblctx,
+		.tid = lock.context.tid,
+		.pid = lock.context.pid,
+		.start = lock.start,
+		.size = lock.size,
+		.fnum = lock.fnum,
+		.lock_type = lock.lock_type,
+		.lock_flav = lock.lock_flav,
+		.persistent = lock.persistent,
+	};
+
+	ndr_err = ndr_push_struct_into_fixed_blob_flags(&blob, &e,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_push_flags_fn_t)ndr_push_brlock_lock_entry);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(buf, raw, sizeof(raw));
+
+	blob = data_blob_const(raw, sizeof(raw));
+	ndr_err = ndr_pull_struct_blob_all_noalloc_flags(&blob, &e2,
+			LIBNDR_FLAG_HOST_BYTE_ORDER,
+			(ndr_pull_flags_fn_t)ndr_pull_brlock_lock_entry);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(&e, &e2, sizeof(e));
 }
 
 /*
@@ -393,6 +461,7 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_secrets_domain_sid),
 		cmocka_unit_test(test_secrets_domain_guid),
 		cmocka_unit_test(test_ndr_flags_bigendian),
+		cmocka_unit_test(test_brlock_lock_entry),
 		cmocka_unit_test(test_ratelimit_activity_report),
 		cmocka_unit_test(test_ratelimit_node_summary),
 		cmocka_unit_test(test_ratelimit_tdb_record),
