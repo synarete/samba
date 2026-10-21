@@ -20,6 +20,7 @@ bld.SAMBA3_SUBSYSTEM('notifyd',
                          messages_util
                          notifyd_db
                          notifyd_msg
+                         samba3core
                      ''')
 
 bld.SAMBA3_BINARY('notifyd-tests',

@@ -519,7 +519,7 @@ bld.SAMBA_NDR_ABI('file_id', deps='NDR_FILE_ID')
 
 bld.SAMBA_SUBSYSTEM('NDR_MESSAGING',
     source='gen_ndr/ndr_messaging.c ndr/ndr_messaging.c',
-    public_deps='ndr NDR_SERVER_ID NDR_FILE_ID'
+    public_deps='ndr NDR_SERVER_ID NDR_FILE_ID NDR_MISC'
     )
 
 # messaging_reclog is broadcasted within a ctdb cluster
