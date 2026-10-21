@@ -25,6 +25,7 @@
    used. This allows us to provide the same semantics as NT */
 
 #include "includes.h"
+#include "lib/file_id_key.h"
 #include "system/filesys.h"
 #include "lib/util/server_id.h"
 #include "locking/proto.h"
@@ -1534,7 +1535,7 @@ static int brl_traverse_fn(struct db_record *rec, void *state)
 {
 	struct brl_forall_cb *cb = (struct brl_forall_cb *)state;
 	struct byte_range_lock br_lck = {};
-	struct file_id *key;
+	struct file_id key;
 	unsigned int i;
 	TDB_DATA dbkey;
 	TDB_DATA value;
@@ -1551,11 +1552,15 @@ static int brl_traverse_fn(struct db_record *rec, void *state)
 		return -1; /* Terminate traversal. */
 	}
 
-	key = (struct file_id *)dbkey.dptr;
+	ok = pull_file_id_24(dbkey.dptr, dbkey.dsize, &key);
+	if (!ok) {
+		TALLOC_FREE(br_lck.lock_data);
+		return -1; /* Terminate traversal. */
+	}
 
 	if (cb->fn) {
 		for ( i=0; i<br_lck.num_locks; i++) {
-			cb->fn(*key,
+			cb->fn(key,
 				br_lck.lock_data[i].context.pid,
 				br_lck.lock_data[i].lock_type,
 				br_lck.lock_data[i].lock_flav,
@@ -1740,6 +1745,7 @@ static bool brl_parse_data(TALLOC_CTX *mem_ctx,
 static struct byte_range_lock *brl_get_locks_internal(TALLOC_CTX *mem_ctx,
 						      struct file_id *file_id)
 {
+	struct file_id_key_buf keybuf;
 	TDB_DATA key, data;
 	struct byte_range_lock *br_lck;
 
@@ -1748,8 +1754,8 @@ static struct byte_range_lock *brl_get_locks_internal(TALLOC_CTX *mem_ctx,
 		return NULL;
 	}
 
-	key.dptr = (uint8_t *)file_id;
-	key.dsize = sizeof(struct file_id);
+	push_file_id_24(&keybuf, file_id);
+	key = make_tdb_data(keybuf.buf, sizeof(keybuf.buf));
 
 	br_lck->record = dbwrap_fetch_locked(brlock_db, br_lck, key);
 
@@ -1833,6 +1839,7 @@ static struct byte_range_lock *brl_get_locks_readonly_parse(TALLOC_CTX *mem_ctx,
 {
 	struct byte_range_lock *br_lock = NULL;
 	struct brl_get_locks_readonly_state state;
+	struct file_id_key_buf keybuf;
 	NTSTATUS status;
 
 	/*
@@ -1842,10 +1849,11 @@ static struct byte_range_lock *brl_get_locks_readonly_parse(TALLOC_CTX *mem_ctx,
 	state.mem_ctx = mem_ctx;
 	state.br_lock = &br_lock;
 
+	push_file_id_24(&keybuf, &fsp->file_id);
+
 	status = dbwrap_parse_record(
 		brlock_db,
-		make_tdb_data((uint8_t *)&fsp->file_id,
-			      sizeof(fsp->file_id)),
+		make_tdb_data(keybuf.buf, sizeof(keybuf.buf)),
 		brl_get_locks_readonly_parser, &state);
 
 	if (NT_STATUS_EQUAL(status,NT_STATUS_NOT_FOUND)) {
@@ -1987,8 +1995,11 @@ static void share_mode_do_locked_brl_fn(struct share_mode_lock *lck,
 {
 	struct share_mode_do_locked_brl_state *state = private_data;
 	struct byte_range_lock *br_lck = NULL;
-	TDB_DATA key = make_tdb_data((uint8_t *)&state->fsp->file_id,
-				     sizeof(state->fsp->file_id));
+	struct file_id_key_buf keybuf;
+	TDB_DATA key;
+
+	push_file_id_24(&keybuf, &state->fsp->file_id);
+	key = make_tdb_data(keybuf.buf, sizeof(keybuf.buf));
 
 	if (lp_locking(state->fsp->conn->params) &&
 	    state->fsp->fsp_flags.can_lock)
