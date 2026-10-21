@@ -10,6 +10,15 @@ import "named_pipe_auth.idl";
 import "dcerpc.idl";
 
 [
+	/*
+	 * samba-dcerpcd and the rpcd_* helpers are separate
+	 * binaries, which might be from different versions
+	 * during an upgrade, so the NDR wire format of all
+	 * [public] types and everything they use is protected
+	 * by source3/librpc/ABI/rpc_host.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
 	pointer_default(unique)
 ]
 
