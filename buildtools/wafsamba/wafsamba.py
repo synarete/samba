@@ -26,6 +26,7 @@ import samba_cross
 import samba_install
 import samba_conftests
 import samba_abi
+import samba_ndr_abi
 import samba_headers
 import generic_cc
 import samba_dist
