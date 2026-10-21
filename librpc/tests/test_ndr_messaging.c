@@ -3921,98 +3921,6 @@ static void test_ndr_messaging_smb_file_rename_bad_version(void **state)
 	talloc_free(mem_ctx);
 }
 
-/* MSG_SMB_NOTIFY */
-static const uint8_t smb_notify_blob[] = {
-	0x01, 0x00, 0x00, 0x00, /* version */
-	0x00, 0x00, 0x00, 0x00, /* reserved */
-	0x01, 0x00, 0x00, 0x00, /* union discriminant */
-};
-
-static void test_ndr_messaging_smb_notify_pull(void **state)
-{
-	TALLOC_CTX *mem_ctx = talloc_new(NULL);
-	struct messaging_smb_notify msg = {};
-	const DATA_BLOB blob = {
-		.data = discard_const_p(uint8_t, smb_notify_blob),
-		.length = sizeof(smb_notify_blob),
-	};
-	enum ndr_err_code err;
-
-	err = messaging_smb_notify_pull(mem_ctx, &blob, &msg);
-	assert_int_equal(NDR_ERR_SUCCESS, err);
-
-	assert_int_equal(MESSAGING_SMB_NOTIFY_VERSION_1, msg.version);
-	assert_int_equal(0, msg.reserved);
-
-	talloc_free(mem_ctx);
-}
-
-static void test_ndr_messaging_smb_notify_push(void **state)
-{
-	TALLOC_CTX *mem_ctx = talloc_new(NULL);
-	struct messaging_smb_notify msg = {};
-	DATA_BLOB blob = data_blob_null;
-	const DATA_BLOB expected = {
-		.data = discard_const_p(uint8_t, smb_notify_blob),
-		.length = sizeof(smb_notify_blob),
-	};
-	enum ndr_err_code err;
-
-	err = messaging_smb_notify_push(mem_ctx, &msg, &blob);
-	assert_int_equal(NDR_ERR_SUCCESS, err);
-
-	assert_int_equal(expected.length, blob.length);
-	assert_memory_equal(expected.data, blob.data, expected.length);
-
-	talloc_free(mem_ctx);
-}
-
-static void test_ndr_messaging_smb_notify_roundtrip(void **state)
-{
-	TALLOC_CTX *mem_ctx = talloc_new(NULL);
-	struct messaging_smb_notify orig = {};
-	struct messaging_smb_notify decoded = {};
-	DATA_BLOB blob = data_blob_null;
-	enum ndr_err_code err;
-
-	err = messaging_smb_notify_push(mem_ctx, &orig, &blob);
-	assert_int_equal(NDR_ERR_SUCCESS, err);
-
-	assert_int_equal(sizeof(smb_notify_blob), blob.length);
-	assert_memory_equal(smb_notify_blob,
-			    blob.data,
-			    sizeof(smb_notify_blob));
-
-	err = messaging_smb_notify_pull(mem_ctx, &blob, &decoded);
-	assert_int_equal(NDR_ERR_SUCCESS, err);
-
-	assert_int_equal(MESSAGING_SMB_NOTIFY_VERSION_1, decoded.version);
-	assert_int_equal(0, decoded.reserved);
-
-	talloc_free(mem_ctx);
-}
-
-static void test_ndr_messaging_smb_notify_bad_version(void **state)
-{
-	TALLOC_CTX *mem_ctx = talloc_new(NULL);
-	struct messaging_smb_notify msg = {};
-	uint8_t bad_blob[] = {
-		0x02, 0x00, 0x00, 0x00, /* version = 2 (unknown) */
-		0x00, 0x00, 0x00, 0x00, /* reserved */
-		0x02, 0x00, 0x00, 0x00, /* union discriminant */
-	};
-	const DATA_BLOB blob = {
-		.data = bad_blob,
-		.length = sizeof(bad_blob),
-	};
-	enum ndr_err_code err;
-
-	err = messaging_smb_notify_pull(mem_ctx, &blob, &msg);
-	assert_int_not_equal(NDR_ERR_SUCCESS, err);
-
-	talloc_free(mem_ctx);
-}
-
 /* MSG_SMB_NOTIFY_CLEANUP */
 /*
  * Wire encoding of messaging_smb_notify_cleanup:
@@ -4136,134 +4044,6 @@ static void test_ndr_messaging_smb_notify_cleanup_bad_version(void **state)
 	enum ndr_err_code err;
 
 	err = messaging_smb_notify_cleanup_pull(mem_ctx, &blob, &msg);
-	assert_int_not_equal(NDR_ERR_SUCCESS, err);
-
-	talloc_free(mem_ctx);
-}
-
-/* MSG_SMB_NOTIFY_CANCEL_DELETED */
-static const uint8_t smb_notify_cancel_deleted_blob[] = {
-	0x01, 0x00, 0x00, 0x00, /* version */
-	0x00, 0x00, 0x00, 0x00, /* reserved */
-	0x01, 0x00, 0x00, 0x00, /* union discriminant */
-	0x02, 0x00, 0x00, 0x00, /* devid lo32 */
-	0x01, 0x00, 0x00, 0x00, /* devid hi32 */
-	0x04, 0x00, 0x00, 0x00, /* inode lo32 */
-	0x03, 0x00, 0x00, 0x00, /* inode hi32 */
-	0x00, 0x00, 0x00, 0x00, /* extid lo32 */
-	0x00, 0x00, 0x00, 0x00, /* extid hi32 */
-};
-
-static const uint8_t smb_notify_cancel_deleted_blob_zero[] = {
-	0x01, 0x00, 0x00, 0x00, /* version */
-	0x00, 0x00, 0x00, 0x00, /* reserved */
-	0x01, 0x00, 0x00, 0x00, /* union discriminant */
-	0x00, 0x00, 0x00, 0x00, /* devid lo32 */
-	0x00, 0x00, 0x00, 0x00, /* devid hi32 */
-	0x00, 0x00, 0x00, 0x00, /* inode lo32 */
-	0x00, 0x00, 0x00, 0x00, /* inode hi32 */
-	0x00, 0x00, 0x00, 0x00, /* extid lo32 */
-	0x00, 0x00, 0x00, 0x00, /* extid hi32 */
-};
-
-static void test_ndr_messaging_smb_notify_cancel_deleted_pull(void **state)
-{
-	TALLOC_CTX *mem_ctx = talloc_new(NULL);
-	struct messaging_smb_notify_cancel_deleted msg = {};
-	const DATA_BLOB blob = {
-		.data = discard_const_p(uint8_t, smb_notify_cancel_deleted_blob),
-		.length = sizeof(smb_notify_cancel_deleted_blob),
-	};
-	enum ndr_err_code err;
-
-	err = messaging_smb_notify_cancel_deleted_pull(mem_ctx, &blob, &msg);
-	assert_int_equal(NDR_ERR_SUCCESS, err);
-
-	assert_int_equal(MESSAGING_SMB_NOTIFY_VERSION_1, msg.version);
-	assert_int_equal(0, msg.reserved);
-	assert_int_equal(0x0000000100000002ULL, msg.info.info1.fid.devid);
-	assert_int_equal(0x0000000300000004ULL, msg.info.info1.fid.inode);
-	assert_int_equal(0, msg.info.info1.fid.extid);
-
-	talloc_free(mem_ctx);
-}
-
-static void test_ndr_messaging_smb_notify_cancel_deleted_push(void **state)
-{
-	TALLOC_CTX *mem_ctx = talloc_new(NULL);
-	struct messaging_smb_notify_cancel_deleted msg = {};
-	DATA_BLOB blob = data_blob_null;
-	const struct file_id fid = {
-		.devid = 0x0000000100000002ULL,
-		.inode = 0x0000000300000004ULL,
-		.extid = 0,
-	};
-	const DATA_BLOB expected = {
-		.data = discard_const_p(uint8_t, smb_notify_cancel_deleted_blob),
-		.length = sizeof(smb_notify_cancel_deleted_blob),
-	};
-	enum ndr_err_code err;
-
-	err = messaging_smb_notify_cancel_deleted_push(mem_ctx, &msg, fid, &blob);
-	assert_int_equal(NDR_ERR_SUCCESS, err);
-
-	assert_int_equal(expected.length, blob.length);
-	assert_memory_equal(expected.data, blob.data, expected.length);
-
-	talloc_free(mem_ctx);
-}
-
-static void test_ndr_messaging_smb_notify_cancel_deleted_roundtrip(void **state)
-{
-	TALLOC_CTX *mem_ctx = talloc_new(NULL);
-	struct messaging_smb_notify_cancel_deleted orig = {};
-	struct messaging_smb_notify_cancel_deleted decoded = {};
-	const struct file_id fid = {0};
-	DATA_BLOB blob = data_blob_null;
-	enum ndr_err_code err;
-
-	err = messaging_smb_notify_cancel_deleted_push(mem_ctx, &orig, fid, &blob);
-	assert_int_equal(NDR_ERR_SUCCESS, err);
-
-	assert_int_equal(sizeof(smb_notify_cancel_deleted_blob_zero), blob.length);
-	assert_memory_equal(smb_notify_cancel_deleted_blob_zero,
-			    blob.data,
-			    sizeof(smb_notify_cancel_deleted_blob_zero));
-
-	err = messaging_smb_notify_cancel_deleted_pull(mem_ctx, &blob, &decoded);
-	assert_int_equal(NDR_ERR_SUCCESS, err);
-
-	assert_int_equal(MESSAGING_SMB_NOTIFY_VERSION_1, decoded.version);
-	assert_int_equal(0, decoded.reserved);
-	assert_int_equal(0, decoded.info.info1.fid.devid);
-	assert_int_equal(0, decoded.info.info1.fid.inode);
-	assert_int_equal(0, decoded.info.info1.fid.extid);
-
-	talloc_free(mem_ctx);
-}
-
-static void test_ndr_messaging_smb_notify_cancel_deleted_bad_version(void **state)
-{
-	TALLOC_CTX *mem_ctx = talloc_new(NULL);
-	struct messaging_smb_notify_cancel_deleted msg = {};
-	uint8_t bad_blob[] = {
-		0x02, 0x00, 0x00, 0x00, /* version = 2 */
-		0x00, 0x00, 0x00, 0x00, /* reserved */
-		0x02, 0x00, 0x00, 0x00, /* union discriminant */
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-	};
-	const DATA_BLOB blob = {
-		.data = bad_blob,
-		.length = sizeof(bad_blob),
-	};
-	enum ndr_err_code err;
-
-	err = messaging_smb_notify_cancel_deleted_pull(mem_ctx, &blob, &msg);
 	assert_int_not_equal(NDR_ERR_SUCCESS, err);
 
 	talloc_free(mem_ctx);
@@ -4427,6 +4207,226 @@ static void test_ndr_messaging_smb_scavenger_bad_version(void **state)
 	enum ndr_err_code err;
 
 	err = messaging_smb_scavenger_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
+/* MSG_SMB_NOTIFY */
+static const uint8_t smb_notify_blob[] = {
+	0x01, 0x00, 0x00, 0x00, /* version */
+	0x00, 0x00, 0x00, 0x00, /* reserved */
+	0x01, 0x00, 0x00, 0x00, /* union discriminant */
+};
+
+static void test_ndr_messaging_smb_notify_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_notify msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, smb_notify_blob),
+		.length = sizeof(smb_notify_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_notify_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_NOTIFY_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_notify_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_notify msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, smb_notify_blob),
+		.length = sizeof(smb_notify_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_notify_push(mem_ctx, &msg, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_notify_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_notify orig = {};
+	struct messaging_smb_notify decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_smb_notify_push(mem_ctx, &orig, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(sizeof(smb_notify_blob), blob.length);
+	assert_memory_equal(smb_notify_blob,
+			    blob.data,
+			    sizeof(smb_notify_blob));
+
+	err = messaging_smb_notify_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_NOTIFY_VERSION_1, decoded.version);
+	assert_int_equal(0, decoded.reserved);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_notify_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_notify msg = {};
+	uint8_t bad_blob[] = {
+		0x02, 0x00, 0x00, 0x00, /* version = 2 (unknown) */
+		0x00, 0x00, 0x00, 0x00, /* reserved */
+		0x02, 0x00, 0x00, 0x00, /* union discriminant */
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_notify_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
+/* MSG_SMB_NOTIFY_CANCEL_DELETED */
+static const uint8_t smb_notify_cancel_deleted_blob[] = {
+	0x01, 0x00, 0x00, 0x00, /* version */
+	0x00, 0x00, 0x00, 0x00, /* reserved */
+	0x01, 0x00, 0x00, 0x00, /* union discriminant */
+	0x02, 0x00, 0x00, 0x00, /* devid lo32 */
+	0x01, 0x00, 0x00, 0x00, /* devid hi32 */
+	0x04, 0x00, 0x00, 0x00, /* inode lo32 */
+	0x03, 0x00, 0x00, 0x00, /* inode hi32 */
+	0x00, 0x00, 0x00, 0x00, /* extid lo32 */
+	0x00, 0x00, 0x00, 0x00, /* extid hi32 */
+};
+
+static const uint8_t smb_notify_cancel_deleted_blob_zero[] = {
+	0x01, 0x00, 0x00, 0x00, /* version */
+	0x00, 0x00, 0x00, 0x00, /* reserved */
+	0x01, 0x00, 0x00, 0x00, /* union discriminant */
+	0x00, 0x00, 0x00, 0x00, /* devid lo32 */
+	0x00, 0x00, 0x00, 0x00, /* devid hi32 */
+	0x00, 0x00, 0x00, 0x00, /* inode lo32 */
+	0x00, 0x00, 0x00, 0x00, /* inode hi32 */
+	0x00, 0x00, 0x00, 0x00, /* extid lo32 */
+	0x00, 0x00, 0x00, 0x00, /* extid hi32 */
+};
+
+static void test_ndr_messaging_smb_notify_cancel_deleted_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_notify_cancel_deleted msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, smb_notify_cancel_deleted_blob),
+		.length = sizeof(smb_notify_cancel_deleted_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_notify_cancel_deleted_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_NOTIFY_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_int_equal(0x0000000100000002ULL, msg.info.info1.fid.devid);
+	assert_int_equal(0x0000000300000004ULL, msg.info.info1.fid.inode);
+	assert_int_equal(0, msg.info.info1.fid.extid);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_notify_cancel_deleted_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_notify_cancel_deleted msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const struct file_id fid = {
+		.devid = 0x0000000100000002ULL,
+		.inode = 0x0000000300000004ULL,
+		.extid = 0,
+	};
+	const DATA_BLOB expected = {
+		.data = discard_const_p(uint8_t, smb_notify_cancel_deleted_blob),
+		.length = sizeof(smb_notify_cancel_deleted_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_notify_cancel_deleted_push(mem_ctx, &msg, fid, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_notify_cancel_deleted_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_notify_cancel_deleted orig = {};
+	struct messaging_smb_notify_cancel_deleted decoded = {};
+	const struct file_id fid = {0};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_smb_notify_cancel_deleted_push(mem_ctx, &orig, fid, &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(sizeof(smb_notify_cancel_deleted_blob_zero), blob.length);
+	assert_memory_equal(smb_notify_cancel_deleted_blob_zero,
+			    blob.data,
+			    sizeof(smb_notify_cancel_deleted_blob_zero));
+
+	err = messaging_smb_notify_cancel_deleted_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_SMB_NOTIFY_VERSION_1, decoded.version);
+	assert_int_equal(0, decoded.reserved);
+	assert_int_equal(0, decoded.info.info1.fid.devid);
+	assert_int_equal(0, decoded.info.info1.fid.inode);
+	assert_int_equal(0, decoded.info.info1.fid.extid);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_smb_notify_cancel_deleted_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_smb_notify_cancel_deleted msg = {};
+	uint8_t bad_blob[] = {
+		0x02, 0x00, 0x00, 0x00, /* version = 2 */
+		0x00, 0x00, 0x00, 0x00, /* reserved */
+		0x02, 0x00, 0x00, 0x00, /* union discriminant */
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_smb_notify_cancel_deleted_pull(mem_ctx, &blob, &msg);
 	assert_int_not_equal(NDR_ERR_SUCCESS, err);
 
 	talloc_free(mem_ctx);
@@ -5337,16 +5337,20 @@ int main(void)
 		cmocka_unit_test(test_ndr_messaging_smb_file_rename_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_smb_file_rename_bad_version),
-		cmocka_unit_test(test_ndr_messaging_smb_notify_pull),
-		cmocka_unit_test(test_ndr_messaging_smb_notify_push),
-		cmocka_unit_test(test_ndr_messaging_smb_notify_roundtrip),
-		cmocka_unit_test(test_ndr_messaging_smb_notify_bad_version),
 		cmocka_unit_test(test_ndr_messaging_smb_notify_cleanup_pull),
 		cmocka_unit_test(test_ndr_messaging_smb_notify_cleanup_push),
 		cmocka_unit_test(
 			test_ndr_messaging_smb_notify_cleanup_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_smb_notify_cleanup_bad_version),
+		cmocka_unit_test(test_ndr_messaging_smb_scavenger_pull),
+		cmocka_unit_test(test_ndr_messaging_smb_scavenger_push),
+		cmocka_unit_test(test_ndr_messaging_smb_scavenger_roundtrip),
+		cmocka_unit_test(test_ndr_messaging_smb_scavenger_bad_version),
+		cmocka_unit_test(test_ndr_messaging_smb_notify_pull),
+		cmocka_unit_test(test_ndr_messaging_smb_notify_push),
+		cmocka_unit_test(test_ndr_messaging_smb_notify_roundtrip),
+		cmocka_unit_test(test_ndr_messaging_smb_notify_bad_version),
 		cmocka_unit_test(
 			test_ndr_messaging_smb_notify_cancel_deleted_pull),
 		cmocka_unit_test(
@@ -5355,10 +5359,6 @@ int main(void)
 			test_ndr_messaging_smb_notify_cancel_deleted_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_smb_notify_cancel_deleted_bad_version),
-		cmocka_unit_test(test_ndr_messaging_smb_scavenger_pull),
-		cmocka_unit_test(test_ndr_messaging_smb_scavenger_push),
-		cmocka_unit_test(test_ndr_messaging_smb_scavenger_roundtrip),
-		cmocka_unit_test(test_ndr_messaging_smb_scavenger_bad_version),
 		cmocka_unit_test(
 			test_ndr_messaging_smb_notify_rec_change_pull),
 		cmocka_unit_test(

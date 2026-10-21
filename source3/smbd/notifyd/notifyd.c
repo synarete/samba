@@ -604,13 +604,21 @@ static NTSTATUS notifyd_trigger_send_v1(struct messaging_context *msg_ctx,
 					struct timespec when,
 					uint32_t action,
 					uint32_t filter,
-					const char *path)
+					const char *dir,
+					const char *name)
 {
 	TALLOC_CTX *frame = talloc_stackframe();
 	struct messaging_smb_notify_trigger m = {};
+	char *path = NULL;
 	DATA_BLOB blob;
 	enum ndr_err_code ndr_err;
 	NTSTATUS status;
+
+	path = talloc_asprintf(frame, "%s/%s", dir, name);
+	if (path == NULL) {
+		status = NT_STATUS_NO_MEMORY;
+		goto out;
+	}
 
 	ndr_err = messaging_smb_notify_trigger_push(frame,
 						    &m,
@@ -641,22 +649,10 @@ static NTSTATUS notifyd_trigger_send(struct messaging_context *msg_ctx,
 	struct notify_trigger_msg msg;
 	struct iovec iov[4];
 	char slash = '/';
-	char *path = NULL;
-	NTSTATUS status;
 
 	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
-		TALLOC_CTX *frame = talloc_stackframe();
-
-		path = talloc_asprintf(frame, "%s/%s", dir, name);
-		if (path == NULL) {
-			TALLOC_FREE(frame);
-			return NT_STATUS_NO_MEMORY;
-		}
-
-		status = notifyd_trigger_send_v1(msg_ctx, dst, when, action,
-						 filter, path);
-		TALLOC_FREE(frame);
-		return status;
+		return notifyd_trigger_send_v1(msg_ctx, dst, when, action,
+					       filter, dir, name);
 	}
 
 	msg = (struct notify_trigger_msg) {
@@ -927,8 +923,7 @@ static void notifyd_trigger(struct messaging_context *msg_ctx,
 			data->data, data->length, &trigger_msg, &path);
 	}
 	if (!ok) {
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	tstate.msg_ctx = msg_ctx;
@@ -946,8 +941,7 @@ static void notifyd_trigger(struct messaging_context *msg_ctx,
 	if (path[0] != '/') {
 		DBG_WARNING("path %s does not start with /, ignoring\n",
 			    path);
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	for (p = strchr(path+1, '/'); p != NULL; p = next_p) {
@@ -986,6 +980,7 @@ static void notifyd_trigger(struct messaging_context *msg_ctx,
 		}
 	}
 
+out:
 	TALLOC_FREE(frame);
 }
 
@@ -1307,16 +1302,13 @@ static void notifyd_got_db(struct messaging_context *msg_ctx,
 	if (p == NULL) {
 		DBG_DEBUG("Did not find peer for db from %s\n",
 			  server_id_str_buf(src, &idbuf));
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	if (msg_type == MSG_SMB_NOTIFY_DB_V1) {
 		ok = notifyd_parse_got_db_v1(frame, data, &m);
 		if (!ok) {
-			TALLOC_FREE(frame);
-			TALLOC_FREE(p);
-			return;
+			goto fail;
 		}
 		rec_index = m.info.info1.rec_index;
 		db_data = m.info.info1.db.data;
@@ -1325,9 +1317,7 @@ static void notifyd_got_db(struct messaging_context *msg_ctx,
 		if (data->length < 8) {
 			DBG_DEBUG("Got short db length %zu from %s\n", data->length,
 				   server_id_str_buf(src, &idbuf));
-			TALLOC_FREE(frame);
-			TALLOC_FREE(p);
-			return;
+			goto fail;
 		}
 		rec_index = BVAL(data->data, 0);
 		db_data = data->data + 8;
@@ -1339,9 +1329,7 @@ static void notifyd_got_db(struct messaging_context *msg_ctx,
 	p->db = db_open_rbt(p);
 	if (p->db == NULL) {
 		DBG_DEBUG("db_open_rbt failed\n");
-		TALLOC_FREE(frame);
-		TALLOC_FREE(p);
-		return;
+		goto fail;
 	}
 
 	status = dbwrap_unmarshall(p->db, db_data, db_len);
@@ -1349,9 +1337,7 @@ static void notifyd_got_db(struct messaging_context *msg_ctx,
 		DBG_DEBUG("dbwrap_unmarshall returned %s for db %s\n",
 			  nt_errstr(status),
 			  server_id_str_buf(src, &idbuf));
-		TALLOC_FREE(frame);
-		TALLOC_FREE(p);
-		return;
+		goto fail;
 	}
 
 	dbwrap_traverse_read(p->db, notifyd_add_proxy_syswatches, state,
@@ -1360,7 +1346,11 @@ static void notifyd_got_db(struct messaging_context *msg_ctx,
 	DBG_DEBUG("Database from %s contained %d records\n",
 		  server_id_str_buf(src, &idbuf),
 		  count);
+	goto out;
 
+fail:
+	TALLOC_FREE(p);
+out:
 	TALLOC_FREE(frame);
 }
 
@@ -1385,8 +1375,7 @@ static void notifyd_broadcast_reclog_v1(struct ctdbd_connection *ctdbd_conn,
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_WARNING("messaging_smb_notify_rec_changes_push failed: %s\n",
 			    ndr_errstr(ndr_err));
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	iov[1] = (struct iovec) { .iov_base = blob.data,
@@ -1395,14 +1384,15 @@ static void notifyd_broadcast_reclog_v1(struct ctdbd_connection *ctdbd_conn,
 	ret = ctdbd_messaging_send_iov(
 		ctdbd_conn, CTDB_BROADCAST_CONNECTED,
 		CTDB_SRVID_SAMBA_NOTIFY_PROXY, iov, ARRAY_SIZE(iov));
-	TALLOC_FREE(frame);
 	if (ret != 0) {
 		DBG_WARNING("ctdbd_messaging_send failed: %s\n",
 			    strerror(ret));
-		return;
+		goto out;
 	}
 
 	log->rec_index += 1;
+out:
+	TALLOC_FREE(frame);
 }
 
 static void notifyd_broadcast_reclog(struct ctdbd_connection *ctdbd_conn,
@@ -1741,6 +1731,17 @@ out:
 	return status;
 }
 
+static NTSTATUS notifyd_get_db_send(struct messaging_context *msg_ctx,
+				    struct server_id dst)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return notifyd_get_db_send_v1(msg_ctx, dst);
+	}
+
+	return messaging_send_buf(msg_ctx, dst, MSG_SMB_NOTIFY_GET_DB,
+				  NULL, 0);
+}
+
 static bool notifyd_parse_reclog(TALLOC_CTX *mem_ctx,
 				 const DATA_BLOB *blob,
 				 struct messaging_reclog **plog)
@@ -1805,8 +1806,7 @@ static void notifyd_apply_reclog(struct notifyd_peer *peer,
 		/*
 		 * No db yet
 		 */
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	if (msg_type == MSG_SMB_NOTIFY_REC_CHANGES_V1) {
@@ -1815,7 +1815,6 @@ static void notifyd_apply_reclog(struct notifyd_peer *peer,
 		ok = notifyd_parse_reclog(frame, &blob, &log);
 	}
 	if (!ok) {
-		TALLOC_FREE(frame);
 		goto fail;
 	}
 
@@ -1830,7 +1829,6 @@ static void notifyd_apply_reclog(struct notifyd_peer *peer,
 			 log->rec_index,
 			 server_id_str_buf(peer->pid, &idbuf),
 			 peer->rec_index);
-		TALLOC_FREE(frame);
 		goto fail;
 	}
 
@@ -1867,7 +1865,6 @@ static void notifyd_apply_reclog(struct notifyd_peer *peer,
 		if (!ok) {
 			DBG_INFO("notifyd_parse_rec_change failed\n");
 			TALLOC_FREE(rec_frame);
-			TALLOC_FREE(frame);
 			goto fail;
 		}
 
@@ -1882,21 +1879,20 @@ static void notifyd_apply_reclog(struct notifyd_peer *peer,
 		TALLOC_FREE(rec_frame);
 		if (!ok) {
 			DBG_INFO("notifyd_apply_rec_change failed\n");
-			TALLOC_FREE(frame);
 			goto fail;
 		}
 	}
 
 	peer->rec_index += 1;
 	peer->last_broadcast = time(NULL);
-
-	TALLOC_FREE(frame);
-	return;
+	goto out;
 
 fail:
 	DBG_DEBUG("Dropping peer %s\n",
 		  server_id_str_buf(peer->pid, &idbuf));
 	TALLOC_FREE(peer);
+out:
+	TALLOC_FREE(frame);
 }
 
 /*
@@ -1974,12 +1970,7 @@ static int notifyd_snoop_broadcast(struct tevent_context *ev,
 		return 0;
 	}
 
-	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
-		status = notifyd_get_db_send_v1(state->msg_ctx, src);
-	} else {
-		status = messaging_send_buf(state->msg_ctx, src, MSG_SMB_NOTIFY_GET_DB,
-					    NULL, 0);
-	}
+	status = notifyd_get_db_send(state->msg_ctx, src);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("messaging_send_buf failed: %s\n",
 			  nt_errstr(status));

@@ -528,11 +528,11 @@ void smbd_notify_cancel_deleted_v1(struct messaging_context *msg,
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DEBUG(10, ("%s: messaging_smb_notify_cancel_deleted_pull failed: %s\n",
 			   __func__, ndr_errstr(ndr_err)));
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	files_forall(sconn, smbd_notify_cancel_deleted_fn, &m.info.info1.fid);
+out:
 	TALLOC_FREE(frame);
 }
 
@@ -595,11 +595,11 @@ void smbd_notifyd_restarted_v1(struct messaging_context *msg,
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_DEBUG("messaging_smb_notify_started_pull failed: %s\n",
 			  ndr_errstr(ndr_err));
-		TALLOC_FREE(frame);
-		return;
+		goto out;
 	}
 
 	smbd_notifyd_restarted(msg, private_data, msg_type, server_id, data);
+out:
 	TALLOC_FREE(frame);
 }
 

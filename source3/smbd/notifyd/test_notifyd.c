@@ -58,8 +58,8 @@ static NTSTATUS fcn_test_trigger_send_v1(
 		trigger_path,
 		&blob);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		TALLOC_FREE(frame);
-		return ndr_map_error2ntstatus(ndr_err);
+		status = ndr_map_error2ntstatus(ndr_err);
+		goto out;
 	}
 
 	status = messaging_send(
@@ -67,6 +67,7 @@ static NTSTATUS fcn_test_trigger_send_v1(
 		notifyd,
 		MSG_SMB_NOTIFY_TRIGGER_V1,
 		&blob);
+out:
 	TALLOC_FREE(frame);
 	return status;
 }

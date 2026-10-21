@@ -519,15 +519,14 @@ static bool rename_share_filename_fn_v1(struct messaging_context *msg_ctx,
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_DEBUG("messaging_smb_file_rename_push failed: %s\n",
 			  ndr_errstr(ndr_err));
-		TALLOC_FREE(frame);
-		return false;
+		goto out;
 	}
 
 	status = messaging_send(msg_ctx, pid, MSG_SMB_FILE_RENAME_V1, &blob);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("messaging_send failed: %s\n", nt_errstr(status));
 	}
-
+out:
 	TALLOC_FREE(frame);
 	return false;
 }
@@ -914,29 +913,33 @@ static bool notify_cancel_deleted_send_v1(
 	struct server_id dst,
 	const struct file_id *fid)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
 	struct messaging_smb_notify_cancel_deleted msg = {};
 	DATA_BLOB blob;
 	enum ndr_err_code ndr_err;
 	NTSTATUS status;
+	bool ok = false;
 
 	ndr_err = messaging_smb_notify_cancel_deleted_push(
-		talloc_tos(), &msg, *fid, &blob);
+		frame, &msg, *fid, &blob);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_ERR("messaging_smb_notify_cancel_deleted_push failed: %s\n",
 			ndr_errstr(ndr_err));
-		return false;
+		goto out;
 	}
 
 	status = messaging_send(
 		msg_ctx, dst, MSG_SMB_NOTIFY_CANCEL_DELETED_V1, &blob);
-	TALLOC_FREE(blob.data);
 	if (!NT_STATUS_IS_OK(status)) {
 		struct server_id_buf tmp;
 		DBG_DEBUG("messaging_send to %s returned %s\n",
 			  server_id_str_buf(dst, &tmp),
 			  nt_errstr(status));
 	}
-	return true;
+	ok = true;
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 static bool notify_cancel_deleted_send_legacy(
@@ -944,29 +947,33 @@ static bool notify_cancel_deleted_send_legacy(
 	struct server_id dst,
 	const struct file_id *fid)
 {
+	TALLOC_CTX *frame = talloc_stackframe();
 	DATA_BLOB blob;
 	enum ndr_err_code ndr_err;
 	NTSTATUS status;
+	bool ok = false;
 
 	ndr_err = ndr_push_struct_blob(
-		&blob, talloc_tos(), fid,
+		&blob, frame, fid,
 		(ndr_push_flags_fn_t)ndr_push_file_id);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DBG_ERR("ndr_push_file_id failed: %s\n",
 			ndr_errstr(ndr_err));
-		return false;
+		goto out;
 	}
 
 	status = messaging_send(
 		msg_ctx, dst, MSG_SMB_NOTIFY_CANCEL_DELETED, &blob);
-	TALLOC_FREE(blob.data);
 	if (!NT_STATUS_IS_OK(status)) {
 		struct server_id_buf tmp;
 		DBG_DEBUG("messaging_send to %s returned %s\n",
 			  server_id_str_buf(dst, &tmp),
 			  nt_errstr(status));
 	}
-	return true;
+	ok = true;
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 static bool notify_cancel_deleted_send(

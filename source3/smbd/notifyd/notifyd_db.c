@@ -112,8 +112,8 @@ static NTSTATUS notifyd_parse_db_v1(
 
 	ndr_err = messaging_smb_notify_db_pull(frame, data, &m);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
-		TALLOC_FREE(frame);
-		return NT_STATUS_INTERNAL_DB_CORRUPTION;
+		status = NT_STATUS_INTERNAL_DB_CORRUPTION;
+		goto out;
 	}
 
 	*log_index = m.info.info1.rec_index;
@@ -123,7 +123,7 @@ static NTSTATUS notifyd_parse_db_v1(
 		m.info.info1.db.length,
 		notifyd_parse_db_parser,
 		&state);
-
+out:
 	TALLOC_FREE(frame);
 	return status;
 }
@@ -157,6 +157,24 @@ static NTSTATUS notifyd_get_db_send(struct messaging_context *msg_ctx,
 
 	return messaging_send_buf(
 		msg_ctx, dst, MSG_SMB_NOTIFY_GET_DB, NULL, 0);
+}
+
+static NTSTATUS notifyd_parse_db_rec(
+	const struct messaging_rec *rec,
+	uint64_t *log_index,
+	bool (*fn)(const char *path,
+		   struct server_id server,
+		   const struct notify_instance *instance,
+		   void *private_data),
+	void *private_data)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return notifyd_parse_db_v1(
+			&rec->buf, log_index, fn, private_data);
+	}
+
+	return notifyd_parse_db(
+		rec->buf.data, rec->buf.length, log_index, fn, private_data);
 }
 
 NTSTATUS notify_walk(struct messaging_context *msg_ctx,
@@ -226,13 +244,7 @@ NTSTATUS notify_walk(struct messaging_context *msg_ctx,
 		return map_nt_error_from_unix(ret);
 	}
 
-	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
-		status = notifyd_parse_db_v1(
-			&rec->buf, &log_idx, fn, private_data);
-	} else {
-		status = notifyd_parse_db(
-			rec->buf.data, rec->buf.length, &log_idx, fn, private_data);
-	}
+	status = notifyd_parse_db_rec(rec, &log_idx, fn, private_data);
 	if (!NT_STATUS_IS_OK(status)) {
 		DBG_DEBUG("notifyd_parse_db failed: %s\n",
 			  nt_errstr(status));

@@ -60,6 +60,7 @@ static bool net_notify_rec_change_send_v1(struct messaging_context *msg_ctx,
 	DATA_BLOB blob;
 	enum ndr_err_code ndr_err;
 	NTSTATUS status;
+	bool ok = false;
 
 	ndr_err = messaging_smb_notify_rec_change_push(frame,
 						       &msg,
@@ -73,24 +74,25 @@ static bool net_notify_rec_change_send_v1(struct messaging_context *msg_ctx,
 		d_fprintf(stderr,
 			  "messaging_smb_notify_rec_change_push failed: %s\n",
 			  ndr_errstr(ndr_err));
-		TALLOC_FREE(frame);
-		return false;
+		goto out;
 	}
 
 	status = messaging_send(msg_ctx,
 				notifyd,
 				MSG_SMB_NOTIFY_REC_CHANGE_V1,
 				&blob);
-	TALLOC_FREE(frame);
 	if (!NT_STATUS_IS_OK(status)) {
 		struct server_id_buf idbuf;
 		d_fprintf(stderr,
 			  "Sending rec_change to %s returned %s\n",
 			  server_id_str_buf(notifyd, &idbuf),
 			  nt_errstr(status));
-		return false;
+		goto out;
 	}
-	return true;
+	ok = true;
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 static bool net_notify_rec_change_send(struct messaging_context *msg_ctx,
@@ -200,6 +202,7 @@ static bool net_notify_trigger_send_v1(struct messaging_context *msg_ctx,
 	DATA_BLOB blob;
 	enum ndr_err_code ndr_err;
 	NTSTATUS status;
+	bool ok = false;
 
 	ndr_err = messaging_smb_notify_trigger_push(frame,
 						    &msg,
@@ -212,24 +215,25 @@ static bool net_notify_trigger_send_v1(struct messaging_context *msg_ctx,
 		d_fprintf(stderr,
 			  "messaging_smb_notify_trigger_push failed: %s\n",
 			  ndr_errstr(ndr_err));
-		TALLOC_FREE(frame);
-		return false;
+		goto out;
 	}
 
 	status = messaging_send(msg_ctx,
 				notifyd,
 				MSG_SMB_NOTIFY_TRIGGER_V1,
 				&blob);
-	TALLOC_FREE(frame);
 	if (!NT_STATUS_IS_OK(status)) {
 		struct server_id_buf idbuf;
 		d_fprintf(stderr,
 			  "Sending trigger to %s returned %s\n",
 			  server_id_str_buf(notifyd, &idbuf),
 			  nt_errstr(status));
-		return false;
+		goto out;
 	}
-	return true;
+	ok = true;
+out:
+	TALLOC_FREE(frame);
+	return ok;
 }
 
 static bool net_notify_trigger_send(struct messaging_context *msg_ctx,
