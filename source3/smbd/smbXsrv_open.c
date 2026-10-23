@@ -504,10 +504,7 @@ static NTSTATUS smbXsrv_open_global_allocate(
 		if (i >= min_tries && last_free != 0) {
 			state.id = last_free;
 		} else {
-			generate_nonce_buffer(
-				(uint8_t *)&state.id, sizeof(state.id));
-			state.id = MAX(state.id, 1);
-			state.id = MIN(state.id, UINT32_MAX-1);
+			state.id = smbXsrv_global_random_id();
 		}
 
 		key = smbXsrv_open_global_id_to_key(state.id, &key_buf);
