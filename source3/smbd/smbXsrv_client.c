@@ -1457,3 +1457,21 @@ NTSTATUS smbXsrv_client_remove(struct smbXsrv_client *client)
 
 	return NT_STATUS_OK;
 }
+
+/*
+ * The smbXsrv_open_global, smbXsrv_session_global and
+ * smbXsrv_tcon_global databases use a random 32-bit id,
+ * where 0 and UINT32_MAX are never used.
+ *
+ * The caller still needs to check if the id is free.
+ */
+uint32_t smbXsrv_global_random_id(void)
+{
+	uint32_t id;
+
+	generate_nonce_buffer((uint8_t *)&id, sizeof(id));
+	id = MAX(id, 1);
+	id = MIN(id, UINT32_MAX - 1);
+
+	return id;
+}
