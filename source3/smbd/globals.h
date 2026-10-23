@@ -539,6 +539,7 @@ uint32_t smbXsrv_version_global_current(void);
 
 struct smbXsrv_client_table;
 NTSTATUS smbXsrv_client_global_init(void);
+uint32_t smbXsrv_global_random_id(void);
 NTSTATUS smbXsrv_client_create(TALLOC_CTX *mem_ctx,
 			       struct tevent_context *ev_ctx,
 			       struct messaging_context *msg_ctx,
