@@ -526,6 +526,46 @@ sub latest_stable_samba3($)
 			  $self->{server_maxtime});
 }
 
+#
+# Shared configuration of a clustered domain member environments
+#
+sub cluster_member_options($)
+{
+	my ($node_prefix) = @_;
+
+	my $require_mutexes = "dbwrap_tdb_require_mutexes:* = yes";
+	if ($ENV{SELFTEST_DONT_REQUIRE_TDB_MUTEX_SUPPORT} // '' eq "1") {
+		$require_mutexes = "" ;
+	}
+
+	return "
+       security = ADS
+       clustering = yes
+       server signing = on
+       rpc start on demand helpers = false
+       rpcd witness:include node ips = yes
+       include = registry
+       dbwrap_tdb_mutexes:* = yes
+       ${require_mutexes}
+       sync machine password to keytab = $node_prefix/keytab0:account_name:machine_password:sync_kvno
+       persistent handles = yes
+       smb3 directory leases = yes
+";
+}
+
+#
+# The share a clustered member imports into its registry, with
+# "net conf import".
+#
+sub cluster_registry_share()
+{
+	return "
+[registry_share]
+	copy = tmp
+	comment = smb username is [%U]
+";
+}
+
 sub setup_clusteredmember
 {
 	my ($self, $prefix, $dcvars) = @_;
@@ -617,27 +657,12 @@ sub setup_clustered_samba
 		print "CTDB_SOCKET=${socket}\n";
 		print "BINDIR=$node_self->{bindir}\n";
 
-		my $require_mutexes = "dbwrap_tdb_require_mutexes:* = yes";
-		if ($ENV{SELFTEST_DONT_REQUIRE_TDB_MUTEX_SUPPORT} // '' eq "1") {
-			$require_mutexes = "" ;
-		}
-
 		my $member_options = "
-       security = ADS
        workgroup = $dcvars->{DOMAIN}
        realm = $dcvars->{REALM}
        password server = $dcvars->{SERVER}
-       server signing = on
-       clustering = yes
-       rpc start on demand helpers = false
-       rpcd witness:include node ips = yes
        ctdbd socket = ${socket}
-       include = registry
-       dbwrap_tdb_mutexes:* = yes
-       ${require_mutexes}
-       sync machine password to keytab = $node_prefix/keytab0:account_name:machine_password:sync_kvno
-       persistent handles = yes
-       smb3 directory leases = yes
+" . cluster_member_options($node_prefix) . "
        smbd:FSCTL_SMBTORTURE = yes
        clusteredmember:stop_node = $prefix/stop_node.sh
        clusteredmember:start_node = $prefix/start_node.sh
@@ -679,11 +704,7 @@ sub setup_clustered_samba
 			return undef;
 		}
 
-		print REGISTRYCONF "
-[registry_share]
-	copy = tmp
-	comment = smb username is [%U]
-";
+		print REGISTRYCONF cluster_registry_share();
 
 		close(REGISTRYCONF);
 
