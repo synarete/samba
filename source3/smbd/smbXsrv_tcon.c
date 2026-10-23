@@ -511,13 +511,7 @@ static NTSTATUS smbXsrv_tcon_global_allocate(struct db_context *db,
 		if (i >= min_tries && last_free != 0) {
 			id = last_free;
 		} else {
-			id = generate_random();
-		}
-		if (id == 0) {
-			id++;
-		}
-		if (id == UINT32_MAX) {
-			id--;
+			id = smbXsrv_global_random_id();
 		}
 
 		global->db_rec = smbXsrv_tcon_global_fetch_locked(db, id,
