@@ -2154,6 +2154,16 @@ if have_cluster_support and have_mixed_cluster_support:
                         "samba.tests.blackbox.cluster_cross_node_locking",
                         name="samba3.blackbox.cluster_cross_node_locking")
 
+    #
+    # And a third time: the formats cluster level 2.0 switches to little
+    # endian (brlock.tdb records and the notifyd messages) have to work
+    # in both directions in the mixed cluster, survive the level raise
+    # and be read in the old format after it.
+    #
+    planpythontestsuite("cfl_upgrade:local",
+                        "samba.tests.blackbox.cluster_level_formats",
+                        name="samba3.blackbox.cluster_level_formats")
+
 planpythontestsuite("fileserver_smb1", "samba.tests.smb3unix")
 planpythontestsuite("fileserver_smb1", "samba.tests.reparsepoints")
 planpythontestsuite("fileserver_smb1", "samba.tests.smb2symlink")
