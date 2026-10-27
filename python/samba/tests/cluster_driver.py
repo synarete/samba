@@ -192,6 +192,10 @@ class Cluster(metaclass=abc.ABCMeta):
     # Every test uses the same share.
     share = "tmp"
 
+    # The same directory again, with vfs_aio_ratelimit on top, see
+    # selftest/target/cfl_smb.conf.
+    ratelimit_share = "aio_ratelimit"
+
     def __init__(self):
         self.nodes = []
         self.domain = None

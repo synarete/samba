@@ -180,6 +180,10 @@ SMB_CONF = """\
 [%(share)s]
 \tpath = %(sharepath)s
 
+[%(ratelimit_share)s]
+\tpath = %(sharepath)s
+\tvfs objects = aio_ratelimit
+
 # Last, so a site can change anything above, shares included: a repeated
 # section merges into the one before it and the later value wins. Put a
 # [global] at the top of that file to reach the global section from
@@ -619,6 +623,7 @@ class SshCluster(Cluster):
             "workgroup": self.domain,
             "realm": self.realm,
             "share": self.share,
+            "ratelimit_share": self.ratelimit_share,
             "sharepath": self.share_path,
             "fragment": self.node_fragment,
             "downstream": self.downstream_conf,

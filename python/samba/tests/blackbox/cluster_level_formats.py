@@ -32,6 +32,12 @@ a format it does not know:
                                 also across nodes
   MSG_SMB_NOTIFY_DB             and its _LE variant, notifyd -> notifyd
                                 across nodes, after a GET_DB
+  MSG_VFS_AIO_RATELIMIT_*_NODE_SUMMARY
+                                and their _LE variants, ratelimitd ->
+                                every smbd serving an aio_ratelimit
+                                share, also across nodes
+  aio_ratelimit.tdb             version 2, upgraded by the first smbd
+                                connecting to an aio_ratelimit share
 
 Every one of them crosses a node boundary, so in a mixed cluster an
 encoder of one build meets a decoder of the other.  Getting it wrong
@@ -47,7 +53,8 @@ The steps:
     and the other one joining it.
  3. Change notify at level 1.0, watched on one build and triggered on
     the other, in both directions.  And secrets.tdb written by one
-    build and read by the other, staying unconverted.
+    build and read by the other, staying unconverted.  And I/O on an
+    aio_ratelimit share from both builds at once.
  4. Leave a lock and a watch on node 1 behind and roll the other nodes
     forward underneath them.  The restarted notifyds have to learn
     about the watch from node 1 with MSG_SMB_NOTIFY_DB.
@@ -55,7 +62,8 @@ The steps:
  6. The lock and the watch from step 4, still in the old format, have
     to be honoured at the new level, and new locks write the new one.
     The first write to secrets.tdb converts it, and every node reads
-    the same SIDs afterwards.
+    the same SIDs afterwards.  I/O on the aio_ratelimit share from
+    every node, through new connections.
  7. Restart a node at the new level, so that its notifyd learns about
     the watch with MSG_SMB_NOTIFY_DB_LE.
  8. Every smbd still answers.  In a DEVELOPER build sending a message
@@ -121,9 +129,11 @@ class ClusterLevelFormatsTests(ClusterUpgradeTest):
     # SMB clients
     #
 
-    def conn(self, idx):
-        """An SMB2 connection to node idx, made once and kept."""
-        conn = self.conns.get(idx)
+    def conn(self, idx, share=None):
+        """An SMB2 connection to a share on node idx, made once and kept."""
+        if share is None:
+            share = self.cluster.share
+        conn = self.conns.get((idx, share))
         if conn is not None:
             return conn
 
@@ -138,15 +148,18 @@ class ClusterLevelFormatsTests(ClusterUpgradeTest):
 
         node = self.nodes[idx]
         try:
-            conn = libsmb.Conn(node.name, self.cluster.share, lp, creds)
+            conn = libsmb.Conn(node.name, share, lp, creds)
         except NTSTATUSError as e:
-            self.fail("connecting to %s failed: %s" % (node, e.args[1]))
-        type(self).conns[idx] = conn
+            self.fail("connecting to %s on %s failed: %s" %
+                      (share, node, e.args[1]))
+        type(self).conns[(idx, share)] = conn
         return conn
 
-    def drop_conn(self, idx):
-        """Forget the connection to a node which is about to go down."""
-        type(self).conns.pop(idx, None)
+    def drop_conn(self, idx, share=None):
+        """Forget connections to node idx, to share or to all of them."""
+        for key in list(self.conns):
+            if key[0] == idx and share in (None, key[1]):
+                del type(self).conns[key]
 
     def open_file(self, idx, name):
         return self.conn(idx).create(
@@ -339,6 +352,51 @@ class ClusterLevelFormatsTests(ClusterUpgradeTest):
         self.assertIn("exists", out)
         return True
 
+    # Long enough for each ratelimitd to broadcast a few summaries.
+    RATELIMIT_SECONDS = 5
+
+    def ratelimit_io(self, indices, why):
+        """I/O on the aio_ratelimit share of several nodes at once.
+
+        Every node's ratelimitd sees activity and broadcasts it to the
+        smbds of the other nodes, which have to parse it.  What a
+        summary it cannot parse does to the limits is not visible from
+        here, but a ratelimitd sending a message type which does not
+        match the level takes its smbd down in a DEVELOPER build,
+        which is checked afterwards.
+        """
+        share = self.cluster.ratelimit_share
+        data = b"aio_ratelimit\n" * 4096
+        names = {}
+        for idx in indices:
+            names[idx] = "cluster_level_ratelimit_%s_%d.dat" % (
+                why.replace(" ", "_"), idx)
+
+        deadline = time.time() + self.RATELIMIT_SECONDS
+        try:
+            while time.time() < deadline:
+                for idx in indices:
+                    conn = self.conn(idx, share)
+                    conn.savefile(names[idx], data)
+                    self.assertEqual(conn.loadfile(names[idx]), data,
+                                     "%s: %s read back something else" %
+                                     (why, self.nodes[idx]))
+        finally:
+            for idx in indices:
+                try:
+                    self.conn(idx, share).unlink(names[idx])
+                except NTSTATUSError:
+                    pass
+
+        self.assertSmbdsAnswer(why)
+
+    def assertSmbdsAnswer(self, why):
+        """smbd on every node answers, asked with that node's build."""
+        for node in self.nodes:
+            out = self.assertRunOk(node, ["smbcontrol", "smbd", "ping"])
+            self.assertRegex(out, r"(?m)^PONG from pid ",
+                             "%s: %s did not answer" % (why, node))
+
     def restart_node(self, idx):
         """Restart a node on the build it already runs.
 
@@ -465,6 +523,9 @@ class ClusterLevelFormatsTests(ClusterUpgradeTest):
         self.rewrite_local_sid(self.OLD)
         self.assertEqual(self.sids(self.NEW), self.carry["sids"])
         self.assertFalse(self.secrets_version_exists(self.NEW))
+
+    def test_320_aio_ratelimit_on_a_mixed_cluster(self):
+        self.ratelimit_io((self.NEW, self.OLD), "mixed")
 
     #
     # Step 4 - a lock and a watch which outlive the rest of the upgrade
@@ -594,6 +655,14 @@ class ClusterLevelFormatsTests(ClusterUpgradeTest):
         self.rewrite_local_sid(self.OLD)
         self.assertSameSids("secrets.tdb written after the conversion")
 
+    def test_620_aio_ratelimit_at_the_new_level(self):
+        self.requireTwoLevels()
+        # New connections, so that their smbds connect to the share at
+        # the new level and upgrade aio_ratelimit.tdb.
+        for idx in range(len(self.nodes)):
+            self.drop_conn(idx, self.cluster.ratelimit_share)
+        self.ratelimit_io(range(len(self.nodes)), "new level")
+
     #
     # Step 7 - a notifyd which learns the watch at the new level
     #
@@ -628,7 +697,4 @@ class ClusterLevelFormatsTests(ClusterUpgradeTest):
         self.conn(self.HOLDER).rmdir(self.carry["watch"]["dirname"])
 
     def test_801_every_smbd_still_answers(self):
-        for node in self.nodes:
-            out = self.assertRunOk(node, ["smbcontrol", "smbd", "ping"])
-            self.assertRegex(out, r"(?m)^PONG from pid ",
-                             "%s did not answer" % node)
+        self.assertSmbdsAnswer("at the end")

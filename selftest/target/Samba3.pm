@@ -846,6 +846,10 @@ sub setup_clustered_samba
 
 [tmp]
 	path = $prefix/shared
+
+[aio_ratelimit]
+	path = $prefix/shared
+	vfs objects = aio_ratelimit
 ";
 			close(CONF);
 		}
