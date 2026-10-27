@@ -289,6 +289,7 @@ class SelftestNode(ClusterNode):
     # directory instead.
     CONFIGFILE_TOOLS = frozenset((
         "net", "smbcontrol", "smbstatus", "smbclient", "smbtorture",
+        "dbwrap_tool",
         "smbd", "nmbd", "winbindd", "samba-dcerpcd",
     ))
 

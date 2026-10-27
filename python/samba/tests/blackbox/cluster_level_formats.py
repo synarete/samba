@@ -22,6 +22,10 @@ on the active level, so that a node still on the stable build never sees
 a format it does not know:
 
   brlock.tdb                    BRLOCK_DATA_VERSION_2 records
+  secrets.tdb                   SECRETS/SID/<DOMAIN> and
+                                SECRETS/DOMGUID/<DOMAIN>, converted as
+                                a whole by the first writer, which
+                                adds SECRETS/VERSION
   MSG_SMB_NOTIFY_REC_CHANGE     and its _LE variant, smbd -> notifyd
   MSG_SMB_NOTIFY_TRIGGER        and its _LE variant, smbd -> notifyd
   MSG_PVFS_NOTIFY               and its _LE variant, notifyd -> smbd,
@@ -42,13 +46,16 @@ The steps:
  2. Byte range locks at level 1.0, with each build creating the record
     and the other one joining it.
  3. Change notify at level 1.0, watched on one build and triggered on
-    the other, in both directions.
+    the other, in both directions.  And secrets.tdb written by one
+    build and read by the other, staying unconverted.
  4. Leave a lock and a watch on node 1 behind and roll the other nodes
     forward underneath them.  The restarted notifyds have to learn
     about the watch from node 1 with MSG_SMB_NOTIFY_DB.
  5. Raise the level.
  6. The lock and the watch from step 4, still in the old format, have
     to be honoured at the new level, and new locks write the new one.
+    The first write to secrets.tdb converts it, and every node reads
+    the same SIDs afterwards.
  7. Restart a node at the new level, so that its notifyd learns about
     the watch with MSG_SMB_NOTIFY_DB_LE.
  8. Every smbd still answers.  In a DEVELOPER build sending a message
@@ -65,6 +72,7 @@ with ctdbd, see the docstring of samba.tests.cluster_upgrade.  It does
 mean the test process has to reach the nodes by node.name.
 """
 
+import re
 import time
 
 from samba import credentials, ntstatus, NTSTATUSError
@@ -286,6 +294,51 @@ class ClusterLevelFormatsTests(ClusterUpgradeTest):
         self.fail("%s: smbstatus -N on %s shows no watch on %s:\n%s" %
                   (why, self.nodes[idx], dirname, out))
 
+    SID_RE = r"(?m)^SID for %s %s is: (S-1-\S+)$"
+
+    def sids(self, idx):
+        """The local and the domain SID, as node idx reads them."""
+        node = self.nodes[idx]
+        out = self.assertRunOk(node, ["net", "getdomainsid"])
+        local = re.search(self.SID_RE % ("local machine", r"\S+"), out)
+        domain = re.search(self.SID_RE % ("domain", r"\S+"), out)
+        self.assertIsNotNone(local, "no local SID from %s:\n%s" %
+                             (node, out))
+        self.assertIsNotNone(domain, "no domain SID from %s:\n%s" %
+                             (node, out))
+        return (local.group(1), domain.group(1))
+
+    def assertSameSids(self, why):
+        """Every node reads the SIDs node 0 read at the start."""
+        for idx in range(len(self.nodes)):
+            self.assertEqual(self.sids(idx), self.carry["sids"],
+                             "%s: %s reads other SIDs" %
+                             (why, self.nodes[idx]))
+
+    def rewrite_local_sid(self, idx):
+        """Store the local SID again, unchanged, from node idx.
+
+        Any write goes through secrets_store_format_record(), which is
+        where the database is converted once the level allows it.
+        """
+        self.assertRunOk(self.nodes[idx],
+                         ["net", "setlocalsid", self.carry["sids"][0]])
+
+    def secrets_version_exists(self, idx):
+        """Whether secrets.tdb has SECRETS/VERSION, asked on node idx.
+
+        It is a persistent ctdb database, so every node has to give
+        the same answer.
+        """
+        node = self.nodes[idx]
+        rc, out = node.run(["dbwrap_tool", "--persistent", "secrets.tdb",
+                            "exists", "SECRETS/VERSION"])
+        if "does not exist" in out:
+            return False
+        self.assertEqual(rc, 0, "%s: dbwrap_tool failed:\n%s" % (node, out))
+        self.assertIn("exists", out)
+        return True
+
     def restart_node(self, idx):
         """Restart a node on the build it already runs.
 
@@ -397,6 +450,21 @@ class ClusterLevelFormatsTests(ClusterUpgradeTest):
 
     def test_301_notify_watched_on_old_triggered_on_new(self):
         self.cross_node_notify(self.OLD, self.NEW, "mixed_old_watches")
+
+    def test_310_secrets_both_builds_read_the_same_sids(self):
+        type(self).carry["sids"] = self.sids(self.OLD)
+        self.assertEqual(self.sids(self.NEW), self.carry["sids"])
+
+    def test_311_secrets_written_by_the_new_build_at_level_1_0(self):
+        self.rewrite_local_sid(self.NEW)
+        self.assertFalse(self.secrets_version_exists(self.NEW),
+                         "secrets.tdb converted at level 1.0")
+        self.assertEqual(self.sids(self.OLD), self.carry["sids"])
+
+    def test_312_secrets_written_by_the_stable_build(self):
+        self.rewrite_local_sid(self.OLD)
+        self.assertEqual(self.sids(self.NEW), self.carry["sids"])
+        self.assertFalse(self.secrets_version_exists(self.NEW))
 
     #
     # Step 4 - a lock and a watch which outlive the rest of the upgrade
@@ -511,6 +579,20 @@ class ClusterLevelFormatsTests(ClusterUpgradeTest):
     def test_604_notify_at_the_new_level(self):
         self.requireTwoLevels()
         self.cross_node_notify(self.OLD, self.NEW, "new_level")
+
+    def test_610_secrets_converted_by_the_first_write(self):
+        self.requireTwoLevels()
+        self.rewrite_local_sid(self.NEW)
+        for idx in range(len(self.nodes)):
+            self.assertTrue(self.secrets_version_exists(idx),
+                            "secrets.tdb not converted, asked on %s" %
+                            self.nodes[idx])
+        self.assertSameSids("converted secrets.tdb")
+
+    def test_611_secrets_written_after_the_conversion(self):
+        self.requireTwoLevels()
+        self.rewrite_local_sid(self.OLD)
+        self.assertSameSids("secrets.tdb written after the conversion")
 
     #
     # Step 7 - a notifyd which learns the watch at the new level
