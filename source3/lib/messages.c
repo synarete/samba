@@ -388,6 +388,60 @@ static bool messaging_alert_event_contexts(struct messaging_context *ctx)
 
 #ifdef DEVELOPER
 /*
+ * Some message types have a legacy and a little endian
+ * variant, the variant to use depends on the cluster level.
+ *
+ * Returns false if the message type doesn't match the
+ * active cluster level, *required describes the
+ * required level.
+ */
+static bool messaging_cfl_check(uint32_t msg_type, const char **required)
+{
+	switch (msg_type) {
+	case MSG_SMB_NOTIFY_DB:
+		*required = "< 2.0";
+		return !CLUSTER_LEVEL_ACTIVE(2, 0);
+	case MSG_SMB_NOTIFY_DB_LE:
+		*required = ">= 2.0";
+		return CLUSTER_LEVEL_ACTIVE(2, 0);
+	}
+
+	return true;
+}
+
+/*
+ * Make sure we only send message types matching
+ * the active cluster level.
+ *
+ * On receive we can't assert, the sender may already
+ * know about a raised cluster level, while we're still
+ * waiting for MSG_CLUSTER_LEVEL_UPGRADED (or the other way
+ * around, a message may be in flight while the level
+ * was raised), so we only log it.
+ */
+static void messaging_validate_cfl(uint32_t msg_type, bool sender)
+{
+	const char *required = NULL;
+	bool ok;
+
+	ok = messaging_cfl_check(msg_type, &required);
+	if (ok) {
+		return;
+	}
+
+	if (sender) {
+		DBG_ERR("Sending msg_type 0x%x requires cluster level %s\n",
+			(unsigned)msg_type,
+			required);
+		smb_panic("msg_type does not match the cluster level");
+	}
+
+	DBG_INFO("Received msg_type 0x%x requires cluster level %s\n",
+		 (unsigned)msg_type,
+		 required);
+}
+
+/*
  * Check if the payload is a nul-terminated string
  */
 static bool messaging_iov_is_string(const struct iovec *iov,
@@ -458,7 +512,8 @@ static bool messaging_payload_check(uint32_t msg_type,
 }
 
 /*
- * Make sure we only send the expected payload,
+ * Make sure we only send the expected payload
+ * and message types matching the cluster level,
  * on receive we only log it.
  */
 static void messaging_validate_payload(uint32_t msg_type,
@@ -468,6 +523,8 @@ static void messaging_validate_payload(uint32_t msg_type,
 {
 	const char *expected = NULL;
 	bool ok;
+
+	messaging_validate_cfl(msg_type, sender);
 
 	ok = messaging_payload_check(msg_type, iov, iovlen, &expected);
 	if (ok) {
