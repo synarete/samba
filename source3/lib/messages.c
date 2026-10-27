@@ -398,10 +398,20 @@ static bool messaging_alert_event_contexts(struct messaging_context *ctx)
 static bool messaging_cfl_check(uint32_t msg_type, const char **required)
 {
 	switch (msg_type) {
+	case MSG_SMB_NOTIFY_REC_CHANGE:
+	case MSG_SMB_NOTIFY_TRIGGER:
+	case MSG_PVFS_NOTIFY:
 	case MSG_SMB_NOTIFY_DB:
+	case MSG_VFS_AIO_RATELIMIT_READ_NODE_SUMMARY:
+	case MSG_VFS_AIO_RATELIMIT_WRITE_NODE_SUMMARY:
 		*required = "< 2.0";
 		return !CLUSTER_LEVEL_ACTIVE(2, 0);
+	case MSG_SMB_NOTIFY_REC_CHANGE_LE:
+	case MSG_SMB_NOTIFY_TRIGGER_LE:
+	case MSG_PVFS_NOTIFY_LE:
 	case MSG_SMB_NOTIFY_DB_LE:
+	case MSG_VFS_AIO_RATELIMIT_READ_NODE_SUMMARY_LE:
+	case MSG_VFS_AIO_RATELIMIT_WRITE_NODE_SUMMARY_LE:
 		*required = ">= 2.0";
 		return CLUSTER_LEVEL_ACTIVE(2, 0);
 	}
