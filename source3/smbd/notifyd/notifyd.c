@@ -933,14 +933,26 @@ static void notifyd_send_delete(struct messaging_context *msg_ctx,
 				TDB_DATA key,
 				struct notifyd_instance *instance);
 
+static NTSTATUS notifyd_event_send(struct messaging_context *msg_ctx,
+				   struct server_id dst,
+				   struct notify_event_msg *msg,
+				   const char *path)
+{
+	return messaging_send_pvfs_notify(msg_ctx,
+					  dst,
+					  msg->when,
+					  msg->private_data,
+					  msg->action,
+					  path);
+}
+
 static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 				   void *private_data)
 
 {
 	struct notifyd_trigger_state *tstate = private_data;
-	struct notify_event_msg msg = { .action = tstate->msg->action,
-					.when = tstate->msg->when };
-	struct iovec iov[2];
+	struct notify_event_msg msg = {.action = tstate->msg->action,
+				       .when = tstate->msg->when};
 	size_t path_len = key.dsize;
 	struct notifyd_watcher watcher = {};
 	struct notifyd_instance *instances = NULL;
@@ -962,11 +974,6 @@ static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 		  num_instances,
 		  (int)key.dsize,
 		  (char *)key.dptr);
-
-	iov[0].iov_base = &msg;
-	iov[0].iov_len = offsetof(struct notify_event_msg, path);
-	iov[1].iov_base = discard_const_p(char, tstate->path + path_len + 1);
-	iov[1].iov_len = strlen((char *)(iov[1].iov_base)) + 1;
 
 	for (i=0; i<num_instances; i++) {
 		struct notifyd_instance *instance = &instances[i];
@@ -996,11 +1003,12 @@ static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 
 		msg.private_data = instance->instance.private_data;
 
-		status = messaging_send_iov(
-			tstate->msg_ctx, instance->client,
-			MSG_PVFS_NOTIFY, iov, ARRAY_SIZE(iov), NULL, 0);
+		status = notifyd_event_send(tstate->msg_ctx,
+					    instance->client,
+					    &msg,
+					    tstate->path + path_len + 1);
 
-		DBG_DEBUG("messaging_send_iov to %s returned %s\n",
+		DBG_DEBUG("notifyd_event_send to %s returned %s\n",
 			  server_id_str_buf(instance->client, &idbuf),
 			  nt_errstr(status));
 
@@ -1014,7 +1022,7 @@ static void notifyd_trigger_parser(TDB_DATA key, TDB_DATA data,
 		}
 
 		if (!NT_STATUS_IS_OK(status)) {
-			DBG_WARNING("messaging_send_iov returned %s\n",
+			DBG_WARNING("notifyd_event_send returned %s\n",
 				    nt_errstr(status));
 		}
 	}
