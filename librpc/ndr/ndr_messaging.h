@@ -432,4 +432,16 @@ enum ndr_err_code messaging_smb_notify_started_pull(
 	const DATA_BLOB *blob,
 	struct messaging_smb_notify_started *msg);
 
+enum ndr_err_code messaging_pvfs_notify_push(TALLOC_CTX *mem_ctx,
+					     struct messaging_pvfs_notify *msg,
+					     struct timespec when,
+					     void *private_data,
+					     uint32_t action,
+					     const char *path,
+					     DATA_BLOB *blob);
+
+enum ndr_err_code messaging_pvfs_notify_pull(TALLOC_CTX *mem_ctx,
+					     const DATA_BLOB *blob,
+					     struct messaging_pvfs_notify *msg);
+
 #endif /* __LIBRPC_NDR_NDR_MESSAGING_H__ */

@@ -46,6 +46,11 @@ struct notify_context {
 static void notify_handler(struct messaging_context *msg, void *private_data,
 			   uint32_t msg_type, struct server_id src,
 			   DATA_BLOB *data);
+static void notify_handler_v1(struct messaging_context *msg,
+			      void *private_data,
+			      uint32_t msg_type,
+			      struct server_id src,
+			      DATA_BLOB *data);
 static int notify_context_destructor(struct notify_context *ctx);
 
 struct notify_context *notify_init(
@@ -91,6 +96,18 @@ struct notify_context *notify_init(
 			TALLOC_FREE(ctx);
 			return NULL;
 		}
+
+		status = messaging_register(msg,
+					    ctx,
+					    MSG_PVFS_NOTIFY_V1,
+					    notify_handler_v1);
+		if (!NT_STATUS_IS_OK(status)) {
+			DBG_WARNING("messaging_register failed: %s\n",
+				    nt_errstr(status));
+			messaging_deregister(msg, MSG_PVFS_NOTIFY, ctx);
+			TALLOC_FREE(ctx);
+			return NULL;
+		}
 	}
 
 	talloc_set_destructor(ctx, notify_context_destructor);
@@ -101,6 +118,7 @@ struct notify_context *notify_init(
 static int notify_context_destructor(struct notify_context *ctx)
 {
 	if (ctx->callback != NULL) {
+		messaging_deregister(ctx->msg_ctx, MSG_PVFS_NOTIFY_V1, ctx);
 		messaging_deregister(ctx->msg_ctx, MSG_PVFS_NOTIFY, ctx);
 	}
 
@@ -138,6 +156,46 @@ static void notify_handler(struct messaging_context *msg, void *private_data,
 		  event.path);
 
 	ctx->callback(ctx->sconn, event.private_data, event_msg->when, &event);
+}
+
+static void notify_handler_v1(struct messaging_context *msg,
+			      void *private_data,
+			      uint32_t msg_type,
+			      struct server_id src,
+			      DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct notify_context *ctx = talloc_get_type_abort(
+		private_data, struct notify_context);
+	struct messaging_pvfs_notify m;
+	struct notify_event event;
+	struct timespec when;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_pvfs_notify_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("messaging_pvfs_notify_pull failed: %s\n",
+			    ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	event.action = m.info.info1.action;
+	event.path = m.info.info1.path;
+	event.private_data = m.info.info1.private_data;
+	when = (struct timespec){
+		.tv_sec = m.info.info1.tv_sec,
+		.tv_nsec = m.info.info1.tv_nsec,
+	};
+
+	DBG_DEBUG("Got notify_event action=%" PRIu32 ", private_data=%p, "
+		  "path=%s\n",
+		  event.action,
+		  event.private_data,
+		  event.path);
+
+	ctx->callback(ctx->sconn, event.private_data, when, &event);
+out:
+	TALLOC_FREE(frame);
 }
 
 static NTSTATUS notify_rec_change_send_v1(struct messaging_context *msg_ctx,

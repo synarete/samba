@@ -5275,6 +5275,192 @@ static void test_ndr_messaging_smb_notify_started_bad_version(void **state)
 	talloc_free(mem_ctx);
 }
 
+/* MSG_PVFS_NOTIFY */
+/*
+ * Wire encoding of messaging_pvfs_notify with
+ * when = { tv_sec = 0x0000000100000002, tv_nsec = 3 },
+ * private_data = (void *)(uintptr_t)0x12345678, action = 4, path = "test".
+ * The private_data pointer is encoded as uint3264, hence its size and
+ * alignment depend on the pointer size.
+ */
+#if __SIZEOF_POINTER__ == 4
+static const uint8_t pvfs_notify_blob[] = {
+	0x01, 0x00, 0x00, 0x00,	      /* version */
+	0x00, 0x00, 0x00, 0x00,	      /* reserved */
+	0x01, 0x00, 0x00, 0x00,	      /* union discriminant */
+	0x00, 0x00, 0x00, 0x00,	      /* padding */
+	0x02, 0x00, 0x00, 0x00,	      /* tv_sec lo32 */
+	0x01, 0x00, 0x00, 0x00,	      /* tv_sec hi32 */
+	0x03, 0x00, 0x00, 0x00,	      /* tv_nsec */
+	0x78, 0x56, 0x34, 0x12,	      /* private_data */
+	0x04, 0x00, 0x00, 0x00,	      /* action */
+	0x74, 0x65, 0x73, 0x74, 0x00, /* "test\0" */
+};
+
+static const uint8_t pvfs_notify_blob_zero[] = {
+	0x01, 0x00, 0x00, 0x00, /* version */
+	0x00, 0x00, 0x00, 0x00, /* reserved */
+	0x01, 0x00, 0x00, 0x00, /* union discriminant */
+	0x00, 0x00, 0x00, 0x00, /* padding */
+	0x00, 0x00, 0x00, 0x00, /* tv_sec lo32 */
+	0x00, 0x00, 0x00, 0x00, /* tv_sec hi32 */
+	0x00, 0x00, 0x00, 0x00, /* tv_nsec */
+	0x00, 0x00, 0x00, 0x00, /* private_data */
+	0x00, 0x00, 0x00, 0x00, /* action */
+	0x00,			/* "\0" */
+};
+#else
+static const uint8_t pvfs_notify_blob[] = {
+	0x01, 0x00, 0x00, 0x00,	      /* version */
+	0x00, 0x00, 0x00, 0x00,	      /* reserved */
+	0x01, 0x00, 0x00, 0x00,	      /* union discriminant */
+	0x00, 0x00, 0x00, 0x00,	      /* padding */
+	0x02, 0x00, 0x00, 0x00,	      /* tv_sec lo32 */
+	0x01, 0x00, 0x00, 0x00,	      /* tv_sec hi32 */
+	0x03, 0x00, 0x00, 0x00,	      /* tv_nsec */
+	0x00, 0x00, 0x00, 0x00,	      /* padding */
+	0x78, 0x56, 0x34, 0x12,	      /* private_data lo32 */
+	0x00, 0x00, 0x00, 0x00,	      /* private_data hi32 */
+	0x04, 0x00, 0x00, 0x00,	      /* action */
+	0x74, 0x65, 0x73, 0x74, 0x00, /* "test\0" */
+};
+
+static const uint8_t pvfs_notify_blob_zero[] = {
+	0x01, 0x00, 0x00, 0x00, /* version */
+	0x00, 0x00, 0x00, 0x00, /* reserved */
+	0x01, 0x00, 0x00, 0x00, /* union discriminant */
+	0x00, 0x00, 0x00, 0x00, /* padding */
+	0x00, 0x00, 0x00, 0x00, /* tv_sec lo32 */
+	0x00, 0x00, 0x00, 0x00, /* tv_sec hi32 */
+	0x00, 0x00, 0x00, 0x00, /* tv_nsec */
+	0x00, 0x00, 0x00, 0x00, /* padding */
+	0x00, 0x00, 0x00, 0x00, /* private_data lo32 */
+	0x00, 0x00, 0x00, 0x00, /* private_data hi32 */
+	0x00, 0x00, 0x00, 0x00, /* action */
+	0x00,			/* "\0" */
+};
+#endif
+
+static void test_ndr_messaging_pvfs_notify_pull(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_pvfs_notify msg = {};
+	const DATA_BLOB blob = {
+		.data = discard_const_p(uint8_t, pvfs_notify_blob),
+		.length = sizeof(pvfs_notify_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_pvfs_notify_pull(mem_ctx, &blob, &msg);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_PVFS_NOTIFY_VERSION_1, msg.version);
+	assert_int_equal(0, msg.reserved);
+	assert_int_equal(0x0000000100000002ULL, msg.info.info1.tv_sec);
+	assert_int_equal(3, msg.info.info1.tv_nsec);
+	assert_ptr_equal((void *)(uintptr_t)0x12345678,
+			 msg.info.info1.private_data);
+	assert_int_equal(4, msg.info.info1.action);
+	assert_string_equal("test", msg.info.info1.path);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_pvfs_notify_push(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_pvfs_notify msg = {};
+	DATA_BLOB blob = data_blob_null;
+	const struct timespec when = {
+		/* time_t may be only 32 bits wide (e.g. 32-bit platforms) */
+		.tv_sec = (time_t)((sizeof(time_t) > 4) ? 0x0000000100000002ULL
+							: 2),
+		.tv_nsec = 3,
+	};
+	uint8_t expected_data[sizeof(pvfs_notify_blob)];
+	const DATA_BLOB expected = {
+		.data = expected_data,
+		.length = sizeof(expected_data),
+	};
+	enum ndr_err_code err;
+
+	memcpy(expected_data, pvfs_notify_blob, sizeof(expected_data));
+	if (sizeof(time_t) <= 4) {
+		memset(&expected_data[SMB_NOTIFY_TV_SEC_HI32_OFFSET], 0, 4);
+	}
+
+	err = messaging_pvfs_notify_push(mem_ctx,
+					 &msg,
+					 when,
+					 (void *)(uintptr_t)0x12345678,
+					 4,
+					 "test",
+					 &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(expected.length, blob.length);
+	assert_memory_equal(expected.data, blob.data, expected.length);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_pvfs_notify_roundtrip(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_pvfs_notify orig = {};
+	struct messaging_pvfs_notify decoded = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code err;
+
+	err = messaging_pvfs_notify_push(
+		mem_ctx, &orig, (struct timespec){0}, NULL, 0, "", &blob);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	/* The encoded blob must match the reference vector. */
+	assert_int_equal(sizeof(pvfs_notify_blob_zero), blob.length);
+	assert_memory_equal(pvfs_notify_blob_zero,
+			    blob.data,
+			    sizeof(pvfs_notify_blob_zero));
+
+	err = messaging_pvfs_notify_pull(mem_ctx, &blob, &decoded);
+	assert_int_equal(NDR_ERR_SUCCESS, err);
+
+	assert_int_equal(MESSAGING_PVFS_NOTIFY_VERSION_1, decoded.version);
+	assert_int_equal(0, decoded.reserved);
+	assert_int_equal(0, decoded.info.info1.tv_sec);
+	assert_int_equal(0, decoded.info.info1.tv_nsec);
+	assert_null(decoded.info.info1.private_data);
+	assert_int_equal(0, decoded.info.info1.action);
+	assert_string_equal("", decoded.info.info1.path);
+
+	talloc_free(mem_ctx);
+}
+
+static void test_ndr_messaging_pvfs_notify_bad_version(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	struct messaging_pvfs_notify msg = {};
+	uint8_t bad_blob[] = {
+		0x02, 0x00, 0x00, 0x00, /* version = 2 (unknown) */
+		0x00, 0x00, 0x00, 0x00, /* reserved */
+		0x02, 0x00, 0x00, 0x00, /* union discriminant = 2 */
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	};
+	const DATA_BLOB blob = {
+		.data = bad_blob,
+		.length = sizeof(bad_blob),
+	};
+	enum ndr_err_code err;
+
+	err = messaging_pvfs_notify_pull(mem_ctx, &blob, &msg);
+	assert_int_not_equal(NDR_ERR_SUCCESS, err);
+
+	talloc_free(mem_ctx);
+}
+
 int main(void)
 {
 	const struct CMUnitTest tests[] = {
@@ -5480,6 +5666,10 @@ int main(void)
 			test_ndr_messaging_smb_notify_started_roundtrip),
 		cmocka_unit_test(
 			test_ndr_messaging_smb_notify_started_bad_version),
+		cmocka_unit_test(test_ndr_messaging_pvfs_notify_pull),
+		cmocka_unit_test(test_ndr_messaging_pvfs_notify_push),
+		cmocka_unit_test(test_ndr_messaging_pvfs_notify_roundtrip),
+		cmocka_unit_test(test_ndr_messaging_pvfs_notify_bad_version),
 	};
 	if (!isatty(1)) {
 		cmocka_set_message_output(CM_OUTPUT_SUBUNIT);

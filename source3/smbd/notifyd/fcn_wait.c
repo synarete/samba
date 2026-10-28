@@ -206,6 +206,60 @@ static void fcn_wait_cleanup(
 	TALLOC_FREE(state->recv_subreq);
 }
 
+static bool fcn_wait_filter_v1(struct messaging_rec *rec,
+			       struct tevent_req *req,
+			       struct fcn_wait_state *state)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_pvfs_notify m;
+	struct fcn_event *evt = NULL;
+	enum ndr_err_code ndr_err;
+	size_t pathlen;
+
+	ndr_err = messaging_pvfs_notify_pull(frame, &rec->buf, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_DEBUG("messaging_pvfs_notify_pull failed: %s\n",
+			  ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	if (m.info.info1.private_data != state) {
+		DBG_DEBUG("Got private_data=%p, expected %p\n",
+			  m.info.info1.private_data,
+			  state);
+		goto out;
+	}
+
+	pathlen = strlen(m.info.info1.path) + 1;
+	evt = talloc_zero_size(state,
+			       offsetof(struct fcn_event, msg.path) + pathlen);
+	if (evt == NULL) {
+		DBG_DEBUG("talloc_zero_size failed\n");
+		goto out;
+	}
+	talloc_set_name_const(evt, "struct fcn_event");
+
+	evt->msg.when = (struct timespec){
+		.tv_sec = m.info.info1.tv_sec,
+		.tv_nsec = m.info.info1.tv_nsec,
+	};
+	evt->msg.private_data = m.info.info1.private_data;
+	evt->msg.action = m.info.info1.action;
+	memcpy(evt->msg.path, m.info.info1.path, pathlen);
+
+	/*
+	 * TODO: Sort by timestamp
+	 */
+
+	DLIST_ADD_END(state->events, evt);
+
+	tevent_req_defer_callback(req, state->ev);
+	tevent_req_notify_callback(req);
+out:
+	TALLOC_FREE(frame);
+	return false;
+}
+
 static bool fcn_wait_filter(struct messaging_rec *rec, void *private_data)
 {
 	struct tevent_req *req = talloc_get_type_abort(
@@ -214,6 +268,10 @@ static bool fcn_wait_filter(struct messaging_rec *rec, void *private_data)
 		req, struct fcn_wait_state);
 	struct notify_event_msg msg = { .action = 0 };
 	struct fcn_event *evt = NULL;
+
+	if (rec->msg_type == MSG_PVFS_NOTIFY_V1) {
+		return fcn_wait_filter_v1(rec, req, state);
+	}
 
 	if (rec->msg_type != MSG_PVFS_NOTIFY) {
 		DBG_DEBUG("Ignoring msg %"PRIu32"\n", rec->msg_type);

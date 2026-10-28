@@ -50,6 +50,30 @@ static void net_notify_got_event(struct messaging_context *msg,
 	fflush(stdout);
 }
 
+static void net_notify_got_event_v1(struct messaging_context *msg,
+				    void *private_data,
+				    uint32_t msg_type,
+				    struct server_id server_id,
+				    DATA_BLOB *data)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_pvfs_notify m;
+	enum ndr_err_code ndr_err;
+
+	ndr_err = messaging_pvfs_notify_pull(frame, data, &m);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		d_fprintf(stderr,
+			  "messaging_pvfs_notify_pull failed: %s\n",
+			  ndr_errstr(ndr_err));
+		goto out;
+	}
+
+	d_printf("%u %s\n", (unsigned)m.info.info1.action, m.info.info1.path);
+	fflush(stdout);
+out:
+	TALLOC_FREE(frame);
+}
+
 static bool net_notify_rec_change_send_v1(struct messaging_context *msg_ctx,
 					  struct server_id notifyd,
 					  uint32_t filter,
@@ -167,6 +191,16 @@ static int net_notify_listen(struct net_context *c, int argc,
 
 	status = messaging_register(c->msg_ctx, NULL, MSG_PVFS_NOTIFY,
 				    net_notify_got_event);
+	if (!NT_STATUS_IS_OK(status)) {
+		d_fprintf(stderr, "messaging_register failed: %s\n",
+			  nt_errstr(status));
+		return -1;
+	}
+
+	status = messaging_register(c->msg_ctx,
+				    NULL,
+				    MSG_PVFS_NOTIFY_V1,
+				    net_notify_got_event_v1);
 	if (!NT_STATUS_IS_OK(status)) {
 		d_fprintf(stderr, "messaging_register failed: %s\n",
 			  nt_errstr(status));
