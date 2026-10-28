@@ -72,6 +72,8 @@ root messaging_rec
 root messaging_reclog
 root messaging_smb_notify_rec_changes
 root messaging_smb_notify_started
+root messaging_pvfs_notify_version_values
+root messaging_pvfs_notify
 root messaging_hdr
 
 struct file_id align(4) {
@@ -279,6 +281,29 @@ struct messaging_profilelevel_v1 align(4) {
 
 enum messaging_profilelevel_version_values base(uint32) {
 	0x00000001	# MESSAGING_PROFILELEVEL_VERSION_1
+}
+
+struct messaging_pvfs_notify align(8) {
+	[value(MESSAGING_PVFS_NOTIFY_VERSION_1)] enum:messaging_pvfs_notify_version_values	# version
+	[value(0)] scalar:uint32	# reserved
+	switch(version) union:messaging_pvfs_notifyU	# info
+}
+
+union messaging_pvfs_notifyU align(8) switch_type(enum:messaging_pvfs_notify_version_values) {
+	case(MESSAGING_PVFS_NOTIFY_VERSION_1): struct:messaging_pvfs_notify_v1	# info1
+	default: EMPTY
+}
+
+struct messaging_pvfs_notify_v1 align(8) {
+	scalar:hyper	# tv_sec
+	scalar:uint32	# tv_nsec
+	scalar:pointer	# private_data
+	scalar:uint32	# action
+	[flag(LIBNDR_FLAG_STR_UTF8|LIBNDR_FLAG_STR_NULLTERM)] scalar:string	# path
+}
+
+enum messaging_pvfs_notify_version_values base(uint32) {
+	0x00000001	# MESSAGING_PVFS_NOTIFY_VERSION_1
 }
 
 struct messaging_rec align(8) {
@@ -752,6 +777,7 @@ enum messaging_type base(uint32) {
 	0x030E	# MSG_SMB_NOTIFY
 	0x130E	# MSG_SMB_NOTIFY_V1
 	0x0310	# MSG_PVFS_NOTIFY
+	0x1310	# MSG_PVFS_NOTIFY_V1
 	0x0313	# MSG_SMB_CLOSE_FILE
 	0x1313	# MSG_SMB_CLOSE_FILE_V1
 	0x0314	# MSG_SMB_NOTIFY_CLEANUP
@@ -1443,6 +1469,23 @@ sample messaging_smb_notify_started length(12) {
 #	        reserved                 : 0x00000000 (0)
 #	        info                     : union messaging_smb_notify_startedU(case 1)
 #	        info1: struct messaging_smb_notify_started_v1
+
+sample messaging_pvfs_notify length(59) {
+	[0000] 01 00 00 00 00 00 00 00  01 00 00 00 00 00 00 00
+	[0010] 01 02 03 04 05 06 07 08  02 03 04 05 00 00 00 00
+	[0020] 03 04 05 06 07 08 09 0a  04 05 06 07 73 74 72 69
+	[0030] 6e 67 30 30 30 30 30 30  30 35 00
+}
+#	    messaging_pvfs_notify: struct messaging_pvfs_notify
+#	        version                  : MESSAGING_PVFS_NOTIFY_VERSION_1 (1)
+#	        reserved                 : 0x00000000 (0)
+#	        info                     : union messaging_pvfs_notifyU(case 1)
+#	        info1: struct messaging_pvfs_notify_v1
+#	            tv_sec                   : 0x0807060504030201 (578437695752307201)
+#	            tv_nsec                  : 0x05040302 (84148994)
+#	            private_data             : 0xa09080706050403
+#	            action                   : 0x07060504 (117835012)
+#	            path                     : 'string00000005'
 
 sample messaging_hdr length(52) {
 	[0000] 01 02 03 04 05 06 07 08  02 03 04 05 03 04 05 06
