@@ -165,4 +165,11 @@ NTSTATUS messaging_send_notify_cancel_deleted(
 NTSTATUS messaging_send_notify_started(struct messaging_context *msg_ctx,
 				       struct server_id dst);
 
+NTSTATUS messaging_send_pvfs_notify(struct messaging_context *msg_ctx,
+				    struct server_id dst,
+				    struct timespec when,
+				    void *private_data,
+				    uint32_t action,
+				    const char *path);
+
 #endif /* __SOURCE3_MESSAGES_SEND_H__ */

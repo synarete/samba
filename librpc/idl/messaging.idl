@@ -112,6 +112,7 @@ interface messaging
 
 		/* Samba4 compatibility */
 		MSG_PVFS_NOTIFY			= 0x0310,
+		MSG_PVFS_NOTIFY_V1		= 0x1310,
 
 		/* cluster reconfigure events */
 		/* MSG_SMB_BRL_VALIDATE		= 0x0311,  Obsoleted */
@@ -872,6 +873,30 @@ interface messaging
 		[value(0)] uint32                                   reserved;
 		[switch_is(version)] messaging_smb_notify_startedU info;
 	} messaging_smb_notify_started;
+
+	/* MSG_PVFS_NOTIFY */
+	typedef [public, v1_enum] enum {
+		MESSAGING_PVFS_NOTIFY_VERSION_1 = 0x00000001
+	} messaging_pvfs_notify_version_values;
+
+	typedef struct {
+		hyper      tv_sec;
+		uint32     tv_nsec;
+		pointer    private_data;
+		uint32     action;
+		utf8string path;
+	} messaging_pvfs_notify_v1;
+
+	typedef [switch_type(messaging_pvfs_notify_version_values)] union {
+		[case(MESSAGING_PVFS_NOTIFY_VERSION_1)] messaging_pvfs_notify_v1 info1;
+		[default] ;
+	} messaging_pvfs_notifyU;
+
+	typedef [public] struct {
+		[value(MESSAGING_PVFS_NOTIFY_VERSION_1)] messaging_pvfs_notify_version_values version;
+		[value(0)] uint32                                  reserved;
+		[switch_is(version)] messaging_pvfs_notifyU info;
+	} messaging_pvfs_notify;
 
         /* This allows this well known service name to be referenced in python and C */
         const string AUTH_EVENT_NAME  = "auth_event";

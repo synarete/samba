@@ -745,6 +745,9 @@ run_messaging_tests()
 
 	run_msg_test "kill notifyd and restart" "MSG_SMB_NOTIFY_STARTED" \
 		kill_notifyd
+
+	run_msg_test "smb2.notify.dir" "MSG_PVFS_NOTIFY" \
+		smbtorture_run "$SHARE" smb2.notify.dir
 }
 
 # ===========================================================================

@@ -1700,3 +1700,90 @@ NTSTATUS messaging_send_notify_started(struct messaging_context *msg_ctx,
 	}
 	return messaging_send_notify_started_legacy(msg_ctx, dst);
 }
+
+/* MSG_PVFS_NOTIFY */
+
+/*
+ * Legacy payload layout (must match struct notify_event_msg in
+ * smbd/notifyd/notifyd.h).
+ */
+struct _pvfs_notify_msg {
+	struct timespec when;
+	void *private_data;
+	uint32_t action;
+	char path[];
+};
+
+static NTSTATUS messaging_send_pvfs_notify_v1(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct timespec when,
+	void *private_data,
+	uint32_t action,
+	const char *path)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct messaging_pvfs_notify msg = {};
+	DATA_BLOB blob = data_blob_null;
+	enum ndr_err_code ndr_err;
+	NTSTATUS status;
+
+	ndr_err = messaging_pvfs_notify_push(
+		frame, &msg, when, private_data, action, path, &blob);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		TALLOC_FREE(frame);
+		return ndr_map_error2ntstatus(ndr_err);
+	}
+
+	status = messaging_send_buf(msg_ctx,
+				    dst,
+				    MSG_PVFS_NOTIFY_V1,
+				    blob.data,
+				    blob.length);
+	TALLOC_FREE(frame);
+	return status;
+}
+
+static NTSTATUS messaging_send_pvfs_notify_legacy(
+	struct messaging_context *msg_ctx,
+	struct server_id dst,
+	struct timespec when,
+	void *private_data,
+	uint32_t action,
+	const char *path)
+{
+	struct _pvfs_notify_msg hdr = {
+		.when         = when,
+		.private_data = private_data,
+		.action       = action,
+	};
+	struct iovec iov[2];
+
+	iov[0].iov_base = &hdr;
+	iov[0].iov_len  = offsetof(struct _pvfs_notify_msg, path);
+	iov[1].iov_base = discard_const_p(char, path);
+	iov[1].iov_len  = strlen(path) + 1;
+
+	return messaging_send_iov(msg_ctx,
+				  dst,
+				  MSG_PVFS_NOTIFY,
+				  iov,
+				  ARRAY_SIZE(iov),
+				  NULL,
+				  0);
+}
+
+NTSTATUS messaging_send_pvfs_notify(struct messaging_context *msg_ctx,
+				    struct server_id dst,
+				    struct timespec when,
+				    void *private_data,
+				    uint32_t action,
+				    const char *path)
+{
+	if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+		return messaging_send_pvfs_notify_v1(
+			msg_ctx, dst, when, private_data, action, path);
+	}
+	return messaging_send_pvfs_notify_legacy(
+		msg_ctx, dst, when, private_data, action, path);
+}

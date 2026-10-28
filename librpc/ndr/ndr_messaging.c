@@ -1536,3 +1536,47 @@ enum ndr_err_code messaging_smb_notify_started_pull(
 
 	return NDR_ERR_SUCCESS;
 }
+
+enum ndr_err_code messaging_pvfs_notify_push(TALLOC_CTX *mem_ctx,
+					     struct messaging_pvfs_notify *msg,
+					     struct timespec when,
+					     void *private_data,
+					     uint32_t action,
+					     const char *path,
+					     DATA_BLOB *blob)
+{
+	msg->info.info1.tv_sec = when.tv_sec;
+	msg->info.info1.tv_nsec = when.tv_nsec;
+	msg->info.info1.private_data = private_data;
+	msg->info.info1.action = action;
+	msg->info.info1.path = path != NULL ? path : "";
+	return ndr_push_struct_blob(blob,
+				    mem_ctx,
+				    msg,
+				    (ndr_push_flags_fn_t)
+					    ndr_push_messaging_pvfs_notify);
+}
+
+enum ndr_err_code messaging_pvfs_notify_pull(TALLOC_CTX *mem_ctx,
+					     const DATA_BLOB *blob,
+					     struct messaging_pvfs_notify *msg)
+{
+	enum ndr_err_code ndr_err;
+
+	*msg = (struct messaging_pvfs_notify){0};
+
+	ndr_err = ndr_pull_struct_blob(blob,
+				       mem_ctx,
+				       msg,
+				       (ndr_pull_flags_fn_t)
+					       ndr_pull_messaging_pvfs_notify);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_err;
+	}
+
+	if (msg->version != MESSAGING_PVFS_NOTIFY_VERSION_1) {
+		return NDR_ERR_VALIDATE;
+	}
+
+	return NDR_ERR_SUCCESS;
+}
