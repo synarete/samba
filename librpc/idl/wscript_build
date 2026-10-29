@@ -11,7 +11,7 @@ bld.SAMBA_PIDL_LIST('PIDL',
                        svcctl.idl wkssvc.idl eventlog6.idl backupkey.idl
                        witness.idl clusapi.idl
                        mdssvc.idl gkdi.idl''',
-                    options='--header --ndr-parser --server-compat --server --client --python',
+                    options='--header --ndr-parser --ndr-abi --server-compat --server --client --python',
                     output_dir='../gen_ndr')
 
 # The interface names here are not the same as the IDL name, so the
