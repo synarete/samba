@@ -3,6 +3,14 @@
 import "netlogon.idl";
 
 [
+  /*
+   * netsamlogoncache_entry is stored in netsamlogon_cache.tdb,
+   * which survives restarts and upgrades, so the NDR wire format
+   * of all [public] types and everything they use is protected
+   * by source3/librpc/ABI/netsamlogoncache.ndrabi,
+   * see librpc/ndr/ndr_abi.h
+   */
+  ndr_abi,
   uuid("12345778-1234-abcd-ffff-00000000"),
   version(0.0),
   pointer_default(unique),
