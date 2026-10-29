@@ -708,7 +708,14 @@ cpp_quote("#define spoolss_security_descriptor security_descriptor")
 
 	const int MAXDEVICENAME	= 32;
 
-	typedef [public,gensize] struct {
+	/*
+	 * This is stored as "Default DevMode" in registry.tdb
+	 * (persistent and replicated in a ctdb cluster)
+	 * and in the job records of printing/<printer>.tdb,
+	 * so the NDR wire format is protected by
+	 * librpc/ABI/spoolss.ndrabi, see librpc/ndr/ndr_abi.h
+	 */
+	typedef [public,ndr_abi,gensize] struct {
 		[charset(UTF16),to_null] uint16 devicename[MAXDEVICENAME];
 		spoolss_DeviceModeSpecVersion specversion;
 		uint16 driverversion;
