@@ -6,6 +6,17 @@ import "security.idl";
 import "witness.idl";
 
 [
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * source3/librpc/ABI/rpcd_witness.ndrabi, as they
+	 * are stored in rpcd_witness_registration.tdb
+	 * (shared within a ctdb cluster) or sent
+	 * as MSG_RPCD_WITNESS_REGISTRATION_UPDATE
+	 * (possibly to other nodes),
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
 	uuid("d320d080-a007-11ee-9cb4-37fa942d84d2"),
 	version(0.0),
 	pointer_default(unique),
