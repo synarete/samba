@@ -3,7 +3,15 @@
 ]
 interface file_id
 {
-	typedef [public] struct {
+	/*
+	 * This is part of many records in databases and
+	 * messages and also sent on its own as
+	 * MSG_SMB_NOTIFY_CANCEL_DELETED (possibly to
+	 * other nodes in a ctdb cluster), so the NDR
+	 * wire format is protected by librpc/ABI/file_id.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	typedef [public,ndr_abi] struct {
 		/* we don't use SMB_DEV_T and SMB_INO_T as we want a fixed size here,
 		   and we may be using file system specific code to fill in something
 		   other than a dev_t for the device */
