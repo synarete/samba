@@ -165,6 +165,8 @@ void ndr_abi_fill_NTSTATUS(struct ndr_abi_state *state, NTSTATUS *v);
 void ndr_abi_fill_WERROR(struct ndr_abi_state *state, WERROR *v);
 void ndr_abi_fill_DATA_BLOB(struct ndr_abi_state *state, DATA_BLOB *v);
 void ndr_abi_fill_string(struct ndr_abi_state *state, const char **v);
+void ndr_abi_fill_ipv4address(struct ndr_abi_state *state, const char **v);
+void ndr_abi_fill_ipv6address(struct ndr_abi_state *state, const char **v);
 
 /*
  * External types and hand-written ([nopush,nopull]) types
@@ -173,6 +175,7 @@ struct timeval;
 struct timespec;
 struct dom_sid;
 struct security_ace;
+struct witness_notifyResponse;
 void ndr_abi_fill_timeval(struct ndr_abi_state *state, struct timeval *v);
 void ndr_abi_fill_timeval_legacy(struct ndr_abi_state *state, struct timeval *v);
 void ndr_abi_fill_timespec(struct ndr_abi_state *state, struct timespec *v);
@@ -183,5 +186,7 @@ void ndr_abi_fill_dom_sid28(struct ndr_abi_state *state, struct dom_sid *v);
 void ndr_abi_fill_dom_sid0(struct ndr_abi_state *state, struct dom_sid *v);
 void ndr_abi_fill_security_ace(struct ndr_abi_state *state,
 			       struct security_ace *v);
+void ndr_abi_fill_witness_notifyResponse(struct ndr_abi_state *state,
+					 struct witness_notifyResponse *v);
 
 #endif /* _LIBRPC_NDR_NDR_ABI_H_ */
