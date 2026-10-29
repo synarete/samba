@@ -99,7 +99,7 @@ bld.SAMBA_PIDL_LIST('PIDL',
                     rap.idl
                     smb2_lease_struct.idl
                     ''',
-                    options='--header --ndr-parser',
+                    options='--header --ndr-parser --ndr-abi',
                     output_dir='../gen_ndr')
 
 # The interface names here are not the same as the IDL name, so the
