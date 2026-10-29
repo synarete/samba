@@ -249,6 +249,10 @@ bld.SAMBA_SUBSYSTEM('NDR_SMB_ACL',
     deps='ndr',
     )
 
+# The hash of smb_acl_wrapper is stored in xattrs,
+# see librpc/ndr/ndr_abi.h
+bld.SAMBA_NDR_ABI('smb_acl', deps='NDR_SMB_ACL')
+
 bld.SAMBA_SUBSYSTEM('NDR_SVCCTL',
     source='gen_ndr/ndr_svcctl.c ndr/ndr_svcctl.c',
     public_deps='ndr NDR_SECURITY'
