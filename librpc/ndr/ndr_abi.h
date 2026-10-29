@@ -165,6 +165,7 @@ void ndr_abi_fill_NTSTATUS(struct ndr_abi_state *state, NTSTATUS *v);
 void ndr_abi_fill_WERROR(struct ndr_abi_state *state, WERROR *v);
 void ndr_abi_fill_DATA_BLOB(struct ndr_abi_state *state, DATA_BLOB *v);
 void ndr_abi_fill_string(struct ndr_abi_state *state, const char **v);
+void ndr_abi_fill_string_array(struct ndr_abi_state *state, const char ***v);
 void ndr_abi_fill_ipv4address(struct ndr_abi_state *state, const char **v);
 void ndr_abi_fill_ipv6address(struct ndr_abi_state *state, const char **v);
 
