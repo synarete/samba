@@ -442,6 +442,10 @@ bld.SAMBA_SUBSYSTEM('NDR_SCHANNEL',
     public_deps='ndr ndr_nbt'
     )
 
+# netlogon_creds_CredentialState is shared within a ctdb cluster,
+# see librpc/ndr/ndr_abi.h
+bld.SAMBA_NDR_ABI('schannel', deps='NDR_SCHANNEL')
+
 bld.SAMBA_SUBSYSTEM('NDR_NBT',
                     source='',
                     deps='ndr_nbt')
