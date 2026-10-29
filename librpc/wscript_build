@@ -782,6 +782,10 @@ bld.SAMBA_SUBSYSTEM('NDR_FSRVP_STATE',
     public_deps='ndr'
     )
 
+# These are stored in srv_fss.tdb,
+# see librpc/ndr/ndr_abi.h
+bld.SAMBA_NDR_ABI('fsrvp_state', deps='NDR_FSRVP_STATE')
+
 bld.SAMBA_SUBSYSTEM('NDR_KEYCREDLINK',
     source='ndr/ndr_keycredlink.c gen_ndr/ndr_keycredlink.c',
     public_deps='ndr'
