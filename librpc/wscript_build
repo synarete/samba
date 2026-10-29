@@ -109,6 +109,10 @@ bld.SAMBA_SUBSYSTEM('NDR_SPOOLSS',
     public_deps='ndr NDR_SPOOLSS_BUF NDR_SECURITY'
     )
 
+# spoolss_DeviceMode is stored in registry.tdb and printing tdbs,
+# see librpc/ndr/ndr_abi.h
+bld.SAMBA_NDR_ABI('spoolss', deps='NDR_SPOOLSS')
+
 bld.SAMBA_SUBSYSTEM('NDR_SPOOLSS_BUF',
     source='ndr/ndr_spoolss_buf.c',
     deps='talloc'
