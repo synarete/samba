@@ -1,5 +1,13 @@
 #include "idl_types.h"
 [
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * librpc/ABI/fsrvp_state.ndrabi, as they are
+	 * stored in srv_fss.tdb (persistent and replicated
+	 * in a ctdb cluster), see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
 	pointer_default(unique)
 ]
 interface fsrvp_state
