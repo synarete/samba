@@ -26,7 +26,13 @@ interface schannel
 		dom_sid dummy_sid;
 	} netlogon_creds_CredentialState_extra_info;
 
-	typedef [public,flag(NDR_PAHEX)] struct {
+	/*
+	 * This is stored in netlogon_creds_cli.tdb, which is
+	 * a volatile database shared by all nodes of a ctdb
+	 * cluster, so the NDR wire format is protected by
+	 * librpc/ABI/schannel.ndrabi, see librpc/ndr/ndr_abi.h
+	 */
+	typedef [public,ndr_abi,flag(NDR_PAHEX)] struct {
 		[value(0)] uint32 zero_flags;
 		[flag(NDR_SECRET)] uint8 session_key[16];
 		uint32 sequence;
