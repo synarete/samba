@@ -35,7 +35,12 @@ import "lsa.idl", "security.idl";
 	/* compat structure for samba3 on-disc eventlog format,
 	   this is *NOT* used on the wire. - gd */
 
-	typedef [flag(NDR_NOALIGN|NDR_PAHEX),public] struct {
+	/*
+	 * This is stored in the <statedir>/eventlog/<log>.tdb files,
+	 * so the NDR wire format is protected by
+	 * librpc/ABI/eventlog.ndrabi, see librpc/ndr/ndr_abi.h
+	 */
+	typedef [flag(NDR_NOALIGN|NDR_PAHEX),public,ndr_abi] struct {
 		uint32 size;
 		[charset(DOS),value("eLfL")] uint8 reserved[4];
 		uint32 record_number;
