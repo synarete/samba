@@ -777,7 +777,15 @@ interface security
 		SEC_DESC_SELF_RELATIVE		= 0x8000
 	} security_descriptor_type;
 
-	typedef [gensize,nosize,public,flag(NDR_LITTLE_ENDIAN)] struct {
+	/*
+	 * Besides being part of other [ndr_abi] types,
+	 * this is stored on its own in share_info.tdb
+	 * and registry.tdb (both persistent and
+	 * replicated in a ctdb cluster), so the NDR
+	 * wire format is protected by librpc/ABI/security.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	typedef [gensize,nosize,public,ndr_abi,flag(NDR_LITTLE_ENDIAN)] struct {
 		security_descriptor_revision revision;
 		security_descriptor_type type;     /* SEC_DESC_xxxx flags */
 		[relative] dom_sid *owner_sid;
