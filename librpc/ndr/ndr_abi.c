@@ -256,6 +256,23 @@ void ndr_abi_fill_string(struct ndr_abi_state *state, const char **v)
 }
 
 /*
+ * string_array is a NULL terminated array of strings
+ */
+void ndr_abi_fill_string_array(struct ndr_abi_state *state, const char ***v)
+{
+	size_t count = state->min_counts ? 0 : 2;
+	const char **a = NULL;
+	size_t i;
+
+	a = ndr_abi_talloc_zero(state, sizeof(a[0]) * (count + 1));
+	for (i = 0; i < count; i++) {
+		a[i] = ndr_abi_string(state);
+	}
+
+	*v = a;
+}
+
+/*
  * ipv4address and ipv6address are strings,
  * but only valid addresses can be pushed.
  */
