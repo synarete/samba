@@ -24,6 +24,7 @@
 #include "librpc/ndr/libndr.h"
 #include "lib/util/bytearray.h"
 #include "librpc/gen_ndr/security.h"
+#include "librpc/gen_ndr/witness.h"
 #include "librpc/ndr/ndr_abi.h"
 
 void ndr_abi_invalid_selection(struct ndr_abi_state *state,
@@ -254,6 +255,45 @@ void ndr_abi_fill_string(struct ndr_abi_state *state, const char **v)
 	*v = ndr_abi_string(state);
 }
 
+/*
+ * ipv4address and ipv6address are strings,
+ * but only valid addresses can be pushed.
+ */
+void ndr_abi_fill_ipv4address(struct ndr_abi_state *state, const char **v)
+{
+	uint32_t a = ndr_abi_uint(state, 32);
+
+	*v = talloc_asprintf(state->mem_ctx,
+			     "%u.%u.%u.%u",
+			     (unsigned)((a >> 24) & 0xff),
+			     (unsigned)((a >> 16) & 0xff),
+			     (unsigned)((a >> 8) & 0xff),
+			     (unsigned)(a & 0xff));
+	if (*v == NULL) {
+		fprintf(stderr, "%s: out of memory\n", state->sample->name);
+		abort();
+	}
+}
+
+void ndr_abi_fill_ipv6address(struct ndr_abi_state *state, const char **v)
+{
+	uint16_t a[8];
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(a); i++) {
+		a[i] = ndr_abi_uint(state, 16);
+	}
+
+	*v = talloc_asprintf(state->mem_ctx,
+			     "%x:%x:%x:%x:%x:%x:%x:%x",
+			     a[0], a[1], a[2], a[3],
+			     a[4], a[5], a[6], a[7]);
+	if (*v == NULL) {
+		fprintf(stderr, "%s: out of memory\n", state->sample->name);
+		abort();
+	}
+}
+
 void ndr_abi_fill_timeval(struct ndr_abi_state *state, struct timeval *v)
 {
 	v->tv_sec = ndr_abi_uint(state, 32) & INT32_MAX;
@@ -372,6 +412,57 @@ void ndr_abi_fill_security_ace(struct ndr_abi_state *state,
 		break;
 	default:
 		break;
+	}
+}
+
+/*
+ * witness_notifyResponse is hand-written, we cycle through
+ * a resource change and a client move message in order
+ * to cover the different code paths.
+ */
+void ndr_abi_fill_witness_notifyResponse(struct ndr_abi_state *state,
+					 struct witness_notifyResponse *v)
+{
+	static const enum witness_notifyResponse_type types[] = {
+		WITNESS_NOTIFY_RESOURCE_CHANGE,
+		WITNESS_NOTIFY_CLIENT_MOVE,
+	};
+	uint64_t n = ndr_abi_uint(state, 8);
+	uint32_t i;
+
+	*v = (struct witness_notifyResponse) {
+		.type = types[n % ARRAY_SIZE(types)],
+		.num = state->min_counts ? 0 : 1,
+	};
+
+	v->messages = ndr_abi_talloc_zero_array(state,
+						sizeof(v->messages[0]),
+						v->num);
+
+	for (i = 0; i < v->num; i++) {
+		union witness_notifyResponse_message *m = &v->messages[i];
+
+		switch (v->type) {
+		case WITNESS_NOTIFY_RESOURCE_CHANGE:
+			m->resource_change.type =
+				WITNESS_RESOURCE_STATE_AVAILABLE;
+			ndr_abi_fill_string(state, &m->resource_change.name);
+			break;
+		default: {
+			struct witness_IPaddrInfoList *l = &m->client_move;
+
+			l->num = 1;
+			l->addr = ndr_abi_talloc_zero_array(state,
+							    sizeof(l->addr[0]),
+							    l->num);
+			l->addr[0].flags = WITNESS_IPADDR_V4 |
+					   WITNESS_IPADDR_V6 |
+					   WITNESS_IPADDR_ONLINE;
+			ndr_abi_fill_ipv4address(state, &l->addr[0].ipv4);
+			ndr_abi_fill_ipv6address(state, &l->addr[0].ipv6);
+			break;
+		}
+		}
 	}
 }
 
