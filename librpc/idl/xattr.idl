@@ -11,6 +11,15 @@
 import "security.idl";
 
 [
+  /*
+   * The NDR wire format of all [public] types
+   * and everything they use is protected by
+   * librpc/ABI/xattr.ndrabi, as they are stored
+   * in xattrs on disk (or in xattr.tdb or acl.tdb,
+   * shared within a ctdb cluster),
+   * see librpc/ndr/ndr_abi.h
+   */
+  ndr_abi,
   version(0.0),
   helper("../librpc/ndr/ndr_xattr.h"),
   pyhelper("librpc/ndr/py_xattr.c"),
