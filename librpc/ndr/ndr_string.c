@@ -788,7 +788,7 @@ _PUBLIC_ enum ndr_err_code ndr_push_string_array(struct ndr_push *ndr, ndr_flags
 		return NDR_ERR_SUCCESS;
 	}
 
-	switch (flags & LIBNDR_STRING_FLAGS) {
+	switch (flags & (LIBNDR_FLAG_STR_NULLTERM|LIBNDR_FLAG_STR_NOTERM)) {
 	case LIBNDR_FLAG_STR_NULLTERM:
 		for (count = 0; a && a[count]; count++) {
 			NDR_CHECK(ndr_push_string(ndr, ndr_flags, a[count]));
