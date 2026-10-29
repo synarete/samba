@@ -8,6 +8,14 @@
 import "misc.idl", "security.idl";
 
 [
+  /*
+   * The NDR wire format of all [public] types
+   * and everything they use is protected by
+   * librpc/ABI/nfs4acl.ndrabi, as they are stored
+   * in xattrs on disk by vfs_nfs4acl_xattr,
+   * see librpc/ndr/ndr_abi.h
+   */
+  ndr_abi,
   version(1.0),
   pointer_default(unique)
 ]
