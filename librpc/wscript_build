@@ -417,6 +417,10 @@ bld.SAMBA_SUBSYSTEM('NDR_XATTR',
     public_deps='ndr NDR_SECURITY'
     )
 
+# These are stored in xattrs on disk,
+# see librpc/ndr/ndr_abi.h
+bld.SAMBA_NDR_ABI('xattr', deps='NDR_XATTR')
+
 bld.SAMBA_SUBSYSTEM('NDR_SMB3POSIX',
                     source='gen_ndr/ndr_smb3posix.c',
                     public_deps='ndr',
