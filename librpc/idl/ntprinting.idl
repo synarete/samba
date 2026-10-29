@@ -5,6 +5,16 @@
 */
 
 [
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * librpc/ABI/ntprinting.ndrabi, as they describe
+	 * the legacy ntforms.tdb, ntdrivers.tdb and
+	 * ntprinters.tdb files, which are still parsed
+	 * when they are migrated to the registry,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
 	pointer_default(unique),
 	helpstring("s3 printing tdb formats"),
 	uuid("a025d3cb-c605-40d6-86e1-4cff18e7dd94"),
