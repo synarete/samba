@@ -28,6 +28,13 @@
  * xattr for ACL verification.
  */
 [
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * librpc/ABI/smb_acl.ndrabi, see the comment
+	 * above and librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
 	pointer_default(unique)
 ]
 interface smb_acl
