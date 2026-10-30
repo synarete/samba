@@ -22,6 +22,12 @@ cpp_quote("#define dom_sid2 dom_sid")
 /* same struct as dom_sid but inside a 28 bytes fixed buffer in NDR */
 cpp_quote("#define dom_sid28 dom_sid")
 
+/*
+ * same struct as dom_sid but inside a 68 bytes fixed buffer in NDR,
+ * which is the size of struct dom_sid with all 15 sub_auths
+ */
+cpp_quote("#define dom_sid68 dom_sid")
+
 /* same struct as dom_sid but in a variable byte buffer, which is maybe empty in NDR */
 cpp_quote("#define dom_sid0 dom_sid")
 
