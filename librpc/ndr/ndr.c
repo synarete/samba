@@ -1501,11 +1501,12 @@ _ndr_deepcopy_struct(ndr_push_flags_fn_t push_fn,
  * This only works for structures with NO allocated memory, like
  * objectSID and GUID.  This helps because we parse these a lot.
  */
-_PUBLIC_ enum ndr_err_code ndr_pull_struct_blob_noalloc(const uint8_t *buf,
-							size_t buflen,
-							void *p,
-							ndr_pull_flags_fn_t fn,
-							size_t *consumed)
+static enum ndr_err_code ndr_pull_struct_blob_noalloc_flags(const uint8_t *buf,
+							    size_t buflen,
+							    void *p,
+							    libndr_flags flags,
+							    ndr_pull_flags_fn_t fn,
+							    size_t *consumed)
 {
 	/*
 	 * We init this structure on the stack here, to avoid a
@@ -1521,6 +1522,7 @@ _PUBLIC_ enum ndr_err_code ndr_pull_struct_blob_noalloc(const uint8_t *buf,
 		.fixed_alloc_count = ARRAY_SIZE(tokens),
 	};
 	struct ndr_pull ndr = {
+		.flags = flags,
 		.data = discard_const_p(uint8_t, buf),
 		.data_size = buflen,
 		.current_mem_ctx = (void *)-1,
@@ -1531,6 +1533,20 @@ _PUBLIC_ enum ndr_err_code ndr_pull_struct_blob_noalloc(const uint8_t *buf,
 	*consumed = MAX(ndr.offset, ndr.relative_highest_offset);
 
 	return NDR_ERR_SUCCESS;
+}
+
+_PUBLIC_ enum ndr_err_code ndr_pull_struct_blob_noalloc(const uint8_t *buf,
+							size_t buflen,
+							void *p,
+							ndr_pull_flags_fn_t fn,
+							size_t *consumed)
+{
+	return ndr_pull_struct_blob_noalloc_flags(buf,
+						  buflen,
+						  p,
+						  0,
+						  fn,
+						  consumed);
 }
 
 /*
@@ -1544,14 +1560,28 @@ ndr_pull_struct_blob_all_noalloc(const DATA_BLOB *blob,
 				 void *p,
 				 ndr_pull_flags_fn_t fn)
 {
+	return ndr_pull_struct_blob_all_noalloc_flags(blob, p, 0, fn);
+}
+
+/*
+  Like ndr_pull_struct_blob_all_noalloc(), but with additional
+  ndr flags, e.g. LIBNDR_FLAG_BIGENDIAN.
+*/
+_PUBLIC_ enum ndr_err_code
+ndr_pull_struct_blob_all_noalloc_flags(const DATA_BLOB *blob,
+				       void *p,
+				       libndr_flags flags,
+				       ndr_pull_flags_fn_t fn)
+{
 	size_t consumed;
 	enum ndr_err_code ndr_err;
 
-	ndr_err = ndr_pull_struct_blob_noalloc(blob->data,
-					       blob->length,
-					       p,
-					       fn,
-					       &consumed);
+	ndr_err = ndr_pull_struct_blob_noalloc_flags(blob->data,
+						     blob->length,
+						     p,
+						     flags,
+						     fn,
+						     &consumed);
 	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		return ndr_err;
 	}
@@ -1642,12 +1672,26 @@ _PUBLIC_ enum ndr_err_code ndr_push_struct_blob(DATA_BLOB *blob, TALLOC_CTX *mem
 _PUBLIC_ enum ndr_err_code ndr_push_struct_into_fixed_blob(
 	DATA_BLOB *blob, const void *p, ndr_push_flags_fn_t fn)
 {
+	return ndr_push_struct_into_fixed_blob_flags(blob, p, 0, fn);
+}
+
+/*
+  Like ndr_push_struct_into_fixed_blob(), but with additional
+  ndr flags, e.g. LIBNDR_FLAG_BIGENDIAN.
+*/
+_PUBLIC_ enum ndr_err_code ndr_push_struct_into_fixed_blob_flags(
+	DATA_BLOB *blob,
+	const void *p,
+	libndr_flags flags,
+	ndr_push_flags_fn_t fn)
+{
 	struct ndr_token tokens[NDR_FIXED_SIZE_MARSHALL_MAX_TOKENS];
 	struct ndr_token_list switch_list = {
 		.tokens = tokens,
 		.fixed_alloc_count = ARRAY_SIZE(tokens),
 	};
 	struct ndr_push ndr = {
+		.flags = flags,
 		.data = blob->data,
 		.alloc_size = blob->length,
 		.fixed_buf_size = true,
