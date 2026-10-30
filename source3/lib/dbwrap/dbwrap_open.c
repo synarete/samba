@@ -227,6 +227,16 @@ struct db_context *db_open_ex(TALLOC_CTX *mem_ctx,
 
 			return result;
 		}
+	} else if (!cluster_level_global_is_valid()) {
+		/*
+		 * Without clustering the latest level is
+		 * always the correct one, but it's only
+		 * activated by messaging_init(). Callers
+		 * without a messaging context still need
+		 * to know the level in order to choose the
+		 * format of the records.
+		 */
+		cluster_level_activate_latest();
 	}
 
 	lp_ctx = loadparm_init_s3(mem_ctx, loadparm_s3_helpers());
