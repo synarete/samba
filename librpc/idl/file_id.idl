@@ -1,5 +1,12 @@
+/*
+ * same struct as file_id, but with hyper instead
+ * of udlong in NDR, see librpc/ndr/ndr_file_id.c
+ */
+cpp_quote("#define file_id_hyper file_id")
+
 [
-	pointer_default(unique)
+	pointer_default(unique),
+	helper("../librpc/ndr/ndr_file_id.h")
 ]
 interface file_id
 {
