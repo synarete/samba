@@ -505,7 +505,7 @@ bld.SAMBA_SUBSYSTEM('NDR_CAB',
     public_deps='ndr NDR_COMPRESSION')
 
 bld.SAMBA_SUBSYSTEM('NDR_FILE_ID',
-    source='gen_ndr/ndr_file_id.c',
+    source='gen_ndr/ndr_file_id.c ndr/ndr_file_id.c',
     public_deps='ndr'
     )
 
