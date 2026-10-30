@@ -26,4 +26,18 @@ interface file_id
 		udlong inode;
 		udlong extid; /* Support systems that use an extended id (e.g. snapshots). */
 	} file_id;
+
+	/*
+	 * The key for locking.tdb and brlock.tdb is the
+	 * layout of the raw C structure in host byte order,
+	 * see push_file_id_24() and pull_file_id_24().
+	 *
+	 * Keys can't be versioned like records or messages,
+	 * all processes in the cluster need to use the same key,
+	 * so changing this would require a cluster wide switch.
+	 */
+	const uint32 FILE_ID_KEY_LENGTH = 24;
+	typedef [public,ndr_abi] struct {
+		file_id_hyper id;
+	} file_id_key;
 }

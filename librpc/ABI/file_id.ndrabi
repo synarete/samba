@@ -7,11 +7,18 @@
 # are comments, they are not compared.
 
 root file_id
+root file_id_key
 
 struct file_id align(4) {
 	scalar:udlong	# devid
 	scalar:udlong	# inode
 	scalar:udlong	# extid
+}
+
+external file_id_hyper
+
+struct file_id_key align(4) {
+	external:file_id_hyper	# id
 }
 
 sample file_id length(24) {
@@ -22,4 +29,14 @@ sample file_id length(24) {
 #	        devid                    : 0x0807060504030201 (578437695752307201)
 #	        inode                    : 0x0908070605040302 (650777868590383874)
 #	        extid                    : 0x0a09080706050403 (723118041428460547)
+
+sample file_id_key length(24) {
+	[0000] 01 02 03 04 05 06 07 08  02 03 04 05 06 07 08 09
+	[0010] 03 04 05 06 07 08 09 0a
+}
+#	    file_id_key: struct file_id_key
+#	        id: struct file_id
+#	            devid                    : 0x0807060504030201 (578437695752307201)
+#	            inode                    : 0x0908070605040302 (650777868590383874)
+#	            extid                    : 0x0a09080706050403 (723118041428460547)
 
