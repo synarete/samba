@@ -64,6 +64,11 @@ bool smbconf_reg_parameter_is_valid(const char *param_name)
 		"config backend",
 		"include",
 		/*
+		 * "clustering" needs to be known before
+		 * registry.tdb can be opened.
+		 */
+		"clustering",
+		/*
 		 * "includes" has a special meaning internally.
 		 * It is currently not necessary to list it here since it is
 		 * not a valid parameter. But for clarity and safety, we keep
