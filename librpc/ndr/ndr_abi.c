@@ -25,6 +25,7 @@
 #include "lib/util/bytearray.h"
 #include "librpc/gen_ndr/security.h"
 #include "librpc/gen_ndr/witness.h"
+#include "librpc/gen_ndr/file_id.h"
 #include "librpc/ndr/ndr_abi.h"
 
 void ndr_abi_invalid_selection(struct ndr_abi_state *state,
@@ -455,6 +456,17 @@ void ndr_abi_fill_security_ace(struct ndr_abi_state *state,
 	default:
 		break;
 	}
+}
+
+/*
+ * file_id_hyper is a struct file_id with a hand-written
+ * wire format, see librpc/ndr/ndr_file_id.c
+ */
+void ndr_abi_fill_file_id_hyper(struct ndr_abi_state *state, struct file_id *v)
+{
+	ndr_abi_fill_hyper(state, &v->devid);
+	ndr_abi_fill_hyper(state, &v->inode);
+	ndr_abi_fill_hyper(state, &v->extid);
 }
 
 /*
