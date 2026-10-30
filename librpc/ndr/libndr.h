@@ -136,6 +136,21 @@ LIBNDR_STATIC_ASSERT(libndr_flags_are_64_bit, sizeof (libndr_flags) == 8);
 #define PRI_LIBNDR_FLAGS_DECIMAL PRIu64
 
 /*
+ * Some formats in databases and messages used to be raw
+ * C structures in host byte order. They are now described
+ * in IDL, but the legacy formats still need to be marshalled
+ * in host byte order, which LIBNDR_FLAG_HOST_BYTE_ORDER gives us.
+ *
+ * It's only available if HAVE_BIG_ENDIAN or HAVE_LITTLE_ENDIAN
+ * is defined (in config.h).
+ */
+#if defined(HAVE_BIG_ENDIAN)
+#define LIBNDR_FLAG_HOST_BYTE_ORDER LIBNDR_FLAG_BIGENDIAN
+#elif defined(HAVE_LITTLE_ENDIAN)
+#define LIBNDR_FLAG_HOST_BYTE_ORDER ((libndr_flags)0)
+#endif
+
+/*
 * If you’re considering changing the size of this type, see also
 * $scalar_alignment in pidl/lib/Parse/Pidl/NDR.pm.
 */
