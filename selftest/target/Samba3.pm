@@ -256,6 +256,7 @@ sub check_env($$)
 	ad_member_s3_join   => ["vampire_dc"],
 
 	clusteredmember => ["ad_dc"],
+	cfl_upgrade     => ["ad_dc"],
 );
 
 %Samba3::ENV_DEPS_POST = ();
@@ -566,6 +567,57 @@ sub cluster_registry_share()
 ";
 }
 
+#
+# The smb.conf of a node of a cluster the cfl_upgrade tests run against.
+# $args{extra_globals} is what a selftest node needs on top.
+#
+sub cfl_node_conf(%)
+{
+	my (%args) = @_;
+	my $member_options = cluster_member_options($args{node_prefix});
+
+	return "[global]
+	workgroup = $args{domain}
+	realm = $args{realm}
+
+	# One machine account for the whole cluster, and the name the join
+	# uses and every node authenticates to the DC with. It has to be the
+	# same everywhere, which is why it is here rather than per node.
+	netbios name = $args{netbios_name}
+
+	winbind use default domain = no
+	template shell = /bin/false
+	idmap config * : backend = tdb
+	idmap config * : range = 1000000-1999999
+	idmap config $args{domain} : backend = rid
+	idmap config $args{domain} : range = 2000000-2999999
+
+	#
+	# A rolling upgrade runs two Samba versions in one cluster, and
+	# smbd_claim_version() refuses to start a node whose version
+	# differs from the one already claimed: it takes a write lock,
+	# blocks for 60 seconds and then exits with
+	# NT_STATUS_SXS_VERSION_CONFLICT, never reaching daemon_ready() and
+	# so never opening a socket.
+	#
+	allow unsafe cluster upgrade = yes
+$args{extra_globals}
+$member_options
+#
+# The share the tests use. They only open, read and write files, so it
+# has the default VFS stack whatever [global] says.
+#
+[cfl]
+	path = $args{prefix}/shared
+	read only = no
+	vfs objects =
+
+# What the registry share copies, see cluster_registry_share()
+[tmp]
+	path = $args{prefix}/shared
+";
+}
+
 sub setup_clusteredmember
 {
 	my ($self, $prefix, $dcvars) = @_;
@@ -695,6 +747,49 @@ sub setup_clustered_samba
 			print "Provision node $i failed\n";
 			teardown_env($self, $ctdb_data);
 			return undef;
+		}
+
+		#
+		# A node of a mixed cluster runs what a real node runs, see
+		# cfl_node_conf(), rather than the generic smb.conf provision()
+		# wrote, plus the selftest plumbing. provision() still runs
+		# for the users, directories and keytab it creates.
+		#
+		if ($mixed) {
+			my $interfaces = Samba::get_interfaces_config($server_name);
+			my $conffile = $node_ret->{SERVERCONFFILE};
+
+			unless (open(CONF, ">$conffile")) {
+				warn("Unable to open $conffile");
+				teardown_env($self, $node_ret);
+				teardown_env($self, $ctdb_data);
+				return undef;
+			}
+			print CONF cfl_node_conf(
+				domain => $dcvars->{DOMAIN},
+				realm => $dcvars->{REALM},
+				netbios_name => $netbios_name,
+				prefix => $prefix,
+				node_prefix => $node_prefix,
+				extra_globals => "
+	interfaces = $interfaces
+	bind interfaces only = yes
+	private dir = $node_prefix/private
+	binddns dir = $node_prefix/bind-dns
+	pid directory = $node_prefix/pid
+	lock directory = $node_prefix/lockdir
+	state directory = $node_prefix/lockdir
+	cache directory = $node_prefix/lockdir
+	ncalrpc dir = $node_prefix/ncalrpc
+	winbindd socket directory = $node_prefix/wbsock
+	nmbd:socket dir = $node_prefix/nmbd
+	log file = $node_prefix/logs/log.%m
+	logging = file
+	include system krb5 conf = no
+	password server = $dcvars->{SERVER}
+	ctdbd socket = $socket
+");
+			close(CONF);
 		}
 
 		my $registry_share_template = "$node_ret->{SERVERCONFFILE}.registry_share_template";
@@ -859,6 +954,24 @@ sub setup_clustered_samba
 	$ret->{REALM} = $dcvars->{REALM};
 	$ret->{DOMAIN} = $dcvars->{DOMAIN};
 
+	return $ret;
+}
+
+#
+# A cluster for rolling upgrade tests
+#
+sub setup_cfl_upgrade
+{
+	my ($self, $prefix, $dcvars) = @_;
+
+	#
+	# Every node starts on the stable build
+	#
+	my $ret = setup_clustered_samba($self, $prefix, $dcvars, [0, 1, 2], 3,
+					"CFLMEMBER");
+	if (ref($ret) eq "HASH") {
+		$ret->{RESETUP_ENV} = 1;
+	}
 	return $ret;
 }
 
