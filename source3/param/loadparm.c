@@ -84,6 +84,7 @@
 #include "lib/util/time_basic.h"
 #include "libds/common/flags.h"
 #include "source3/smbd/globals.h"
+#include "lib/cluster_support.h"
 
 #ifdef HAVE_SYS_SYSCTL_H
 #include <sys/sysctl.h>
@@ -2265,10 +2266,28 @@ static struct smbconf_ctx *lp_smbconf_ctx(void)
 		 * 'config backend = registry' or
 		 * 'registry shares = yes', so db_open() needs to
 		 * allow it.
+		 *
+		 * It's not known yet whether clustering is enabled,
+		 * e.g. with 'include = registry' before
+		 * 'clustering = yes' or with
+		 * 'config backend = registry', and for registry.tdb
+		 * not using ctdb messaging can't be initialized yet,
+		 * as the private dir may still change. So db_open_ex()
+		 * uses the oldest cluster level as a preliminary level
+		 * for it, unless a level is already active.
+		 * registry.tdb using ctdb initializes messaging, which
+		 * activates the level of the cluster.
 		 */
 		db_open_allow_registry(true);
 		err = smbconf_init(NULL, &conf_ctx, "registry:");
 		db_open_allow_registry(false);
+
+		/*
+		 * Forget the preliminary oldest level again, the next
+		 * db_open_ex() or messaging_init() activates the
+		 * correct level, once the configuration is loaded.
+		 */
+		cluster_level_global_reset_preliminary();
 
 		if (!SBC_ERROR_IS_OK(err)) {
 			DEBUG(1, ("error initializing registry configuration: "

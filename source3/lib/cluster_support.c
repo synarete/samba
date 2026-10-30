@@ -324,11 +324,27 @@ const struct cluster_level_ranges *cluster_level_supported_ranges(void)
 static struct cluster_level_active global_level_activated;
 
 /*
+ * global_level_activated was set by cluster_level_activate_oldest()
+ * while registry.tdb is opened for the configuration and the level
+ * of the cluster is not known yet.
+ */
+static bool global_level_preliminary;
+
+/*
  * Check the global functional level is valid
  */
 bool cluster_level_global_is_valid(void)
 {
 	return cluster_level_is_valid(&global_level_activated);
+}
+
+/*
+ * Check the global functional level is only preliminary,
+ * see cluster_level_activate_oldest()
+ */
+bool cluster_level_global_is_preliminary(void)
+{
+	return global_level_preliminary;
 }
 
 /*
@@ -347,6 +363,7 @@ void cluster_level_activate(const struct cluster_level_active *level)
 	SMB_ASSERT(cluster_level_is_valid_update(&global_level_activated, level));
 
 	global_level_activated = *level;
+	global_level_preliminary = false;
 
 	/*
 	 * We should have at least the oldest version we support
@@ -372,6 +389,59 @@ void cluster_level_activate_latest(void)
 	 * in the non-clustered case.
 	 */
 	SMB_ASSERT(CLUSTER_LEVEL_ACTIVE(LATEST, MAX));
+}
+
+/*
+ * Can be used to set the active level to the oldest level
+ * a cluster can have, while registry.tdb is opened for the
+ * configuration.
+ *
+ * The registry configuration may be loaded before it's known
+ * whether clustering is enabled and before messaging can be
+ * initialized, which activates the level of the cluster.
+ *
+ * Formats of persistent databases are a property of the database,
+ * stored in one of its records and upgraded as a whole in a
+ * transaction, only that upgrade is gated by CLUSTER_LEVEL_ACTIVE().
+ * So the oldest level just means that such an upgrade is not done
+ * yet, records in the newer formats can still be used.
+ */
+void cluster_level_activate_oldest(void)
+{
+	SMB_ASSERT(!cluster_level_global_is_valid());
+
+	global_level_activated = (struct cluster_level_active) {
+		.major = CLUSTER_LEVEL_MAJOR_LOWEST,
+		.minor = CLUSTER_LEVEL_MAJOR_LOWEST_MINOR_MIN,
+	};
+	global_level_preliminary = true;
+
+	/*
+	 * We should have the oldest version we support
+	 * for the clustered case.
+	 */
+	SMB_ASSERT(CLUSTER_LEVEL_ACTIVE(LOWEST, MIN));
+}
+
+/*
+ * Forget the preliminary level activated by
+ * cluster_level_activate_oldest() once registry.tdb is opened.
+ *
+ * The level is activated by the next db_open_ex() or
+ * messaging_init() then, with clustering the level of the cluster,
+ * as messaging_init() would otherwise not register the levels
+ * supported by this node, and without clustering the latest level.
+ */
+void cluster_level_global_reset_preliminary(void)
+{
+	if (!global_level_preliminary) {
+		return;
+	}
+
+	global_level_activated = (struct cluster_level_active) {
+		.major = 0,
+	};
+	global_level_preliminary = false;
 }
 
 /*

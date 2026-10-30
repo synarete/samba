@@ -631,6 +631,16 @@ static NTSTATUS messaging_init_internal(TALLOC_CTX *mem_ctx,
 	}
 	talloc_set_destructor(ctx, messaging_context_destructor);
 
+	/*
+	 * The oldest level is only activated for registry.tdb
+	 * not using ctdb, while lp_smbconf_ctx() opens it,
+	 * see db_open_allow_registry(), which doesn't
+	 * initialize messaging. A registry.tdb using ctdb
+	 * initializes messaging, but never activates the
+	 * oldest level.
+	 */
+	SMB_ASSERT(!cluster_level_global_is_preliminary());
+
 #ifdef CLUSTER_SUPPORT
 	if (lp_clustering()) {
 		struct ctdbd_connection *ctdbd_conn = NULL;
