@@ -306,6 +306,11 @@ void ndr_print_dom_sid28(struct ndr_print *ndr, const char *name, const struct d
 	ndr_print_dom_sid(ndr, name, sid);
 }
 
+void ndr_print_dom_sid68(struct ndr_print *ndr, const char *name, const struct dom_sid *sid)
+{
+	ndr_print_dom_sid(ndr, name, sid);
+}
+
 void ndr_print_dom_sid0(struct ndr_print *ndr, const char *name, const struct dom_sid *sid)
 {
 	ndr_print_dom_sid(ndr, name, sid);
@@ -404,6 +409,59 @@ enum ndr_err_code ndr_push_dom_sid28(struct ndr_push *ndr, ndr_flags_type ndr_fl
 	NDR_CHECK(ndr_push_dom_sid(ndr, ndr_flags, sid));
 
 	padding = 28 - (ndr->offset - old_offset);
+
+	if (padding > 0) {
+		NDR_CHECK(ndr_push_zero(ndr, padding));
+	}
+
+	return NDR_ERR_SUCCESS;
+}
+
+/*
+  parse a dom_sid68 - this is a dom_sid in a fixed 68 byte buffer,
+  which is the size of struct dom_sid with all 15 sub_auths,
+  the bytes after the used sub_auths are ignored.
+*/
+enum ndr_err_code ndr_pull_dom_sid68(struct ndr_pull *ndr, ndr_flags_type ndr_flags, struct dom_sid *sid)
+{
+	uint32_t start_offset;
+	uint32_t consumed;
+
+	if (!(ndr_flags & NDR_SCALARS)) {
+		return NDR_ERR_SUCCESS;
+	}
+
+	NDR_CHECK(ndr_pull_align(ndr, 4));
+	start_offset = ndr->offset;
+	NDR_CHECK(ndr_pull_dom_sid(ndr, ndr_flags, sid));
+	consumed = ndr->offset - start_offset;
+	if (consumed > 68) {
+		return ndr_pull_error(ndr, NDR_ERR_BUFSIZE,
+				      "dom_sid68 consumed %"PRIu32" bytes",
+				      consumed);
+	}
+
+	return ndr_pull_advance(ndr, 68 - consumed);
+}
+
+/*
+  push a dom_sid68 - this is a dom_sid in a 68 byte fixed buffer,
+  the bytes after the used sub_auths are zero.
+*/
+enum ndr_err_code ndr_push_dom_sid68(struct ndr_push *ndr, ndr_flags_type ndr_flags, const struct dom_sid *sid)
+{
+	uint32_t start_offset;
+	uint32_t padding;
+
+	if (!(ndr_flags & NDR_SCALARS)) {
+		return NDR_ERR_SUCCESS;
+	}
+
+	NDR_CHECK(ndr_push_align(ndr, 4));
+	start_offset = ndr->offset;
+	NDR_CHECK(ndr_push_dom_sid(ndr, ndr_flags, sid));
+
+	padding = 68 - (ndr->offset - start_offset);
 
 	if (padding > 0) {
 		NDR_CHECK(ndr_push_zero(ndr, padding));

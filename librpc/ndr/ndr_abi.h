@@ -184,6 +184,7 @@ void ndr_abi_fill_timespec_legacy(struct ndr_abi_state *state, struct timespec *
 void ndr_abi_fill_dom_sid(struct ndr_abi_state *state, struct dom_sid *v);
 void ndr_abi_fill_dom_sid2(struct ndr_abi_state *state, struct dom_sid *v);
 void ndr_abi_fill_dom_sid28(struct ndr_abi_state *state, struct dom_sid *v);
+void ndr_abi_fill_dom_sid68(struct ndr_abi_state *state, struct dom_sid *v);
 void ndr_abi_fill_dom_sid0(struct ndr_abi_state *state, struct dom_sid *v);
 void ndr_abi_fill_security_ace(struct ndr_abi_state *state,
 			       struct security_ace *v);

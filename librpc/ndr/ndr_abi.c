@@ -351,7 +351,7 @@ void ndr_abi_fill_dom_sid(struct ndr_abi_state *state, struct dom_sid *v)
 }
 
 /*
- * dom_sid2, dom_sid28 and dom_sid0 are all struct dom_sid,
+ * dom_sid2, dom_sid28, dom_sid68 and dom_sid0 are all struct dom_sid,
  * but with different (hand-written) wire formats,
  * dom_sid28 only allows up to 5 sub_auths.
  */
@@ -361,6 +361,11 @@ void ndr_abi_fill_dom_sid2(struct ndr_abi_state *state, struct dom_sid *v)
 }
 
 void ndr_abi_fill_dom_sid28(struct ndr_abi_state *state, struct dom_sid *v)
+{
+	ndr_abi_fill_dom_sid(state, v);
+}
+
+void ndr_abi_fill_dom_sid68(struct ndr_abi_state *state, struct dom_sid *v)
 {
 	ndr_abi_fill_dom_sid(state, v);
 }

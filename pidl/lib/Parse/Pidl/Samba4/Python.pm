@@ -1764,6 +1764,7 @@ sub use_type_variable($$)
 	# wire than they are named in C?
 	if ($orig_ctype->{NAME} eq "dom_sid2" or
 	    $orig_ctype->{NAME} eq "dom_sid28" or
+	    $orig_ctype->{NAME} eq "dom_sid68" or
 	    $orig_ctype->{NAME} eq "dom_sid0") {
 		$orig_ctype->{NAME} = "dom_sid";
 	}

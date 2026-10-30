@@ -614,6 +614,9 @@ enum ndr_err_code ndr_push_dom_sid28(struct ndr_push *ndr, ndr_flags_type ndr_fl
 enum ndr_err_code ndr_pull_dom_sid28(struct ndr_pull *ndr, ndr_flags_type ndr_flags, struct dom_sid *sid);
 void ndr_print_dom_sid28(struct ndr_print *ndr, const char *name, const struct dom_sid *sid);
 size_t ndr_size_dom_sid28(const struct dom_sid *sid, libndr_flags flags);
+enum ndr_err_code ndr_push_dom_sid68(struct ndr_push *ndr, ndr_flags_type ndr_flags, const struct dom_sid *sid);
+enum ndr_err_code ndr_pull_dom_sid68(struct ndr_pull *ndr, ndr_flags_type ndr_flags, struct dom_sid *sid);
+void ndr_print_dom_sid68(struct ndr_print *ndr, const char *name, const struct dom_sid *sid);
 enum ndr_err_code ndr_push_dom_sid0(struct ndr_push *ndr, ndr_flags_type ndr_flags, const struct dom_sid *sid);
 enum ndr_err_code ndr_pull_dom_sid0(struct ndr_pull *ndr, ndr_flags_type ndr_flags, struct dom_sid *sid);
 void ndr_print_dom_sid0(struct ndr_print *ndr, const char *name, const struct dom_sid *sid);
