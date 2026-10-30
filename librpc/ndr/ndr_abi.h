@@ -179,6 +179,7 @@ struct timespec;
 struct dom_sid;
 struct security_ace;
 struct witness_notifyResponse;
+struct file_id;
 void ndr_abi_fill_timeval(struct ndr_abi_state *state, struct timeval *v);
 void ndr_abi_fill_timeval_legacy(struct ndr_abi_state *state, struct timeval *v);
 void ndr_abi_fill_timespec(struct ndr_abi_state *state, struct timespec *v);
@@ -190,6 +191,7 @@ void ndr_abi_fill_dom_sid68(struct ndr_abi_state *state, struct dom_sid *v);
 void ndr_abi_fill_dom_sid0(struct ndr_abi_state *state, struct dom_sid *v);
 void ndr_abi_fill_security_ace(struct ndr_abi_state *state,
 			       struct security_ace *v);
+void ndr_abi_fill_file_id_hyper(struct ndr_abi_state *state, struct file_id *v);
 void ndr_abi_fill_witness_notifyResponse(struct ndr_abi_state *state,
 					 struct witness_notifyResponse *v);
 
