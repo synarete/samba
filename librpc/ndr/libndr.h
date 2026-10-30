@@ -633,6 +633,10 @@ enum ndr_err_code ndr_push_struct_blob(DATA_BLOB *blob, TALLOC_CTX *mem_ctx, con
 enum ndr_err_code ndr_push_struct_into_fixed_blob(DATA_BLOB *blob,
 						  const void *p,
 						  ndr_push_flags_fn_t fn);
+enum ndr_err_code ndr_push_struct_into_fixed_blob_flags(DATA_BLOB *blob,
+							const void *p,
+							libndr_flags flags,
+							ndr_push_flags_fn_t fn);
 enum ndr_err_code ndr_push_union_blob(DATA_BLOB *blob, TALLOC_CTX *mem_ctx, const void *p, uint32_t level, ndr_push_flags_fn_t fn);
 size_t ndr_size_struct(const void *p, libndr_flags flags, ndr_push_flags_fn_t push);
 size_t ndr_size_union(const void *p, libndr_flags flags, uint32_t level, ndr_push_flags_fn_t push);
@@ -797,6 +801,10 @@ _PUBLIC_ enum ndr_err_code ndr_pull_struct_blob_noalloc(const uint8_t *buf,
 							size_t *consumed);
 enum ndr_err_code ndr_pull_struct_blob_all_noalloc(const DATA_BLOB *blob,
 						   void *p, ndr_pull_flags_fn_t fn);
+enum ndr_err_code ndr_pull_struct_blob_all_noalloc_flags(const DATA_BLOB *blob,
+							 void *p,
+							 libndr_flags flags,
+							 ndr_pull_flags_fn_t fn);
 enum ndr_err_code ndr_pull_union_blob(const DATA_BLOB *blob, TALLOC_CTX *mem_ctx, void *p, uint32_t level, ndr_pull_flags_fn_t fn);
 enum ndr_err_code ndr_pull_union_blob_all(const DATA_BLOB *blob, TALLOC_CTX *mem_ctx, void *p, uint32_t level, ndr_pull_flags_fn_t fn);
 
