@@ -46,4 +46,17 @@ interface file_id
 	typedef [public,ndr_abi] struct {
 		file_id_hyper id;
 	} file_id_key;
+
+	/*
+	 * The key for xattr.tdb and acl.tdb, it's also
+	 * used for the directory names of vfs_streams_depot
+	 * and FSCTL_CREATE_OR_GET_OBJECT_ID,
+	 * see push_file_id_16().
+	 *
+	 * It's always little endian and ignores the extid.
+	 */
+	const uint32 FILE_ID_KEY_16_LENGTH = 16;
+	typedef [public,ndr_abi] struct {
+		file_id_devino id;
+	} file_id_key_16;
 }
