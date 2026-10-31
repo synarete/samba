@@ -34,9 +34,4 @@ bool file_id_equal(const struct file_id *id1, const struct file_id *id2);
 struct file_id_buf { char buf[63]; };
 char *file_id_str_buf(struct file_id fid, struct file_id_buf *dst);
 
-/*
-  an allocated string for a file_id structure
- */
-void push_file_id_16(uint8_t *buf, const struct file_id *id);
-
 #endif

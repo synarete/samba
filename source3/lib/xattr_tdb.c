@@ -30,6 +30,7 @@
 #include "lib/util/util_tdb.h"
 #include "source3/lib/xattr_tdb.h"
 #include "source3/lib/file_id.h"
+#include "source3/lib/file_id_key.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_VFS
