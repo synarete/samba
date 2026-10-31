@@ -470,6 +470,18 @@ void ndr_abi_fill_file_id_hyper(struct ndr_abi_state *state, struct file_id *v)
 }
 
 /*
+ * file_id_devino is a struct file_id with only
+ * devid and inode on the wire.
+ */
+void ndr_abi_fill_file_id_devino(struct ndr_abi_state *state,
+				 struct file_id *v)
+{
+	ndr_abi_fill_udlong(state, &v->devid);
+	ndr_abi_fill_udlong(state, &v->inode);
+	v->extid = 0;
+}
+
+/*
  * witness_notifyResponse is hand-written, we cycle through
  * a resource change and a client move message in order
  * to cover the different code paths.
