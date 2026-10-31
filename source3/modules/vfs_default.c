@@ -19,6 +19,7 @@
 */
 
 #include "includes.h"
+#include "lib/file_id_key.h"
 #include "system/time.h"
 #include "system/filesys.h"
 #include "smbd/smbd.h"

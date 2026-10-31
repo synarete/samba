@@ -1037,7 +1037,7 @@ bld.SAMBA3_LIBRARY('samba3-util',
 
 bld.SAMBA_LIBRARY('xattr_tdb',
                   source='lib/xattr_tdb.c',
-                  deps='NDR_XATTR dbwrap samba3-util',
+                  deps='NDR_XATTR dbwrap samba3-util file_id_key',
                   private_library=True)
 
 bld.SAMBA3_LIBRARY('CHARSET3',

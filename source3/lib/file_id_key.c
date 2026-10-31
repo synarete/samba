@@ -60,3 +60,37 @@ bool pull_file_id_24(const uint8_t *buf, size_t len, struct file_id *id)
 	*id = key.id;
 	return true;
 }
+
+/*
+ * The 16 byte key is always little endian.
+ */
+void push_file_id_16(uint8_t *buf, const struct file_id *id)
+{
+	struct file_id_key_16 key = { .id = *id };
+	DATA_BLOB blob = data_blob_const(buf, FILE_ID_KEY_16_LENGTH);
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_push_struct_into_fixed_blob(
+		&blob,
+		&key,
+		(ndr_push_flags_fn_t)ndr_push_file_id_key_16);
+	SMB_ASSERT(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+}
+
+bool pull_file_id_16(const uint8_t *buf, size_t len, struct file_id *id)
+{
+	struct file_id_key_16 key = { .id = { .devid = 0, }, };
+	DATA_BLOB blob = data_blob_const(buf, len);
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob_all_noalloc(
+		&blob,
+		&key,
+		(ndr_pull_flags_fn_t)ndr_pull_file_id_key_16);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return false;
+	}
+
+	*id = key.id;
+	return true;
+}
