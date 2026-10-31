@@ -154,6 +154,7 @@ ndr_pull_string: enum ndr_err_code (struct ndr_pull *, ndr_flags_type, const cha
 ndr_pull_string_array: enum ndr_err_code (struct ndr_pull *, ndr_flags_type, const char ***)
 ndr_pull_struct_blob: enum ndr_err_code (const DATA_BLOB *, TALLOC_CTX *, void *, ndr_pull_flags_fn_t)
 ndr_pull_struct_blob_all: enum ndr_err_code (const DATA_BLOB *, TALLOC_CTX *, void *, ndr_pull_flags_fn_t)
+ndr_pull_struct_blob_all_flags: enum ndr_err_code (const DATA_BLOB *, TALLOC_CTX *, void *, libndr_flags, ndr_pull_flags_fn_t)
 ndr_pull_struct_blob_all_noalloc: enum ndr_err_code (const DATA_BLOB *, void *, ndr_pull_flags_fn_t)
 ndr_pull_struct_blob_all_noalloc_flags: enum ndr_err_code (const DATA_BLOB *, void *, libndr_flags, ndr_pull_flags_fn_t)
 ndr_pull_struct_blob_noalloc: enum ndr_err_code (const uint8_t *, size_t, void *, ndr_pull_flags_fn_t, size_t *)
