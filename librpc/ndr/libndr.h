@@ -812,6 +812,11 @@ enum ndr_err_code ndr_pull_steal_switch_value(struct ndr_pull *ndr,
 					      uint32_t *v);
 enum ndr_err_code ndr_pull_struct_blob(const DATA_BLOB *blob, TALLOC_CTX *mem_ctx, void *p, ndr_pull_flags_fn_t fn);
 enum ndr_err_code ndr_pull_struct_blob_all(const DATA_BLOB *blob, TALLOC_CTX *mem_ctx, void *p, ndr_pull_flags_fn_t fn);
+enum ndr_err_code ndr_pull_struct_blob_all_flags(const DATA_BLOB *blob,
+						 TALLOC_CTX *mem_ctx,
+						 void *p,
+						 libndr_flags flags,
+						 ndr_pull_flags_fn_t fn);
 _PUBLIC_ enum ndr_err_code ndr_pull_struct_blob_noalloc(const uint8_t *buf,
 							size_t buflen,
 							void *p,
