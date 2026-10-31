@@ -65,3 +65,48 @@ void ndr_print_file_id_hyper(struct ndr_print *ndr,
 {
 	ndr_print_file_id(ndr, name, r);
 }
+
+/*
+ * A file_id_devino is a struct file_id, but only
+ * devid and inode are on the wire, the extid is
+ * ignored on push and zero after pull.
+ */
+enum ndr_err_code ndr_push_file_id_devino(struct ndr_push *ndr,
+					  ndr_flags_type ndr_flags,
+					  const struct file_id *r)
+{
+	NDR_PUSH_CHECK_FLAGS(ndr, ndr_flags);
+	if (ndr_flags & NDR_SCALARS) {
+		NDR_CHECK(ndr_push_align(ndr, 4));
+		NDR_CHECK(ndr_push_udlong(ndr, NDR_SCALARS, r->devid));
+		NDR_CHECK(ndr_push_udlong(ndr, NDR_SCALARS, r->inode));
+		NDR_CHECK(ndr_push_trailer_align(ndr, 4));
+	}
+	return NDR_ERR_SUCCESS;
+}
+
+enum ndr_err_code ndr_pull_file_id_devino(struct ndr_pull *ndr,
+					  ndr_flags_type ndr_flags,
+					  struct file_id *r)
+{
+	NDR_PULL_CHECK_FLAGS(ndr, ndr_flags);
+	if (ndr_flags & NDR_SCALARS) {
+		NDR_CHECK(ndr_pull_align(ndr, 4));
+		NDR_CHECK(ndr_pull_udlong(ndr, NDR_SCALARS, &r->devid));
+		NDR_CHECK(ndr_pull_udlong(ndr, NDR_SCALARS, &r->inode));
+		r->extid = 0;
+		NDR_CHECK(ndr_pull_trailer_align(ndr, 4));
+	}
+	return NDR_ERR_SUCCESS;
+}
+
+void ndr_print_file_id_devino(struct ndr_print *ndr,
+			      const char *name,
+			      const struct file_id *r)
+{
+	ndr_print_struct(ndr, name, "file_id_devino");
+	ndr->depth++;
+	ndr_print_udlong(ndr, "devid", r->devid);
+	ndr_print_udlong(ndr, "inode", r->inode);
+	ndr->depth--;
+}
