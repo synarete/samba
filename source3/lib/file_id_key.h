@@ -32,4 +32,15 @@ struct file_id_key_buf { uint8_t buf[FILE_ID_KEY_LENGTH]; };
 void push_file_id_24(struct file_id_key_buf *buf, const struct file_id *id);
 bool pull_file_id_24(const uint8_t *buf, size_t len, struct file_id *id);
 
+/*
+ * The key for xattr.tdb and acl.tdb, also used
+ * for the directory names of vfs_streams_depot
+ * and FSCTL_CREATE_OR_GET_OBJECT_ID,
+ * see file_id_key_16 in file_id.idl.
+ *
+ * This ignores the extid.
+ */
+void push_file_id_16(uint8_t *buf, const struct file_id *id);
+bool pull_file_id_16(const uint8_t *buf, size_t len, struct file_id *id);
+
 #endif
