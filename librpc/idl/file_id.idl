@@ -4,6 +4,12 @@
  */
 cpp_quote("#define file_id_hyper file_id")
 
+/*
+ * same struct as file_id, but only devid and inode
+ * are on the wire, see librpc/ndr/ndr_file_id.c
+ */
+cpp_quote("#define file_id_devino file_id")
+
 [
 	pointer_default(unique),
 	helper("../librpc/ndr/ndr_file_id.h")
