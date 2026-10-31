@@ -19,6 +19,7 @@
  */
 
 #include "includes.h"
+#include "lib/file_id_key.h"
 #include "smbd/smbd.h"
 #include "system/filesys.h"
 #include "librpc/gen_ndr/xattr.h"
