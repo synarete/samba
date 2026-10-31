@@ -32,4 +32,14 @@ void ndr_print_file_id_hyper(struct ndr_print *ndr,
 			     const char *name,
 			     const struct file_id *r);
 
+enum ndr_err_code ndr_push_file_id_devino(struct ndr_push *ndr,
+					  ndr_flags_type ndr_flags,
+					  const struct file_id *r);
+enum ndr_err_code ndr_pull_file_id_devino(struct ndr_pull *ndr,
+					  ndr_flags_type ndr_flags,
+					  struct file_id *r);
+void ndr_print_file_id_devino(struct ndr_print *ndr,
+			      const char *name,
+			      const struct file_id *r);
+
 #endif /* _LIBRPC_NDR_NDR_FILE_ID_H_ */

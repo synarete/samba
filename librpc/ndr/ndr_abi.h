@@ -192,6 +192,7 @@ void ndr_abi_fill_dom_sid0(struct ndr_abi_state *state, struct dom_sid *v);
 void ndr_abi_fill_security_ace(struct ndr_abi_state *state,
 			       struct security_ace *v);
 void ndr_abi_fill_file_id_hyper(struct ndr_abi_state *state, struct file_id *v);
+void ndr_abi_fill_file_id_devino(struct ndr_abi_state *state, struct file_id *v);
 void ndr_abi_fill_witness_notifyResponse(struct ndr_abi_state *state,
 					 struct witness_notifyResponse *v);
 
