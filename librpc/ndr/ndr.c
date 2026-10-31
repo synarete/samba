@@ -1455,10 +1455,25 @@ _PUBLIC_ enum ndr_err_code ndr_pull_struct_blob(const DATA_BLOB *blob, TALLOC_CT
 _PUBLIC_ enum ndr_err_code ndr_pull_struct_blob_all(const DATA_BLOB *blob, TALLOC_CTX *mem_ctx,
 						    void *p, ndr_pull_flags_fn_t fn)
 {
+	return ndr_pull_struct_blob_all_flags(blob, mem_ctx, p, 0, fn);
+}
+
+/*
+  Like ndr_pull_struct_blob_all(), but with additional
+  ndr flags, e.g. LIBNDR_FLAG_BIGENDIAN.
+*/
+_PUBLIC_ enum ndr_err_code
+ndr_pull_struct_blob_all_flags(const DATA_BLOB *blob,
+			       TALLOC_CTX *mem_ctx,
+			       void *p,
+			       libndr_flags flags,
+			       ndr_pull_flags_fn_t fn)
+{
 	struct ndr_pull *ndr;
 	uint32_t highest_ofs;
 	ndr = ndr_pull_init_blob(blob, mem_ctx);
 	NDR_ERR_HAVE_NO_MEMORY(ndr);
+	ndr->flags |= flags;
 	NDR_CHECK_FREE(fn(ndr, NDR_SCALARS|NDR_BUFFERS, p));
 	if (ndr->offset > ndr->relative_highest_offset) {
 		highest_ofs = ndr->offset;
