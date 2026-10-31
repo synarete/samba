@@ -1768,7 +1768,8 @@ sub use_type_variable($$)
 	    $orig_ctype->{NAME} eq "dom_sid0") {
 		$orig_ctype->{NAME} = "dom_sid";
 	}
-	if ($orig_ctype->{NAME} eq "file_id_hyper") {
+	if ($orig_ctype->{NAME} eq "file_id_hyper" or
+	    $orig_ctype->{NAME} eq "file_id_devino") {
 		$orig_ctype->{NAME} = "file_id";
 	}
 	if ($orig_ctype->{NAME} eq "spoolss_security_descriptor") {
