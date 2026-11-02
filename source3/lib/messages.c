@@ -60,6 +60,7 @@
 #include "lib/messages_ctdb_ref.h"
 #include "lib/messages_util.h"
 #include "librpc/gen_ndr/ndr_cluster_level.h"
+#include "librpc/gen_ndr/dbwrap_watch.h"
 #include "cluster_support.h"
 #include "cluster_level_db.h"
 #include "ctdbd_conn.h"
@@ -385,6 +386,110 @@ static bool messaging_alert_event_contexts(struct messaging_context *ctx)
 	return true;
 }
 
+#ifdef DEVELOPER
+/*
+ * Check if the payload is a nul-terminated string
+ */
+static bool messaging_iov_is_string(const struct iovec *iov,
+				    int iovlen,
+				    size_t len)
+{
+	int i;
+
+	if (len == 0) {
+		return false;
+	}
+
+	for (i = iovlen - 1; i >= 0; i--) {
+		const uint8_t *p = iov[i].iov_base;
+
+		if (iov[i].iov_len == 0) {
+			continue;
+		}
+
+		return (p[iov[i].iov_len - 1] == '\0');
+	}
+
+	return false;
+}
+
+/*
+ * Some message types have a trivial payload without an IDL
+ * description: none at all, a nul-terminated string or a
+ * fixed size described elsewhere. As they also go to other
+ * nodes in a cluster, the payload needs to stay compatible.
+ *
+ * Returns false if the payload doesn't match,
+ * *expected describes the expected payload.
+ */
+static bool messaging_payload_check(uint32_t msg_type,
+				    const struct iovec *iov,
+				    int iovlen,
+				    const char **expected)
+{
+	ssize_t len = iov_buflen(iov, iovlen);
+
+	if (len == -1) {
+		*expected = "a valid length";
+		return false;
+	}
+
+	switch (msg_type) {
+	case MSG_SMB_CONF_UPDATED:
+	case MSG_PRINTER_PCAP:
+	case MSG_CLUSTER_LEVEL_UPGRADED:
+	case MSG_SMB_NOTIFY_GET_DB:
+		*expected = "no payload";
+		return (len == 0);
+	case MSG_SMB_FORCE_TDIS:
+	case MSG_SMB_KILL_CLIENT_IP:
+		*expected = "a nul-terminated string";
+		return messaging_iov_is_string(iov, iovlen, len);
+	case ID_CACHE_DELETE:
+	case ID_CACHE_KILL:
+		*expected = "no payload or a nul-terminated string";
+		return (len == 0) || messaging_iov_is_string(iov, iovlen, len);
+	case MSG_DBWRAP_MODIFIED:
+		*expected = "dbwrap_watch_modified_msg";
+		return (len == DBWRAP_WATCH_MODIFIED_MSG_SIZE);
+	}
+
+	return true;
+}
+
+/*
+ * Make sure we only send the expected payload,
+ * on receive we only log it.
+ */
+static void messaging_validate_payload(uint32_t msg_type,
+				       const struct iovec *iov,
+				       int iovlen,
+				       bool sender)
+{
+	const char *expected = NULL;
+	bool ok;
+
+	ok = messaging_payload_check(msg_type, iov, iovlen, &expected);
+	if (ok) {
+		return;
+	}
+
+	if (sender) {
+		DBG_ERR("Sending msg_type 0x%x requires %s\n",
+			(unsigned)msg_type,
+			expected);
+		smb_panic("msg_type does not match the payload");
+	}
+
+	DBG_WARNING("Received msg_type 0x%x requires %s\n",
+		    (unsigned)msg_type,
+		    expected);
+}
+#else
+#define messaging_validate_payload(msg_type, iov, iovlen, sender) \
+	do { } while (0)
+#endif
+
 static void messaging_recv_cb(struct tevent_context *ev,
 			      const uint8_t *msg, size_t msg_len,
 			      int *fds, size_t num_fds,
@@ -429,6 +534,14 @@ static void messaging_recv_cb(struct tevent_context *ev,
 		DBG_DEBUG("Ignoring self-send\n");
 		return;
 	}
+
+	messaging_validate_payload(rec.msg_type,
+				   &(struct iovec) {
+					.iov_base = rec.buf.data,
+					.iov_len = rec.buf.length,
+				   },
+				   1,
+				   false);
 
 	messaging_dispatch_rec(msg_ctx, ev, &rec);
 
@@ -982,6 +1095,8 @@ int messaging_send_iov_from(struct messaging_context *msg_ctx,
 		return EINVAL;
 	}
 
+	messaging_validate_payload(msg_type, iov, iovlen, true);
+
 	if (num_fds > INT8_MAX) {
 		return EINVAL;
 	}
@@ -1078,6 +1193,14 @@ void messaging_send_all(struct messaging_context *msg_ctx,
 		.buf = buf, .len = len
 	};
 	int ret;
+
+	messaging_validate_payload(msg_type,
+				   &(struct iovec) {
+					.iov_base = discard_const_p(void, buf),
+					.iov_len = len,
+				   },
+				   1,
+				   true);
 
 #ifdef CLUSTER_SUPPORT
 	if (lp_clustering()) {
