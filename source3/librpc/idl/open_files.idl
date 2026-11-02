@@ -181,7 +181,13 @@ interface open_files
 	 * 8 byte aligned uint64_t (e.g. all 64-bit platforms),
 	 * the reserved fields are the padding of the C structure.
 	 * On other platforms (e.g. i386) the raw layout differs.
+	 *
+	 * With version BRLOCK_DATA_VERSION_2 the elements are
+	 * brlock_lock_entry in little endian on all platforms,
+	 * that's used once cluster level 2.0 is active.
+	 * Readers handle both versions.
 	 */
+	const uint32 BRLOCK_DATA_VERSION_2 = 0x00000002;
 	const uint32 BRLOCK_LOCK_ENTRY_SIZE = 80;
 	typedef [public,flag(NDR_NOALIGN)] struct {
 		hyper smblctx;

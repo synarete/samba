@@ -37,6 +37,7 @@
 #include "util_tdb.h"
 #include "source3/locking/share_mode_lock.h"
 #include "../librpc/gen_ndr/ndr_open_files.h"
+#include "lib/cluster_support.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_LOCKING
@@ -1609,6 +1610,168 @@ int brl_forall(void (*fn)(struct file_id id, struct server_id pid,
  Unlock the record.
 ********************************************************************/
 
+/*
+ * Until cluster level 2.0 brlock.tdb records contain a raw
+ * array of struct lock_struct in host byte order
+ * (SHARE_MODE_DATA_VERSION_1).
+ *
+ * With BRLOCK_DATA_VERSION_2 the elements are brlock_lock_entry
+ * in little endian on all platforms. On little endian platforms,
+ * where struct lock_struct has the layout of brlock_lock_entry
+ * (e.g. all 64-bit platforms), that's still the raw array, apart
+ * from the padding, which is zero in brlock_lock_entry.
+ * See test_brlock_lock_entry() in source3/lib/test_ndr_wire_layouts.c
+ */
+static bool brl_lock_entry_v2_is_raw(void)
+{
+	if (LIBNDR_FLAG_HOST_BYTE_ORDER != 0) {
+		/* big endian */
+		return false;
+	}
+
+	return sizeof(struct lock_struct) == BRLOCK_LOCK_ENTRY_SIZE &&
+	       offsetof(struct lock_struct, context.tid) == 8 &&
+	       offsetof(struct lock_struct, context.pid) == 16 &&
+	       offsetof(struct lock_struct, start) == 40 &&
+	       offsetof(struct lock_struct, size) == 48 &&
+	       offsetof(struct lock_struct, fnum) == 56 &&
+	       offsetof(struct lock_struct, lock_type) == 64 &&
+	       offsetof(struct lock_struct, lock_flav) == 68 &&
+	       offsetof(struct lock_struct, persistent) == 72 &&
+	       sizeof(enum brl_type) == 4 &&
+	       sizeof(enum brl_flavour) == 4;
+}
+
+/*
+ * Clear the padding of struct lock_struct, which are the
+ * reserved fields of brlock_lock_entry, see
+ * brl_lock_entry_v2_is_raw().
+ */
+static void brl_lock_entry_clear_padding(struct lock_struct *lock)
+{
+	uint8_t *p = (uint8_t *)lock;
+	size_t tid_end = offsetof(struct lock_struct, context.tid) +
+			 sizeof(lock->context.tid);
+	size_t persistent_end = offsetof(struct lock_struct, persistent) +
+				sizeof(lock->persistent);
+
+	memset(p + tid_end,
+	       0,
+	       offsetof(struct lock_struct, context.pid) - tid_end);
+	memset(p + persistent_end,
+	       0,
+	       sizeof(struct lock_struct) - persistent_end);
+}
+
+static uint8_t *brl_push_lock_entries_v2(TALLOC_CTX *mem_ctx,
+					 const struct lock_struct *locks,
+					 size_t num_locks)
+{
+	uint8_t *buf = NULL;
+	size_t n;
+
+	buf = talloc_array(mem_ctx,
+			   uint8_t,
+			   num_locks * BRLOCK_LOCK_ENTRY_SIZE);
+	if (buf == NULL) {
+		return NULL;
+	}
+
+	for (n = 0; n < num_locks; n++) {
+		const struct lock_struct *lock = &locks[n];
+		struct brlock_lock_entry e = {
+			.smblctx = lock->context.smblctx,
+			.tid = lock->context.tid,
+			.pid = lock->context.pid,
+			.start = lock->start,
+			.size = lock->size,
+			.fnum = lock->fnum,
+			.lock_type = lock->lock_type,
+			.lock_flav = lock->lock_flav,
+			.persistent = lock->persistent,
+		};
+		DATA_BLOB blob = data_blob_const(
+			buf + n * BRLOCK_LOCK_ENTRY_SIZE,
+			BRLOCK_LOCK_ENTRY_SIZE);
+		enum ndr_err_code ndr_err;
+
+		ndr_err = ndr_push_struct_into_fixed_blob_flags(
+			&blob, &e, 0,
+			(ndr_push_flags_fn_t)ndr_push_brlock_lock_entry);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			DBG_ERR("ndr_push_brlock_lock_entry failed: %s\n",
+				ndr_errstr(ndr_err));
+			TALLOC_FREE(buf);
+			return NULL;
+		}
+	}
+
+	return buf;
+}
+
+static bool brl_pull_lock_entries_v2(TALLOC_CTX *mem_ctx,
+				     struct byte_range_lock *br_lck,
+				     const uint8_t *data,
+				     size_t data_len)
+{
+	struct lock_struct *locks = NULL;
+	size_t num_locks;
+	size_t n;
+
+	if (data_len % BRLOCK_LOCK_ENTRY_SIZE != 0) {
+		DBG_WARNING("Invalid data size: %zu\n", data_len);
+		return false;
+	}
+
+	num_locks = data_len / BRLOCK_LOCK_ENTRY_SIZE;
+	if (num_locks < 1) {
+		DBG_WARNING("Invalid data size: %zu\n", data_len);
+		return false;
+	}
+
+	locks = talloc_array(mem_ctx, struct lock_struct, num_locks);
+	if (locks == NULL) {
+		DEBUG(1, ("talloc_array failed\n"));
+		return false;
+	}
+
+	for (n = 0; n < num_locks; n++) {
+		struct brlock_lock_entry e = { .smblctx = 0, };
+		DATA_BLOB blob = data_blob_const(
+			data + n * BRLOCK_LOCK_ENTRY_SIZE,
+			BRLOCK_LOCK_ENTRY_SIZE);
+		enum ndr_err_code ndr_err;
+
+		ndr_err = ndr_pull_struct_blob_all_noalloc_flags(
+			&blob, &e, 0,
+			(ndr_pull_flags_fn_t)ndr_pull_brlock_lock_entry);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+			DBG_WARNING("ndr_pull_brlock_lock_entry failed: %s\n",
+				    ndr_errstr(ndr_err));
+			TALLOC_FREE(locks);
+			return false;
+		}
+
+		locks[n] = (struct lock_struct) {
+			.context = {
+				.smblctx = e.smblctx,
+				.tid = e.tid,
+				.pid = e.pid,
+			},
+			.start = e.start,
+			.size = e.size,
+			.fnum = e.fnum,
+			.lock_type = (enum brl_type)e.lock_type,
+			.lock_flav = (enum brl_flavour)e.lock_flav,
+			.persistent = (e.persistent != 0),
+		};
+	}
+
+	br_lck->lock_data = locks;
+	br_lck->num_locks = num_locks;
+	return true;
+}
+
 static void byte_range_lock_flush(struct byte_range_lock *br_lck)
 {
 	unsigned i;
@@ -1647,6 +1810,7 @@ static void byte_range_lock_flush(struct byte_range_lock *br_lck)
 			smb_panic("Could not delete byte range lock entry");
 		}
 	} else {
+		uint32_t version = SHARE_MODE_DATA_VERSION_1;
 		uint8_t version_buf[sizeof(uint32_t)];
 		TDB_DATA data[] = {
 			[0].dsize = sizeof(uint32_t),
@@ -1654,6 +1818,7 @@ static void byte_range_lock_flush(struct byte_range_lock *br_lck)
 			[1].dsize = br_lck->num_locks * sizeof(struct lock_struct),
 			[1].dptr = (uint8_t *)br_lck->lock_data,
 		};
+		uint8_t *buf = NULL;
 		NTSTATUS status;
 		int store_flags = DBWRAP_REPLACE;
 
@@ -1661,12 +1826,38 @@ static void byte_range_lock_flush(struct byte_range_lock *br_lck)
 			store_flags |= DBWRAP_STORE_PERSISTENT;
 		}
 
-		PUSH_BE_U32(version_buf, 0, SHARE_MODE_DATA_VERSION_1);
+		/*
+		 * With cluster level 2.0 we use little endian
+		 * on all platforms, the readers handle both.
+		 */
+		if (CLUSTER_LEVEL_ACTIVE(2, 0)) {
+			version = BRLOCK_DATA_VERSION_2;
+		}
+
+		if (version == BRLOCK_DATA_VERSION_2 &&
+		    brl_lock_entry_v2_is_raw())
+		{
+			for (i = 0; i < br_lck->num_locks; i++) {
+				brl_lock_entry_clear_padding(&locks[i]);
+			}
+		} else if (version == BRLOCK_DATA_VERSION_2) {
+			buf = brl_push_lock_entries_v2(talloc_tos(),
+						       locks,
+						       br_lck->num_locks);
+			if (buf == NULL) {
+				smb_panic("Could not push byte range lock "
+					  "entries");
+			}
+			data[1] = make_tdb_data(buf, talloc_get_size(buf));
+		}
+
+		PUSH_BE_U32(version_buf, 0, version);
 
 		status = dbwrap_record_storev(br_lck->record,
 					     data,
 					     ARRAY_SIZE(data),
 					     store_flags);
+		TALLOC_FREE(buf);
 		if (!NT_STATUS_IS_OK(status)) {
 			DEBUG(0, ("store returned %s\n", nt_errstr(status)));
 			smb_panic("Could not store byte range mode entry");
@@ -1707,12 +1898,23 @@ static bool brl_parse_data(TALLOC_CTX *mem_ctx,
 		return false;
 	}
 	version = PULL_BE_U32(data.dptr, 0);
-	if (version != SHARE_MODE_DATA_VERSION_1) {
+	if (version != SHARE_MODE_DATA_VERSION_1 &&
+	    version != BRLOCK_DATA_VERSION_2)
+	{
 		DBG_WARNING("Invalid version: %"PRIu32"\n", version);
 		return false;
 	}
 
 	data_len -= sizeof(uint32_t);
+
+	if (version == BRLOCK_DATA_VERSION_2 &&
+	    !brl_lock_entry_v2_is_raw())
+	{
+		return brl_pull_lock_entries_v2(mem_ctx,
+						br_lck,
+						data.dptr + sizeof(uint32_t),
+						data_len);
+	}
 
 	if (data_len % sizeof(struct lock_struct) != 0) {
 		DBG_WARNING("Invalid data size: %zu\n", data_len);
