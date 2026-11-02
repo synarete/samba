@@ -110,25 +110,6 @@ NTSTATUS smbXsrv_session_global_init(struct messaging_context *msg_ctx)
  * TODO: implement string based key
  */
 
-#define SMBXSRV_SESSION_GLOBAL_TDB_KEY_SIZE sizeof(uint32_t)
-
-#if 0
-static NTSTATUS smbXsrv_session_global_key_to_id(TDB_DATA key, uint32_t *id)
-{
-	if (id == NULL) {
-		return NT_STATUS_INVALID_PARAMETER;
-	}
-
-	if (key.dsize != SMBXSRV_SESSION_GLOBAL_TDB_KEY_SIZE) {
-		return NT_STATUS_INTERNAL_DB_CORRUPTION;
-	}
-
-	*id = RIVAL(key.dptr, 0);
-
-	return NT_STATUS_OK;
-}
-#endif
-
 #define SMBXSRV_SESSION_LOCAL_TDB_KEY_SIZE sizeof(uint32_t)
 
 static TDB_DATA smbXsrv_session_local_id_to_key(uint32_t id,
