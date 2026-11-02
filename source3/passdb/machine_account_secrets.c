@@ -702,10 +702,12 @@ char *secrets_fetch_prev_machine_password(const char *domain)
 
 /************************************************************************
  Routine to fetch the last change time of the machine account password
-  for a realm
+  for a realm, from the legacy SECRETS/MACHINE_LAST_CHANGE_TIME record.
+
+ Other callers should use secrets_fetch_or_upgrade_domain_info().
 ************************************************************************/
 
-time_t secrets_fetch_pass_last_set_time(const char *domain)
+static time_t secrets_fetch_pass_last_set_time(const char *domain)
 {
 	uint32_t *last_set_time;
 	time_t pass_last_set_time;
