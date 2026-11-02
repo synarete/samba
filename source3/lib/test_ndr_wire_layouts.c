@@ -33,6 +33,7 @@
 #include "lib/util/server_id.h"
 #include "lib/messages_util.h"
 #include "librpc/gen_ndr/ndr_messaging.h"
+#include "librpc/gen_ndr/ndr_dbwrap_watch.h"
 #include <cmocka.h>
 
 /*
@@ -723,6 +724,39 @@ static void test_messaging_hdr(void **state)
 	assert_memory_equal(&hdr, &hdr2, sizeof(hdr));
 }
 
+/*
+ * dbwrap_watched_trigger_wakeup() sends the instance
+ * of the watcher with SBVAL() as MSG_DBWRAP_MODIFIED
+ * payload, verify it matches dbwrap_watch_modified_msg.
+ */
+static void test_dbwrap_watch_modified_msg(void **state)
+{
+	struct dbwrap_watch_modified_msg m = {
+		.instance = 0x0102030405060708,
+	};
+	struct dbwrap_watch_modified_msg m2 = { .instance = 0, };
+	uint8_t raw[8] = { 0, };
+	uint8_t buf[DBWRAP_WATCH_MODIFIED_MSG_SIZE] = { 0, };
+	DATA_BLOB blob = data_blob_const(buf, sizeof(buf));
+	enum ndr_err_code ndr_err;
+
+	assert_int_equal(sizeof(raw), DBWRAP_WATCH_MODIFIED_MSG_SIZE);
+
+	SBVAL(raw, 0, m.instance);
+
+	ndr_err = ndr_push_struct_into_fixed_blob(&blob, &m,
+			(ndr_push_flags_fn_t)ndr_push_dbwrap_watch_modified_msg);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_memory_equal(buf, raw, sizeof(raw));
+
+	blob = data_blob_const(raw, sizeof(raw));
+	ndr_err = ndr_pull_struct_blob_all_noalloc(&blob, &m2,
+			(ndr_pull_flags_fn_t)ndr_pull_dbwrap_watch_modified_msg);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_int_equal(m2.instance, BVAL(raw, 0));
+	assert_int_equal(m2.instance, m.instance);
+}
+
 int main(int argc, const char **argv)
 {
 	const struct CMUnitTest tests[] = {
@@ -739,6 +773,7 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_notify_trigger_msg),
 		cmocka_unit_test(test_notify_event_msg),
 		cmocka_unit_test(test_messaging_hdr),
+		cmocka_unit_test(test_dbwrap_watch_modified_msg),
 	};
 
 	cmocka_set_message_output(CM_OUTPUT_SUBUNIT);
