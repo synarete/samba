@@ -561,6 +561,11 @@ static void dbwrap_watched_trigger_wakeup(struct messaging_context *msg_ctx,
 		  server_id_str_buf(watcher->pid, &tmp),
 		  watcher->instance);
 
+	/*
+	 * This is dbwrap_watch_modified_msg from dbwrap_watch.idl,
+	 * the format needs to stay compatible, as the message
+	 * also goes to other nodes in a cluster.
+	 */
 	SBVAL(instance_buf, 0, watcher->instance);
 
 	status = messaging_send_buf(
