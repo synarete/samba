@@ -222,15 +222,18 @@ _PUBLIC_ enum ndr_err_code ndr_pull_uint3264(struct ndr_pull *ndr, ndr_flags_typ
 }
 
 /*
-  parse a double
+  parse a double, an IEEE 754 double precision value
+  in the same byte order as a hyper
 */
 _PUBLIC_ enum ndr_err_code ndr_pull_double(struct ndr_pull *ndr, ndr_flags_type ndr_flags, double *v)
 {
+	uint64_t bits;
+
+	BUILD_ASSERT(sizeof(*v) == sizeof(bits));
+
 	NDR_PULL_CHECK_FLAGS(ndr, ndr_flags);
-	NDR_PULL_ALIGN(ndr, 8);
-	NDR_PULL_NEED_BYTES(ndr, 8);
-	memcpy(v, ndr->data+ndr->offset, 8);
-	ndr->offset += 8;
+	NDR_CHECK(ndr_pull_hyper(ndr, NDR_SCALARS, &bits));
+	memcpy(v, &bits, sizeof(bits));
 	return NDR_ERR_SUCCESS;
 }
 
@@ -682,16 +685,18 @@ _PUBLIC_ enum ndr_err_code ndr_push_int64(struct ndr_push *ndr, ndr_flags_type n
 }
 
 /*
-  push a double
+  push a double, an IEEE 754 double precision value
+  in the same byte order as a hyper
 */
 _PUBLIC_ enum ndr_err_code ndr_push_double(struct ndr_push *ndr, ndr_flags_type ndr_flags, double v)
 {
+	uint64_t bits;
+
+	BUILD_ASSERT(sizeof(v) == sizeof(bits));
+
 	NDR_PUSH_CHECK_FLAGS(ndr, ndr_flags);
-	NDR_PUSH_ALIGN(ndr, 8);
-	NDR_PUSH_NEED_BYTES(ndr, 8);
-	memcpy(ndr->data+ndr->offset, &v, 8);
-	ndr->offset += 8;
-	return NDR_ERR_SUCCESS;
+	memcpy(&bits, &v, sizeof(bits));
+	return ndr_push_hyper(ndr, NDR_SCALARS, bits);
 }
 
 /*
