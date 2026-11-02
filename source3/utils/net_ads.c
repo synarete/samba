@@ -35,6 +35,7 @@
 #include "libnet/libnet_join.h"
 #include "smb_krb5.h"
 #include "secrets.h"
+#include "librpc/gen_ndr/secrets.h"
 #include "../libcli/security/security.h"
 #include "source3/include/client.h"
 #include "source3/libsmb/proto.h"
@@ -371,6 +372,31 @@ out:
 }
 
 
+/*
+ * The time of the last machine account password change,
+ * 0 if it's not known.
+ */
+static time_t net_ads_pass_last_set_time(const char *domain)
+{
+	struct secrets_domain_info1 *info = NULL;
+	NTSTATUS status;
+	time_t pass_time;
+
+	status = secrets_fetch_or_upgrade_domain_info(domain,
+						      talloc_tos(),
+						      &info);
+	if (!NT_STATUS_IS_OK(status)) {
+		DBG_NOTICE("secrets_fetch_or_upgrade_domain_info(%s) - %s\n",
+			   domain, nt_errstr(status));
+		return 0;
+	}
+
+	pass_time = nt_time_to_unix(info->password_last_change);
+	TALLOC_FREE(info);
+
+	return pass_time;
+}
+
 #ifdef HAVE_JANSSON
 
 static int net_ads_info_json(ADS_STRUCT *ads)
@@ -383,7 +409,7 @@ static int net_ads_info_json(ADS_STRUCT *ads)
 
 	jsobj = tjson_new_object(frame);
 
-	pass_time = secrets_fetch_pass_last_set_time(ads->server.workgroup);
+	pass_time = net_ads_pass_last_set_time(ads->server.workgroup);
 
 	print_sockaddr(addr, sizeof(addr), &ads->ldap.ss);
 
@@ -465,7 +491,7 @@ static int net_ads_info(struct net_context *c, int argc, const char **argv)
 		goto out;
 	}
 
-	pass_time = secrets_fetch_pass_last_set_time(ads->server.workgroup);
+	pass_time = net_ads_pass_last_set_time(ads->server.workgroup);
 
 	print_sockaddr(addr, sizeof(addr), &ads->ldap.ss);
 
