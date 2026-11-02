@@ -88,15 +88,6 @@ NTSTATUS smbXsrv_open_global_init(void)
 	return NT_STATUS_OK;
 }
 
-/*
- * NOTE:
- * We need to store the keys in big endian so that dbwrap_rbt's memcmp
- * has the same result as integer comparison between the uint32_t
- * values.
- *
- * TODO: implement string based key
- */
-
 static NTSTATUS smbXsrv_open_table_init(struct smbXsrv_connection *conn,
 					uint32_t lowest_id,
 					uint32_t highest_id,
