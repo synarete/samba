@@ -539,6 +539,17 @@ bool secrets_store_machine_pw_sync(const char *pass, const char *oldpass, const 
 			return ret;
 		}
 	} else {
+		/*
+		 * The secure channel type and the last change time
+		 * are stored as 32-bit little endian values on all
+		 * platforms, this needs to stay as it is!
+		 *
+		 * secrets.tdb is shared by all nodes in a cluster
+		 * and the values are still read by
+		 * secrets_fetch_or_upgrade_domain_info(), also on
+		 * an AD DC, where secrets_tdb_sync only writes
+		 * these legacy records.
+		 */
 		SIVAL(&sec_channel_bytes, 0, secure_channel_type);
 		ret = secrets_store(machine_sec_channel_type_keystr(domain),
 				    &sec_channel_bytes, sizeof(sec_channel_bytes));
@@ -548,6 +559,7 @@ bool secrets_store_machine_pw_sync(const char *pass, const char *oldpass, const 
 		}
 	}
 
+	/* see the comment about sec_channel_bytes above */
 	SIVAL(&last_change_time_store, 0, last_change_time);
 	ret = secrets_store(machine_last_change_time_keystr(domain),
 			    &last_change_time_store, sizeof(last_change_time));
