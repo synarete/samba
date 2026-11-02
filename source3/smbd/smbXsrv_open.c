@@ -97,19 +97,6 @@ NTSTATUS smbXsrv_open_global_init(void)
  * TODO: implement string based key
  */
 
-struct smbXsrv_open_global_key_buf { uint8_t buf[sizeof(uint32_t)]; };
-
-static TDB_DATA smbXsrv_open_global_id_to_key(
-	uint32_t id, struct smbXsrv_open_global_key_buf *key_buf)
-{
-	RSIVAL(key_buf->buf, 0, id);
-
-	return (TDB_DATA) {
-		.dptr = key_buf->buf,
-		.dsize = sizeof(key_buf->buf),
-	};
-}
-
 static NTSTATUS smbXsrv_open_table_init(struct smbXsrv_connection *conn,
 					uint32_t lowest_id,
 					uint32_t highest_id,
@@ -328,8 +315,8 @@ NTSTATUS smbXsrv_open_global_lookup(
 			uint32_t open_global_id,
 			const struct smbXsrv_open_global **_global)
 {
-	struct smbXsrv_open_global_key_buf key_buf;
-	TDB_DATA key = smbXsrv_open_global_id_to_key(open_global_id, &key_buf);
+	struct smbXsrv_global_id_key_buf key_buf;
+	TDB_DATA key = smbXsrv_global_id_to_key(open_global_id, &key_buf);
 	struct smbXsrv_open_global_lookup_state state = {
 		.mem_ctx = mem_ctx,
 	};
@@ -497,7 +484,7 @@ static NTSTATUS smbXsrv_open_global_allocate(
 	 * ID for SRVSVC.
 	 */
 	for (i = 0; i < UINT32_MAX; i++) {
-		struct smbXsrv_open_global_key_buf key_buf;
+		struct smbXsrv_global_id_key_buf key_buf;
 		TDB_DATA key;
 		NTSTATUS status;
 
@@ -507,7 +494,7 @@ static NTSTATUS smbXsrv_open_global_allocate(
 			state.id = smbXsrv_global_random_id();
 		}
 
-		key = smbXsrv_open_global_id_to_key(state.id, &key_buf);
+		key = smbXsrv_global_id_to_key(state.id, &key_buf);
 
 		status = dbwrap_do_locked(
 			db, key, smbXsrv_open_global_allocate_fn, &state);
@@ -725,7 +712,7 @@ static NTSTATUS smbXsrv_open_set_replay_cache(struct smbXsrv_open *op)
 {
 	struct GUID_txt_buf buf;
 	struct db_context *db = op->table->global.db_ctx;
-	struct smbXsrv_open_global_key_buf open_key_buf;
+	struct smbXsrv_global_id_key_buf open_key_buf;
 	NTSTATUS status;
 	struct smbXsrv_open_replay_cache_key_buf key_buf;
 	TDB_DATA key;
@@ -743,8 +730,8 @@ static NTSTATUS smbXsrv_open_set_replay_cache(struct smbXsrv_open *op)
 					    &op->global->create_guid,
 					    &key_buf);
 
-	val = smbXsrv_open_global_id_to_key(op->global->open_global_id,
-					    &open_key_buf);
+	val = smbXsrv_global_id_to_key(op->global->open_global_id,
+				       &open_key_buf);
 
 	DBG_DEBUG("Replay Cache: store create_guid [%s]\n",
 		  GUID_buf_string(&op->global->create_guid, &buf));
@@ -841,8 +828,8 @@ NTSTATUS smbXsrv_open_update(struct smbXsrv_open *op)
 {
 	struct smbXsrv_open_update_state state = { .global = op->global, };
 	struct smbXsrv_open_table *table = op->table;
-	struct smbXsrv_open_global_key_buf key_buf;
-	TDB_DATA key = smbXsrv_open_global_id_to_key(
+	struct smbXsrv_global_id_key_buf key_buf;
+	TDB_DATA key = smbXsrv_global_id_to_key(
 		op->global->open_global_id, &key_buf);
 	NTSTATUS status;
 
@@ -938,8 +925,8 @@ NTSTATUS smbXsrv_open_close(struct smbXsrv_open *op, NTTIME now)
 	struct smbXsrv_open_table *table;
 	NTSTATUS status;
 	NTSTATUS error = NT_STATUS_OK;
-	struct smbXsrv_open_global_key_buf key_buf;
-	TDB_DATA key = smbXsrv_open_global_id_to_key(
+	struct smbXsrv_global_id_key_buf key_buf;
+	TDB_DATA key = smbXsrv_global_id_to_key(
 		global->open_global_id, &key_buf);
 	int ret;
 
@@ -1176,7 +1163,7 @@ NTSTATUS smb2srv_open_lookup_replay_cache(struct smbXsrv_connection *conn,
 
 	val = dbwrap_record_get_value(db_rec);
 	if (val.dsize == 0) {
-		struct smbXsrv_open_global_key_buf open_key_buf;
+		struct smbXsrv_global_id_key_buf open_key_buf;
 
 		if (replay_operation && persistent_requested) {
 			DBG_DEBUG("Replay on Persistent Handle, "
@@ -1187,7 +1174,7 @@ NTSTATUS smb2srv_open_lookup_replay_cache(struct smbXsrv_connection *conn,
 
 		DBG_DEBUG("Fresh replay-cache record\n");
 
-		val = smbXsrv_open_global_id_to_key(0, &open_key_buf);
+		val = smbXsrv_global_id_to_key(0, &open_key_buf);
 		status = dbwrap_record_store(db_rec, val, TDB_REPLACE);
 		if (!NT_STATUS_IS_OK(status)) {
 			TALLOC_FREE(frame);
@@ -1384,8 +1371,8 @@ NTSTATUS smb2srv_open_recreate(struct smbXsrv_connection *conn,
 	};
 	struct auth_session_info *session_info =
 		session->global->auth_session_info;
-	struct smbXsrv_open_global_key_buf key_buf;
-	TDB_DATA key = smbXsrv_open_global_id_to_key(
+	struct smbXsrv_global_id_key_buf key_buf;
+	TDB_DATA key = smbXsrv_global_id_to_key(
 		persistent_id & UINT32_MAX, &key_buf);
 	int ret, local_id;
 	NTSTATUS status;
@@ -1650,8 +1637,8 @@ NTSTATUS smbXsrv_open_cleanup(uint64_t persistent_id)
 	struct smbXsrv_open_cleanup_state state = {
 		.global_id = persistent_id & UINT32_MAX,
 	};
-	struct smbXsrv_open_global_key_buf key_buf;
-	TDB_DATA key = smbXsrv_open_global_id_to_key(
+	struct smbXsrv_global_id_key_buf key_buf;
+	TDB_DATA key = smbXsrv_global_id_to_key(
 		state.global_id, &key_buf);
 	NTSTATUS status;
 

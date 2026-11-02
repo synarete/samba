@@ -92,18 +92,6 @@ NTSTATUS smbXsrv_tcon_global_init(void)
 
 #define SMBXSRV_TCON_GLOBAL_TDB_KEY_SIZE sizeof(uint32_t)
 
-static TDB_DATA smbXsrv_tcon_global_id_to_key(uint32_t id,
-					      uint8_t *key_buf)
-{
-	TDB_DATA key;
-
-	RSIVAL(key_buf, 0, id);
-
-	key = make_tdb_data(key_buf, SMBXSRV_TCON_GLOBAL_TDB_KEY_SIZE);
-
-	return key;
-}
-
 #if 0
 static NTSTATUS smbXsrv_tcon_global_key_to_id(TDB_DATA key, uint32_t *id)
 {
@@ -156,10 +144,10 @@ static struct db_record *smbXsrv_tcon_global_fetch_locked(
 			TALLOC_CTX *mem_ctx)
 {
 	TDB_DATA key;
-	uint8_t key_buf[SMBXSRV_TCON_GLOBAL_TDB_KEY_SIZE];
+	struct smbXsrv_global_id_key_buf key_buf;
 	struct db_record *rec = NULL;
 
-	key = smbXsrv_tcon_global_id_to_key(id, key_buf);
+	key = smbXsrv_global_id_to_key(id, &key_buf);
 
 	rec = dbwrap_fetch_locked(db, mem_ctx, key);
 
