@@ -194,6 +194,26 @@ void ndr_abi_fill_udlongr(struct ndr_abi_state *state, uint64_t *v)
 	*v = ndr_abi_uint(state, 64);
 }
 
+/*
+ * The bit patterns of the sample values,
+ * so that each byte is visible like for integers.
+ */
+void ndr_abi_fill_float(struct ndr_abi_state *state, float *v)
+{
+	uint32_t bits = ndr_abi_uint(state, 32);
+
+	BUILD_ASSERT(sizeof(*v) == sizeof(bits));
+	memcpy(v, &bits, sizeof(bits));
+}
+
+void ndr_abi_fill_double(struct ndr_abi_state *state, double *v)
+{
+	uint64_t bits = ndr_abi_uint(state, 64);
+
+	BUILD_ASSERT(sizeof(*v) == sizeof(bits));
+	memcpy(v, &bits, sizeof(bits));
+}
+
 void ndr_abi_fill_NTTIME(struct ndr_abi_state *state, NTTIME *v)
 {
 	*v = ndr_abi_uint(state, 64);
