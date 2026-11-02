@@ -151,7 +151,6 @@ NTSTATUS secrets_finish_password_change(
 bool secrets_delete_machine_password_ex(const char *domain, const char *realm);
 bool secrets_delete_domain_sid(const char *domain);
 char *secrets_fetch_prev_machine_password(const char *domain);
-time_t secrets_fetch_pass_last_set_time(const char *domain);
 char *secrets_fetch_machine_password(const char *domain,
 				     time_t *pass_last_set_time,
 				     enum netr_SchannelType *channel);
