@@ -422,6 +422,16 @@ bool secrets_store_afs_keyfile(const char *cell, const struct afs_keyfile *keyfi
 		return False;
 
 	slprintf(key, sizeof(key)-1, "%s/%s", SECRETS_AFS_KEYFILE, cell);
+
+	/*
+	 * The value is the raw struct afs_keyfile, which is the
+	 * format of an OpenAFS KeyFile: the integers are in network
+	 * byte order (big endian) and there's no padding, so it's
+	 * 100 bytes on all platforms. It needs to stay as it is, as
+	 * secrets.tdb is shared by all nodes in a cluster.
+	 *
+	 * Note it's only used with --with-fake-kaserver.
+	 */
 	return secrets_store(key, keyfile, sizeof(struct afs_keyfile));
 }
 
