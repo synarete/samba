@@ -1153,6 +1153,7 @@ bld.SAMBA3_BINARY('test_ndr_wire_layouts',
                       notifyd_msg
                       messages_util
                       NDR_MESSAGING
+                      NDR_DBWRAP_WATCH
                       cmocka
                       ''',
                  for_selftest=True)
