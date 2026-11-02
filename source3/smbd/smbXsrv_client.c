@@ -104,6 +104,16 @@ static TDB_DATA smbXsrv_client_global_id_to_key(const struct GUID *client_guid,
 	TDB_DATA key = { .dsize = 0, };
 	struct GUID_ndr_buf buf = { .buf = {0}, };
 
+	/*
+	 * The key is the NDR representation of the client guid
+	 * (little endian), this needs to stay as it is!
+	 *
+	 * The database is clustered, so all nodes need
+	 * to use the same key for the same client guid.
+	 * Changing the key would require a cluster wide switch
+	 * (e.g. while ctdb freezes the databases), keys can't
+	 * be versioned like records or messages.
+	 */
 	GUID_to_ndr_buf(client_guid, &buf);
 	memcpy(key_buf, buf.buf, SMBXSRV_CLIENT_GLOBAL_TDB_KEY_SIZE);
 
@@ -1474,4 +1484,30 @@ uint32_t smbXsrv_global_random_id(void)
 	id = MIN(id, UINT32_MAX - 1);
 
 	return id;
+}
+
+/*
+ * The key of the smbXsrv_open_global, smbXsrv_session_global
+ * and smbXsrv_tcon_global records, it's also used as value of
+ * the smbXsrv_open replay cache records.
+ */
+TDB_DATA smbXsrv_global_id_to_key(uint32_t id,
+				  struct smbXsrv_global_id_key_buf *key_buf)
+{
+	/*
+	 * The 32-bit id is stored in big endian on all
+	 * platforms, this needs to stay as it is!
+	 *
+	 * The databases are clustered, so all nodes need
+	 * to use the same key for the same id. Changing the
+	 * key would require a cluster wide switch (e.g. while
+	 * ctdb freezes the databases), keys can't be versioned
+	 * like records or messages.
+	 */
+	PUSH_BE_U32(key_buf->buf, 0, id);
+
+	return (TDB_DATA) {
+		.dptr = key_buf->buf,
+		.dsize = sizeof(key_buf->buf),
+	};
 }
