@@ -155,6 +155,8 @@ void ndr_abi_fill_int64(struct ndr_abi_state *state, int64_t *v);
 void ndr_abi_fill_dlong(struct ndr_abi_state *state, int64_t *v);
 void ndr_abi_fill_udlong(struct ndr_abi_state *state, uint64_t *v);
 void ndr_abi_fill_udlongr(struct ndr_abi_state *state, uint64_t *v);
+void ndr_abi_fill_float(struct ndr_abi_state *state, float *v);
+void ndr_abi_fill_double(struct ndr_abi_state *state, double *v);
 void ndr_abi_fill_NTTIME(struct ndr_abi_state *state, NTTIME *v);
 void ndr_abi_fill_NTTIME_1sec(struct ndr_abi_state *state, NTTIME *v);
 void ndr_abi_fill_NTTIME_hyper(struct ndr_abi_state *state, NTTIME *v);
