@@ -2044,6 +2044,22 @@ sub ConvertObjectFromPythonData($$$$$$;$$)
 		return;
 	}
 
+	if ($ctype_alias =~ /^(float|double)$/) {
+		$self->pidl("{");
+		$self->indent;
+		$self->pidl("double test_var;");
+		$self->pidl("test_var = PyFloat_AsDouble($cvar);");
+		$self->pidl("if (PyErr_Occurred() != NULL) {");
+		$self->indent;
+		$self->pidl($fail);
+		$self->deindent;
+		$self->pidl("}");
+		$self->pidl("$target = test_var;");
+		$self->deindent;
+		$self->pidl("}");
+		return;
+	}
+
 	if ($actual_ctype->{TYPE} eq "SCALAR" and $actual_ctype->{NAME} eq "DATA_BLOB") {
 		$self->pidl("if (!PyBytes_Check($cvar)) {");
 		$self->indent;
@@ -2263,6 +2279,10 @@ sub ConvertScalarToPython($$$$)
 
 	if ($ctypename =~ /^(int64|dlong)$/) {
 		return "PyLong_FromLongLong($cvar)";
+	}
+
+	if ($ctypename =~ /^(float|double)$/) {
+		return "PyFloat_FromDouble($cvar)";
 	}
 
 	if ($ctypename =~ /^(uint64|hyper|NTTIME_hyper|NTTIME|NTTIME_1sec|udlong|udlongr|uid_t|gid_t)$/) {
