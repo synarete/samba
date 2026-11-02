@@ -37,4 +37,16 @@ interface dbwrap_watch
 		dbwrap_watcher_rec watchers[num_watchers];
 		[flag(NDR_REMAINING)] DATA_BLOB data;
 	} dbwrap_watch_rec;
+
+	/*
+	 * The payload of MSG_DBWRAP_MODIFIED, which wakes up
+	 * a watcher (also on other nodes of a cluster), see
+	 * dbwrap_watched_trigger_wakeup(). It is the instance
+	 * of the dbwrap_watcher_rec, hand-marshalled with SBVAL
+	 * (little endian).
+	 */
+	const uint32 DBWRAP_WATCH_MODIFIED_MSG_SIZE = 8;
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		hyper instance;
+	} dbwrap_watch_modified_msg;
 }
