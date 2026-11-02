@@ -540,6 +540,9 @@ uint32_t smbXsrv_version_global_current(void);
 struct smbXsrv_client_table;
 NTSTATUS smbXsrv_client_global_init(void);
 uint32_t smbXsrv_global_random_id(void);
+struct smbXsrv_global_id_key_buf { uint8_t buf[sizeof(uint32_t)]; };
+TDB_DATA smbXsrv_global_id_to_key(uint32_t id,
+				  struct smbXsrv_global_id_key_buf *key_buf);
 NTSTATUS smbXsrv_client_create(TALLOC_CTX *mem_ctx,
 			       struct tevent_context *ev_ctx,
 			       struct messaging_context *msg_ctx,
