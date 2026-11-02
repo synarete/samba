@@ -8,6 +8,11 @@
 
 root dbwrap_watcher_rec
 root dbwrap_watch_rec
+root dbwrap_watch_modified_msg
+
+[flag(LIBNDR_FLAG_NOALIGN)] struct dbwrap_watch_modified_msg align(8) {
+	scalar:hyper	# instance
+}
 
 [flag(LIBNDR_FLAG_NOALIGN)] struct dbwrap_watch_rec align(8) {
 	scalar:uint32	# num_watchers
@@ -74,4 +79,10 @@ sample dbwrap_watch_rec@minimal length(8) {
 #	        watchers: ARRAY(0)
 #	        data                     : DATA_BLOB length=4
 #	[0000] 01 03 05 07                                         ....
+
+sample dbwrap_watch_modified_msg length(8) {
+	[0000] 01 02 03 04 05 06 07 08
+}
+#	    dbwrap_watch_modified_msg: struct dbwrap_watch_modified_msg
+#	        instance                 : 0x0807060504030201 (578437695752307201)
 
