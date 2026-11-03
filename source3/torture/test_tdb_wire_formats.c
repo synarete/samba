@@ -32,6 +32,21 @@
 #include "registry/reg_init_basic.h"
 #include "registry/reg_db.h"
 #include "librpc/gen_ndr/ndr_regdb.h"
+#include "passdb.h"
+#include "lib/param/param.h"
+#include "source3/param/loadparm.h"
+#include "librpc/gen_ndr/samr.h"
+#include "librpc/gen_ndr/ndr_tdbsam.h"
+
+static void fill_pattern(void *ptr, size_t len, uint8_t start)
+{
+	uint8_t *p = ptr;
+	size_t i;
+
+	for (i = 0; i < len; i++) {
+		p[i] = (uint8_t)(start + i);
+	}
+}
 
 /*
  * Pull the raw record with the NDR description and make sure
@@ -301,5 +316,228 @@ fail:
 		reg_deletekey_recursive(parent, test_name);
 	}
 	TALLOC_FREE(frame);
+	return ret;
+}
+
+static bool tdbsam_blob_check(const char *name,
+			      const struct tdbsam_blob *b,
+			      const char *str)
+{
+	size_t len = (str != NULL) ? strlen(str) + 1 : 0;
+
+	if ((b->length != len) ||
+	    ((len > 0) && (memcmp(b->data, str, len) != 0)))
+	{
+		fprintf(stderr, "%s mismatch\n", name);
+		return false;
+	}
+	return true;
+}
+
+/*
+ * passdb.tdb, see source3/librpc/idl/tdbsam.idl
+ */
+bool run_passdb_wire_format(int dummy)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	const char *username = "wireformat";
+	uint8_t nt_pw[NT_HASH_LEN];
+	uint8_t lm_pw[LM_HASH_LEN];
+	uint8_t hours[MAX_HOURS_LEN];
+	struct samu *sam = NULL;
+	struct db_context *db = NULL;
+	char *db_path = NULL;
+	char *location = NULL;
+	struct loadparm_context *lp_ctx = NULL;
+	char *keystr = NULL;
+	struct tdbsam_version_rec version = { .version = 0, };
+	struct tdbsam_next_rid_rec next_rid = { .rid = 0, };
+	struct tdbsam_rid_rec rid_rec = { .name = NULL, };
+	struct tdbsam_user_v3 user = { .logon_time = 0, };
+	uint32_t rid = 0;
+	NTSTATUS status;
+	bool ret = false;
+	bool ok;
+
+	db_path = lock_path(frame, "wire_format_passdb.tdb");
+	if (db_path == NULL) {
+		fprintf(stderr, "lock_path failed\n");
+		goto fail;
+	}
+	unlink(db_path);
+
+	location = talloc_asprintf(frame, "tdbsam:%s", db_path);
+	if (location == NULL) {
+		fprintf(stderr, "talloc_asprintf failed\n");
+		goto fail;
+	}
+	lp_ctx = loadparm_init_s3(frame, loadparm_s3_helpers());
+	if (lp_ctx == NULL) {
+		fprintf(stderr, "loadparm_init_s3 failed\n");
+		goto fail;
+	}
+	lpcfg_set_cmdline(lp_ctx, "passdb backend", location);
+
+	ok = initialize_password_db(true, NULL);
+	if (!ok) {
+		fprintf(stderr, "initialize_password_db failed\n");
+		goto fail;
+	}
+
+	ok = pdb_new_rid(&rid);
+	if (!ok) {
+		fprintf(stderr, "pdb_new_rid failed\n");
+		goto fail;
+	}
+
+	sam = samu_new(frame);
+	if (sam == NULL) {
+		fprintf(stderr, "samu_new failed\n");
+		goto fail;
+	}
+
+	fill_pattern(nt_pw, sizeof(nt_pw), 0x10);
+	fill_pattern(lm_pw, sizeof(lm_pw), 0x20);
+	fill_pattern(hours, sizeof(hours), 0x40);
+
+	ok = pdb_set_username(sam, username, PDB_SET) &&
+	     pdb_set_domain(sam, "WIREDOMAIN", PDB_SET) &&
+	     pdb_set_nt_username(sam, "WireFormat", PDB_SET) &&
+	     pdb_set_fullname(sam, "Wire Format", PDB_SET) &&
+	     pdb_set_homedir(sam, "\\\\server\\home", PDB_SET) &&
+	     pdb_set_dir_drive(sam, "H:", PDB_SET) &&
+	     pdb_set_logon_script(sam, "logon.cmd", PDB_SET) &&
+	     pdb_set_profile_path(sam, "\\\\server\\profile", PDB_SET) &&
+	     pdb_set_acct_desc(sam, "description", PDB_SET) &&
+	     pdb_set_workstations(sam, "ws1,ws2", PDB_SET) &&
+	     pdb_set_comment(sam, "comment", PDB_SET) &&
+	     pdb_set_user_sid_from_rid(sam, rid, PDB_SET) &&
+	     pdb_set_nt_passwd(sam, nt_pw, PDB_SET) &&
+	     pdb_set_lanman_passwd(sam, lm_pw, PDB_SET) &&
+	     pdb_set_acct_ctrl(sam, ACB_NORMAL|ACB_PWNOEXP, PDB_SET) &&
+	     pdb_set_logon_time(sam, 0x01020304, PDB_SET) &&
+	     pdb_set_kickoff_time(sam, 0x11121314, PDB_SET) &&
+	     pdb_set_pass_last_set_time(sam, 0x21222324, PDB_SET) &&
+	     pdb_set_hours_len(sam, 21, PDB_SET) &&
+	     pdb_set_hours(sam, hours, sizeof(hours), PDB_SET) &&
+	     pdb_set_bad_password_count(sam, 0x0102, PDB_SET) &&
+	     pdb_set_logon_count(sam, 0x0304, PDB_SET);
+	if (!ok) {
+		fprintf(stderr, "pdb_set_* failed\n");
+		goto fail;
+	}
+
+	status = pdb_add_sam_account(sam);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "pdb_add_sam_account failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	/*
+	 * This shares the tdb with pdb_tdb.c
+	 */
+	db = db_open(frame, db_path, 0,
+		     TDB_DEFAULT, O_RDONLY, 0600,
+		     DBWRAP_LOCK_ORDER_1, DBWRAP_FLAG_NONE);
+	if (db == NULL) {
+		fprintf(stderr, "db_open(%s) failed\n", db_path);
+		goto fail;
+	}
+
+	ok = TDB_WIRE_FORMAT_CHECK(db,
+				   "INFO/version",
+				   &version,
+				   tdbsam_version_rec);
+	if (!ok) {
+		goto fail;
+	}
+	if (version.version != 4) {
+		fprintf(stderr, "version %d expected 4\n", version.version);
+		goto fail;
+	}
+
+	ok = TDB_WIRE_FORMAT_CHECK(db,
+				   "INFO/minor_version",
+				   &version,
+				   tdbsam_version_rec);
+	if (!ok) {
+		goto fail;
+	}
+
+	ok = TDB_WIRE_FORMAT_CHECK(db,
+				   "NEXT_RID",
+				   &next_rid,
+				   tdbsam_next_rid_rec);
+	if (!ok) {
+		goto fail;
+	}
+	/* the next free rid */
+	if (next_rid.rid != rid + 1) {
+		fprintf(stderr, "next_rid %"PRIu32" expected %"PRIu32"\n",
+			next_rid.rid,
+			rid + 1);
+		goto fail;
+	}
+
+	keystr = talloc_asprintf(frame, "RID_%.8x", rid);
+	if (keystr == NULL) {
+		fprintf(stderr, "talloc_asprintf failed\n");
+		goto fail;
+	}
+	ok = TDB_WIRE_FORMAT_CHECK(db, keystr, &rid_rec, tdbsam_rid_rec);
+	if (!ok) {
+		goto fail;
+	}
+	if (strcmp(rid_rec.name, username) != 0) {
+		fprintf(stderr, "%s: %s expected %s\n",
+			keystr,
+			rid_rec.name,
+			username);
+		goto fail;
+	}
+
+	keystr = talloc_asprintf(frame, "USER_%s", username);
+	if (keystr == NULL) {
+		fprintf(stderr, "talloc_asprintf failed\n");
+		goto fail;
+	}
+	ok = TDB_WIRE_FORMAT_CHECK(db, keystr, &user, tdbsam_user_v3);
+	if (!ok) {
+		goto fail;
+	}
+
+	ok = (user.logon_time == 0x01020304) &&
+	     (user.kickoff_time == 0x11121314) &&
+	     (user.pass_last_set_time == 0x21222324) &&
+	     (user.user_rid == rid) &&
+	     (user.acct_ctrl == (ACB_NORMAL|ACB_PWNOEXP)) &&
+	     (user.hours_len == 21) &&
+	     (user.bad_password_count == 0x0102) &&
+	     (user.logon_count == 0x0304) &&
+	     tdbsam_blob_check("username", &user.username, username) &&
+	     tdbsam_blob_check("domain", &user.domain, "WIREDOMAIN") &&
+	     tdbsam_blob_check("fullname", &user.fullname, "Wire Format") &&
+	     tdbsam_blob_check("workstations",
+			       &user.workstations,
+			       "ws1,ws2") &&
+	     (user.nt_pw.length == sizeof(nt_pw)) &&
+	     (memcmp(user.nt_pw.data, nt_pw, sizeof(nt_pw)) == 0) &&
+	     (user.lm_pw.length == sizeof(lm_pw)) &&
+	     (memcmp(user.lm_pw.data, lm_pw, sizeof(lm_pw)) == 0) &&
+	     (user.hours.length == sizeof(hours)) &&
+	     (memcmp(user.hours.data, hours, sizeof(hours)) == 0);
+	if (!ok) {
+		fprintf(stderr, "%s: content mismatch\n", keystr);
+		NDR_PRINT_DEBUG(tdbsam_user_v3, &user);
+		goto fail;
+	}
+
+	ret = true;
+fail:
+	TALLOC_FREE(frame);
+	if (db_path != NULL) {
+		unlink(db_path);
+	}
 	return ret;
 }

@@ -195,6 +195,7 @@ bool run_g_lock8(int dummy);
 bool run_g_lock_ping_pong(int dummy);
 bool run_g_lock_wire_format(int dummy);
 bool run_registry_wire_format(int dummy);
+bool run_passdb_wire_format(int dummy);
 bool run_local_namemap_cache1(int dummy);
 bool run_local_idmap_cache1(int dummy);
 bool run_hidenewfiles(int dummy);
