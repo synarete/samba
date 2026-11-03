@@ -146,7 +146,14 @@ static bool set_privileges( const struct dom_sid *sid, uint64_t mask )
 
 	fstr_sprintf(keystr, "%s%s", PRIVPREFIX, dom_sid_str_buf(sid, &tmp));
 
-	/* This writes the 64 bit bitmask out in little endian format */
+	/*
+	 * This writes the 64 bit bitmask out in little endian format
+	 *
+	 * The format is account_policy_privileges_rec, see
+	 * source3/librpc/idl/account_policy.idl, it must not
+	 * change as account_policy.tdb is shared by all
+	 * nodes in a cluster.
+	 */
 	SBVAL(privbuf,0,mask);
 
 	return NT_STATUS_IS_OK(dbwrap_store_bystring(db, keystr, data,
