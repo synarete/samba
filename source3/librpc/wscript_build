@@ -52,6 +52,10 @@ bld.SAMBA3_SUBSYSTEM("NDR_IDMAP_TDB",
                      source='gen_ndr/ndr_idmap_tdb.c',
                      public_deps='ndr')
 
+bld.SAMBA3_SUBSYSTEM("NDR_PRINTER_LIST",
+                     source='gen_ndr/ndr_printer_list.c',
+                     public_deps='ndr')
+
 bld.SAMBA3_SUBSYSTEM('NDR_OPEN_FILES',
 	source='gen_ndr/ndr_open_files.c',
 	public_deps='ndr NDR_SERVER_ID NDR_FILE_ID NDR_SECURITY NDR_SMB2_LEASE_STRUCT'
@@ -90,6 +94,7 @@ bld.SAMBA_NDR_ABI('leases_db', deps='NDR_LEASES_DB')
 bld.SAMBA_NDR_ABI('netsamlogoncache', deps='NDR_NETSAMLOGONCACHE NDR_NETLOGON')
 bld.SAMBA_NDR_ABI('notifyd', deps='NDR_NOTIFYD')
 bld.SAMBA_NDR_ABI('open_files', deps='NDR_OPEN_FILES')
+bld.SAMBA_NDR_ABI('printer_list', deps='NDR_PRINTER_LIST')
 bld.SAMBA_NDR_ABI('ratelimit', deps='NDR_RATELIMIT')
 bld.SAMBA_NDR_ABI('regdb', deps='NDR_REGDB')
 bld.SAMBA_NDR_ABI('rpcd_witness', deps='NDR_RPCD_WITNESS')

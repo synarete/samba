@@ -47,6 +47,8 @@
 #include "winbindd/idmap_tdb_common.h"
 #include "librpc/gen_ndr/ndr_idmap_tdb.h"
 #include "lib/util/string_wrappers.h"
+#include "printing/printer_list.h"
+#include "librpc/gen_ndr/ndr_printer_list.h"
 
 static void fill_pattern(void *ptr, size_t len, uint8_t start)
 {
@@ -1051,5 +1053,106 @@ fail:
 	if (db_path != NULL) {
 		unlink(db_path);
 	}
+	return ret;
+}
+
+/*
+ * printer_list.tdb, see source3/librpc/idl/printer_list.idl
+ */
+bool run_printer_list_wire_format(int dummy)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	const char *name = "WireFormatPrinter";
+	const char *keystr = "PRINTERLIST/PRN/WIREFORMATPRINTER";
+	time_t last_refresh = (time_t)0x0000000102030405;
+	time_t mono_refresh = 0;
+	struct db_context *db = NULL;
+	char *db_path = NULL;
+	struct printer_list_printer_rec printer = { .refresh_high = 0, };
+	struct printer_list_last_refresh_rec refresh = { .refresh_high = 0, };
+	bool printer_added = false;
+	NTSTATUS status;
+	bool ret = false;
+	bool ok;
+
+	status = printer_list_set_printer(frame,
+					  name,
+					  "comment",
+					  "location",
+					  last_refresh);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "printer_list_set_printer failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+	printer_added = true;
+
+	status = printer_list_mark_reload();
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "printer_list_mark_reload failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	status = printer_list_get_last_refresh(&mono_refresh);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "printer_list_get_last_refresh failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	/*
+	 * This shares the tdb with printer_list.c
+	 */
+	db_path = lock_path(frame, "printer_list.tdb");
+	if (db_path == NULL) {
+		fprintf(stderr, "lock_path failed\n");
+		goto fail;
+	}
+	db = db_open(frame, db_path, 0,
+		     TDB_DEFAULT|TDB_INCOMPATIBLE_HASH, O_RDWR, 0640,
+		     DBWRAP_LOCK_ORDER_1, DBWRAP_FLAG_NONE);
+	if (db == NULL) {
+		fprintf(stderr, "db_open(%s) failed\n", db_path);
+		goto fail;
+	}
+
+	ok = TDB_WIRE_FORMAT_CHECK(db,
+				   keystr,
+				   &printer,
+				   printer_list_printer_rec);
+	if (!ok) {
+		goto fail;
+	}
+	if ((printer.refresh_high != 0x00000001) ||
+	    (printer.refresh_low != 0x02030405) ||
+	    (strcmp(printer.name, name) != 0) ||
+	    (strcmp(printer.comment, "comment") != 0) ||
+	    (strcmp(printer.location, "location") != 0))
+	{
+		fprintf(stderr, "%s: content mismatch\n", keystr);
+		goto fail;
+	}
+
+	ok = TDB_WIRE_FORMAT_CHECK(db,
+				   "PRINTERLIST/GLOBAL/LAST_REFRESH",
+				   &refresh,
+				   printer_list_last_refresh_rec);
+	if (!ok) {
+		goto fail;
+	}
+	if ((((uint64_t)refresh.refresh_high << 32) | refresh.refresh_low) !=
+	    (uint64_t)mono_refresh)
+	{
+		fprintf(stderr, "last refresh mismatch\n");
+		goto fail;
+	}
+
+	ret = true;
+fail:
+	if (printer_added && (db != NULL)) {
+		dbwrap_delete_bystring(db, keystr);
+	}
+	TALLOC_FREE(frame);
 	return ret;
 }

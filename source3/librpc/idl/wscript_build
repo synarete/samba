@@ -29,6 +29,7 @@ bld.SAMBA_PIDL_LIST('PIDL',
                     group_mapping.idl
                     account_policy.idl
                     idmap_tdb.idl
+                    printer_list.idl
                     ''',
                     options='--includedir=%s --header --ndr-parser --ndr-abi' % topinclude,
                     output_dir='../gen_ndr',
