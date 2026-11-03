@@ -245,6 +245,12 @@ NTSTATUS idmap_tdb_common_set_mapping(struct idmap_domain * dom,
 	    talloc_get_type_abort(dom->private_data,
 				  struct idmap_tdb_common_context);
 
+	/*
+	 * The format is idmap_tdb_string_rec, see
+	 * source3/librpc/idl/idmap_tdb.idl, it must not
+	 * change as the databases of idmap_tdb2 and
+	 * idmap_autorid are shared by all nodes in a cluster.
+	 */
 	switch (map->xid.type) {
 
 	case ID_TYPE_UID:

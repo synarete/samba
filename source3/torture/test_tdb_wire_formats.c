@@ -42,6 +42,11 @@
 #include "librpc/gen_ndr/ndr_group_mapping.h"
 #include "lib/privileges.h"
 #include "librpc/gen_ndr/ndr_account_policy.h"
+#include "idmap.h"
+#include "idmap_autorid_tdb.h"
+#include "winbindd/idmap_tdb_common.h"
+#include "librpc/gen_ndr/ndr_idmap_tdb.h"
+#include "lib/util/string_wrappers.h"
 
 static void fill_pattern(void *ptr, size_t len, uint8_t start)
 {
@@ -825,5 +830,226 @@ fail:
 		account_policy_set(type, old_value);
 	}
 	TALLOC_FREE(frame);
+	return ret;
+}
+
+static bool idmap_wire_format_check_uint32(struct db_context *db,
+					   const char *keystr,
+					   uint32_t expected)
+{
+	struct idmap_tdb_uint32_rec rec = { .value = 0, };
+	bool ok;
+
+	ok = TDB_WIRE_FORMAT_CHECK(db, keystr, &rec, idmap_tdb_uint32_rec);
+	if (!ok) {
+		return false;
+	}
+	if (rec.value != expected) {
+		fprintf(stderr, "%s: %"PRIu32" expected %"PRIu32"\n",
+			keystr,
+			rec.value,
+			expected);
+		return false;
+	}
+	return true;
+}
+
+static bool idmap_wire_format_check_string(struct db_context *db,
+					   const char *keystr,
+					   const char *expected)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct idmap_tdb_string_rec rec = { .str = NULL, };
+	bool ok;
+
+	ok = TDB_WIRE_FORMAT_CHECK(db, keystr, &rec, idmap_tdb_string_rec);
+	if (!ok) {
+		TALLOC_FREE(frame);
+		return false;
+	}
+	if (strcmp(rec.str, expected) != 0) {
+		fprintf(stderr, "%s: %s expected %s\n",
+			keystr,
+			rec.str,
+			expected);
+		TALLOC_FREE(frame);
+		return false;
+	}
+	TALLOC_FREE(frame);
+	return true;
+}
+
+/*
+ * idmap2.tdb and autorid.tdb, see source3/librpc/idl/idmap_tdb.idl
+ */
+bool run_idmap_wire_format(int dummy)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	const char *domsid = "S-1-5-21-1-2-3";
+	const char *user_sid_str = "S-1-5-21-1-2-3-1000";
+	const char *group_sid_str = "S-1-5-21-1-2-3-1001";
+	struct autorid_global_config cfg = {
+		.minvalue = 1000000,
+		.rangesize = 100000,
+		.maxranges = 10,
+	};
+	struct autorid_range_config range0 = { .domain_range_index = 0, };
+	struct autorid_range_config range1 = { .domain_range_index = 1, };
+	struct idmap_domain *dom = NULL;
+	struct idmap_tdb_common_context *ctx = NULL;
+	struct id_map map = { .status = ID_UNKNOWN, };
+	struct dom_sid user_sid;
+	struct dom_sid group_sid;
+	struct db_context *db = NULL;
+	char *db_path = NULL;
+	char *keystr = NULL;
+	char *expected = NULL;
+	struct idmap_autorid_config_rec config = { .config = NULL, };
+	NTSTATUS status;
+	bool ret = false;
+	bool ok;
+
+	ok = string_to_sid(&user_sid, user_sid_str) &&
+	     string_to_sid(&group_sid, group_sid_str);
+	if (!ok) {
+		fprintf(stderr, "string_to_sid failed\n");
+		goto fail;
+	}
+
+	db_path = lock_path(frame, "wire_format_autorid.tdb");
+	if (db_path == NULL) {
+		fprintf(stderr, "lock_path failed\n");
+		goto fail;
+	}
+	unlink(db_path);
+
+	status = idmap_autorid_db_init(db_path, frame, &db);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "idmap_autorid_db_init failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	status = idmap_autorid_saveconfig(db, &cfg);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "idmap_autorid_saveconfig failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	fstrcpy(range0.domsid, domsid);
+	status = idmap_autorid_acquire_range(db, &range0);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "idmap_autorid_acquire_range failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	fstrcpy(range1.domsid, domsid);
+	status = idmap_autorid_acquire_range(db, &range1);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "idmap_autorid_acquire_range failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	/*
+	 * The mappings are stored with idmap_tdb_common_set_mapping()
+	 * by idmap_autorid and idmap_tdb2 uses the same format.
+	 */
+	dom = talloc_zero(frame, struct idmap_domain);
+	if (dom == NULL) {
+		fprintf(stderr, "talloc_zero failed\n");
+		goto fail;
+	}
+	dom->name = "*";
+	dom->low_id = 1000;
+	dom->high_id = 2000;
+
+	ctx = talloc_zero(dom, struct idmap_tdb_common_context);
+	if (ctx == NULL) {
+		fprintf(stderr, "talloc_zero failed\n");
+		goto fail;
+	}
+	ctx->db = db;
+	dom->private_data = ctx;
+
+	map = (struct id_map) {
+		.sid = &user_sid,
+		.xid = { .id = 1000, .type = ID_TYPE_UID, },
+	};
+	status = idmap_tdb_common_set_mapping(dom, &map);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "idmap_tdb_common_set_mapping failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	map = (struct id_map) {
+		.sid = &group_sid,
+		.xid = { .id = 1001, .type = ID_TYPE_GID, },
+	};
+	status = idmap_tdb_common_set_mapping(dom, &map);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "idmap_tdb_common_set_mapping failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	ok = idmap_wire_format_check_uint32(db, HWM, 2) &&
+	     idmap_wire_format_check_uint32(db, ALLOC_HWM_UID, 0) &&
+	     idmap_wire_format_check_uint32(db, ALLOC_HWM_GID, 0) &&
+	     idmap_wire_format_check_uint32(db, domsid, range0.rangenum) &&
+	     idmap_wire_format_check_string(db, "0", domsid) &&
+	     idmap_wire_format_check_string(db, user_sid_str, "UID 1000") &&
+	     idmap_wire_format_check_string(db, "UID 1000", user_sid_str) &&
+	     idmap_wire_format_check_string(db, group_sid_str, "GID 1001") &&
+	     idmap_wire_format_check_string(db, "GID 1001", group_sid_str);
+	if (!ok) {
+		goto fail;
+	}
+
+	keystr = talloc_asprintf(frame, "%s#1", domsid);
+	if (keystr == NULL) {
+		fprintf(stderr, "talloc_asprintf failed\n");
+		goto fail;
+	}
+	ok = idmap_wire_format_check_uint32(db, keystr, range1.rangenum) &&
+	     idmap_wire_format_check_string(db, "1", keystr);
+	if (!ok) {
+		goto fail;
+	}
+
+	ok = TDB_WIRE_FORMAT_CHECK(db,
+				   CONFIGKEY,
+				   &config,
+				   idmap_autorid_config_rec);
+	if (!ok) {
+		goto fail;
+	}
+	expected = talloc_asprintf(frame,
+				   "minvalue:%"PRIu32" rangesize:%"PRIu32" "
+				   "maxranges:%"PRIu32,
+				   cfg.minvalue,
+				   cfg.rangesize,
+				   cfg.maxranges);
+	if (expected == NULL) {
+		fprintf(stderr, "talloc_asprintf failed\n");
+		goto fail;
+	}
+	if (strcmp(config.config, expected) != 0) {
+		fprintf(stderr, "%s: %s expected %s\n",
+			CONFIGKEY,
+			config.config,
+			expected);
+		goto fail;
+	}
+
+	ret = true;
+fail:
+	TALLOC_FREE(frame);
+	if (db_path != NULL) {
+		unlink(db_path);
+	}
 	return ret;
 }
