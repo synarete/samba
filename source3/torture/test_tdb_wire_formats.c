@@ -40,6 +40,8 @@
 #include "../libcli/security/security.h"
 #include "groupdb/mapping.h"
 #include "librpc/gen_ndr/ndr_group_mapping.h"
+#include "lib/privileges.h"
+#include "librpc/gen_ndr/ndr_account_policy.h"
 
 static void fill_pattern(void *ptr, size_t len, uint8_t start)
 {
@@ -700,6 +702,127 @@ fail:
 	}
 	if (group_added) {
 		pdb_delete_group_mapping_entry(group_sid);
+	}
+	TALLOC_FREE(frame);
+	return ret;
+}
+
+/*
+ * account_policy.tdb, see source3/librpc/idl/account_policy.idl
+ */
+bool run_account_policy_wire_format(int dummy)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	const char *sid_str = "S-1-5-21-1-2-3-4570";
+	struct dom_sid sid;
+	enum pdb_policy_type type = PDB_POLICY_MIN_PASSWORD_LEN;
+	const char *policy_name = NULL;
+	uint32_t old_value = 0;
+	struct db_context *db = NULL;
+	char *keystr = NULL;
+	struct account_policy_value_rec value = { .value = 0, };
+	struct account_policy_privileges_rec privs = { .privileges = 0, };
+	bool policy_changed = false;
+	bool privs_granted = false;
+	bool ret = false;
+	bool ok;
+
+	ok = string_to_sid(&sid, sid_str);
+	if (!ok) {
+		fprintf(stderr, "string_to_sid failed\n");
+		goto fail;
+	}
+
+	policy_name = decode_account_policy_name(type);
+	if (policy_name == NULL) {
+		fprintf(stderr, "decode_account_policy_name failed\n");
+		goto fail;
+	}
+
+	ok = account_policy_get(type, &old_value);
+	if (!ok) {
+		fprintf(stderr, "account_policy_get failed\n");
+		goto fail;
+	}
+
+	ok = account_policy_set(type, 0x01020304);
+	if (!ok) {
+		fprintf(stderr, "account_policy_set failed\n");
+		goto fail;
+	}
+	policy_changed = true;
+
+	ok = grant_privilege_by_name(&sid, "SeBackupPrivilege") &&
+	     grant_privilege_by_name(&sid, "SeRestorePrivilege");
+	if (!ok) {
+		fprintf(stderr, "grant_privilege_by_name failed\n");
+		goto fail;
+	}
+	privs_granted = true;
+
+	/*
+	 * This shares the tdb with account_pol.c
+	 */
+	db = get_account_pol_db();
+	if (db == NULL) {
+		fprintf(stderr, "get_account_pol_db failed\n");
+		goto fail;
+	}
+
+	ok = TDB_WIRE_FORMAT_CHECK(db,
+				   "INFO/version",
+				   &value,
+				   account_policy_value_rec);
+	if (!ok) {
+		goto fail;
+	}
+	if (value.value != 3) {
+		fprintf(stderr, "version %"PRIu32" expected 3\n",
+			value.value);
+		goto fail;
+	}
+
+	ok = TDB_WIRE_FORMAT_CHECK(db,
+				   policy_name,
+				   &value,
+				   account_policy_value_rec);
+	if (!ok) {
+		goto fail;
+	}
+	if (value.value != 0x01020304) {
+		fprintf(stderr, "%s: 0x%"PRIx32" expected 0x01020304\n",
+			policy_name,
+			value.value);
+		goto fail;
+	}
+
+	keystr = talloc_asprintf(frame, "PRIV_%s", sid_str);
+	if (keystr == NULL) {
+		fprintf(stderr, "talloc_asprintf failed\n");
+		goto fail;
+	}
+	ok = TDB_WIRE_FORMAT_CHECK(db,
+				   keystr,
+				   &privs,
+				   account_policy_privileges_rec);
+	if (!ok) {
+		goto fail;
+	}
+	if (privs.privileges != (SEC_PRIV_BACKUP_BIT|SEC_PRIV_RESTORE_BIT)) {
+		fprintf(stderr, "%s: 0x%"PRIx64" expected 0x%"PRIx64"\n",
+			keystr,
+			privs.privileges,
+			(uint64_t)(SEC_PRIV_BACKUP_BIT|SEC_PRIV_RESTORE_BIT));
+		goto fail;
+	}
+
+	ret = true;
+fail:
+	if (privs_granted) {
+		revoke_all_privileges(&sid);
+	}
+	if (policy_changed) {
+		account_policy_set(type, old_value);
 	}
 	TALLOC_FREE(frame);
 	return ret;
