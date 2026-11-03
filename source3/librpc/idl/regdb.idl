@@ -1,0 +1,80 @@
+#include "idl_types.h"
+
+/*
+ * The record formats of registry.tdb used by
+ * source3/registry/reg_backend_db.c
+ *
+ * They are hand-marshalled with tdb_pack() (little endian),
+ * this describes them in order to protect them with [ndr_abi],
+ * the equivalence is verified by LOCAL-REGISTRY-WIRE-FORMAT
+ * (source3/torture/test_tdb_wire_formats.c).
+ *
+ * registry.tdb is a persistent database, which is shared
+ * by all nodes with clustering = yes, e.g. for
+ * config backend = registry.
+ */
+
+[
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * source3/librpc/ABI/regdb.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
+	pointer_default(unique)
+]
+interface regdb
+{
+	/*
+	 * INFO/version (REGDB_VERSION_KEYNAME) stored
+	 * with dbwrap_store_int32_bystring().
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		int32 version;
+	} regdb_version_rec;
+
+	/*
+	 * The record of each key, the record key is the
+	 * normalized path, e.g. HKLM\SOFTWARE\SAMBA.
+	 *
+	 * tdb_pack() formats "d" and "f" for each subkey.
+	 */
+	typedef [flag(NDR_NOALIGN)] struct {
+		raw8string name;
+	} regdb_subkey;
+
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		uint32 num_subkeys;
+		regdb_subkey subkeys[num_subkeys];
+	} regdb_subkey_list;
+
+	/*
+	 * The values of each key, the record key is
+	 * SAMBA_REGVAL\ followed by the normalized path.
+	 *
+	 * tdb_pack() formats "d" and "fdB" for each value.
+	 */
+	typedef [flag(NDR_NOALIGN)] struct {
+		raw8string name;
+		/* enum winreg_Type */
+		uint32 type;
+		uint32 size;
+		uint8 data[size];
+	} regdb_value;
+
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		uint32 num_values;
+		regdb_value values[num_values];
+	} regdb_value_list;
+
+	/*
+	 * The security descriptors of keys are stored with
+	 * SAMBA_SECDESC\ followed by the normalized path,
+	 * as struct security_descriptor (marshall_sec_desc()),
+	 * which is already NDR.
+	 *
+	 * SAMBA_SORTED_SUBKEYS\ records are no longer used,
+	 * they are removed by the upgrade to REGDB_VERSION_V3.
+	 */
+}
