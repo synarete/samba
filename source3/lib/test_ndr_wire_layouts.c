@@ -35,6 +35,8 @@
 #include "lib/messages_util.h"
 #include "librpc/gen_ndr/ndr_messaging.h"
 #include "librpc/gen_ndr/ndr_dbwrap_watch.h"
+#include "lib/dbwrap/dbwrap.h"
+#include "lib/dbwrap/dbwrap_rbt.h"
 #include <cmocka.h>
 
 /*
@@ -745,6 +747,83 @@ static void test_notifyd_entry(void **state)
 }
 
 /*
+ * MSG_SMB_NOTIFY_DB contains the index of the reclog (8 bytes
+ * little endian), followed by the dbwrap_marshall() format:
+ * for each record the key length (8 bytes little endian),
+ * the key, the value length (8 bytes little endian) and
+ * the value. notifyd_get_db() produces this format itself
+ * and notifyd_got_db() parses it with dbwrap_parse_marshall_buf().
+ */
+struct dbwrap_marshall_test_state {
+	size_t num;
+	TDB_DATA key;
+	TDB_DATA value;
+};
+
+static bool dbwrap_marshall_test_fn(TDB_DATA key,
+				    TDB_DATA value,
+				    void *private_data)
+{
+	struct dbwrap_marshall_test_state *state = private_data;
+
+	state->num += 1;
+	state->key = key;
+	state->value = value;
+	return true;
+}
+
+static void test_dbwrap_marshall(void **state)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	const uint8_t expected[] = {
+		0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		'a', 'b',
+		0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		'x', 'y', 'z',
+	};
+	struct dbwrap_marshall_test_state mstate = { .num = 0, };
+	struct db_context *db = NULL;
+	uint8_t buf[sizeof(expected)];
+	size_t len;
+	NTSTATUS status;
+
+	db = db_open_rbt(frame);
+	assert_non_null(db);
+
+	status = dbwrap_store(db,
+			      make_tdb_data((const uint8_t *)"ab", 2),
+			      make_tdb_data((const uint8_t *)"xyz", 3),
+			      0);
+	assert_true(NT_STATUS_IS_OK(status));
+
+	len = dbwrap_marshall(db, NULL, 0);
+	assert_int_equal(len, sizeof(expected));
+
+	len = dbwrap_marshall(db, buf, sizeof(buf));
+	assert_int_equal(len, sizeof(expected));
+	assert_memory_equal(buf, expected, sizeof(expected));
+
+	status = dbwrap_parse_marshall_buf(expected,
+					   sizeof(expected),
+					   dbwrap_marshall_test_fn,
+					   &mstate);
+	assert_true(NT_STATUS_IS_OK(status));
+	assert_int_equal(mstate.num, 1);
+	assert_int_equal(mstate.key.dsize, 2);
+	assert_memory_equal(mstate.key.dptr, "ab", 2);
+	assert_int_equal(mstate.value.dsize, 3);
+	assert_memory_equal(mstate.value.dptr, "xyz", 3);
+
+	status = dbwrap_parse_marshall_buf(expected,
+					   sizeof(expected) - 1,
+					   dbwrap_marshall_test_fn,
+					   &mstate);
+	assert_false(NT_STATUS_IS_OK(status));
+
+	TALLOC_FREE(frame);
+}
+
+/*
  * message_hdr_put() and message_hdr_get() are hand-marshalled
  * (little endian), verify they match messaging_hdr.
  */
@@ -844,6 +923,7 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_notify_event_msg),
 		cmocka_unit_test(test_messaging_hdr),
 		cmocka_unit_test(test_notifyd_entry),
+		cmocka_unit_test(test_dbwrap_marshall),
 		cmocka_unit_test(test_dbwrap_watch_modified_msg),
 	};
 
