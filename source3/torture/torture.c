@@ -16436,6 +16436,10 @@ static struct {
 		.fn    = run_g_lock_wire_format,
 	},
 	{
+		.name  = "LOCAL-REGISTRY-WIRE-FORMAT",
+		.fn    = run_registry_wire_format,
+	},
+	{
 		.name  = "LOCAL-CANONICALIZE-PATH",
 		.fn    = run_local_canonicalize_path,
 	},
