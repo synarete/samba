@@ -1,0 +1,66 @@
+#include "idl_types.h"
+
+/*
+ * The record formats of the idmap databases used by
+ * source3/winbindd/idmap_tdb_common.c, idmap_tdb2.c
+ * and idmap_autorid_tdb.c (idmap2.tdb and autorid.tdb)
+ *
+ * They are plain strings and uint32 values stored with
+ * dbwrap_store_uint32_bystring() (little endian), this
+ * describes them in order to protect them with [ndr_abi],
+ * the equivalence is verified by LOCAL-IDMAP-WIRE-FORMAT
+ * (source3/torture/test_tdb_wire_formats.c).
+ *
+ * idmap2.tdb (idmap backend = tdb2) and autorid.tdb
+ * (idmap backend = autorid) are persistent databases,
+ * which are shared by all nodes with clustering = yes.
+ *
+ * The record keys include the terminating nul byte.
+ */
+
+[
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * source3/librpc/ABI/idmap_tdb.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
+	pointer_default(unique)
+]
+interface idmap_tdb
+{
+	/*
+	 * The high water marks, e.g. USER HWM, GROUP HWM
+	 * (idmap_tdb2), NEXT RANGE, NEXT ALLOC UID and
+	 * NEXT ALLOC GID (idmap_autorid).
+	 *
+	 * idmap_autorid also stores the range number for
+	 * <domain sid> and <domain sid>#<domain range index>.
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		uint32 value;
+	} idmap_tdb_uint32_rec;
+
+	/*
+	 * The mappings are stored in both directions,
+	 * <sid> contains "UID <uid>" or "GID <gid>"
+	 * and the other way around.
+	 *
+	 * idmap_autorid also stores <domain sid> or
+	 * <domain sid>#<domain range index> for
+	 * the range number (as string).
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		raw8string str;
+	} idmap_tdb_string_rec;
+
+	/*
+	 * CONFIG of idmap_autorid contains
+	 * "minvalue:%u rangesize:%u maxranges:%u"
+	 * without a terminating nul byte.
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		[flag(STR_RAW8|STR_NOTERM|NDR_REMAINING)] string config;
+	} idmap_autorid_config_rec;
+}
