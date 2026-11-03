@@ -16460,6 +16460,10 @@ static struct {
 		.fn    = run_idmap_wire_format,
 	},
 	{
+		.name  = "LOCAL-PRINTER-LIST-WIRE-FORMAT",
+		.fn    = run_printer_list_wire_format,
+	},
+	{
 		.name  = "LOCAL-CANONICALIZE-PATH",
 		.fn    = run_local_canonicalize_path,
 	},
