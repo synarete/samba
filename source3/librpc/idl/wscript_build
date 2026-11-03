@@ -26,6 +26,7 @@ bld.SAMBA_PIDL_LIST('PIDL',
                     dbwrap_watch.idl
                     regdb.idl
                     tdbsam.idl
+                    group_mapping.idl
                     ''',
                     options='--includedir=%s --header --ndr-parser --ndr-abi' % topinclude,
                     output_dir='../gen_ndr',
