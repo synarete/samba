@@ -1083,7 +1083,14 @@ static WERROR regdb_store_keys_internal2(struct db_context *db,
 	buflen = 1024;
 	len = 0;
 
-	/* store the number of subkeys */
+	/*
+	 * store the number of subkeys
+	 *
+	 * The format is regdb_subkey_list, see
+	 * source3/librpc/idl/regdb.idl, it must not
+	 * change as registry.tdb is shared by all
+	 * nodes in a cluster.
+	 */
 
 	len += tdb_pack(buffer+len, buflen-len, "d", num_subkeys);
 
@@ -1921,7 +1928,14 @@ static int regdb_pack_values(struct regval_ctr *values, uint8_t *buf, int buflen
 
 	num_values = regval_ctr_numvals( values );
 
-	/* pack the number of values first */
+	/*
+	 * pack the number of values first
+	 *
+	 * The format is regdb_value_list, see
+	 * source3/librpc/idl/regdb.idl, it must not
+	 * change as registry.tdb is shared by all
+	 * nodes in a cluster.
+	 */
 
 	len += tdb_pack( buf+len, buflen-len, "d", num_values );
 
