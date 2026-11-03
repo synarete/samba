@@ -1,0 +1,48 @@
+#include "idl_types.h"
+
+/*
+ * The record formats of group_mapping.tdb used by
+ * source3/groupdb/mapping_tdb.c
+ *
+ * They are hand-marshalled with tdb_pack() (little endian),
+ * this describes them in order to protect them with [ndr_abi],
+ * the equivalence is verified by LOCAL-GROUP-MAPPING-WIRE-FORMAT
+ * (source3/torture/test_tdb_wire_formats.c).
+ *
+ * group_mapping.tdb is a persistent database, which is shared
+ * by all nodes with clustering = yes.
+ *
+ * The record keys include the terminating nul byte.
+ */
+
+[
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * source3/librpc/ABI/group_mapping.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
+	pointer_default(unique)
+]
+interface group_mapping
+{
+	/*
+	 * UNIXGROUP/<sid>, tdb_pack() format "ddff".
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		uint32 gid;
+		/* enum lsa_SidType */
+		uint32 sid_name_use;
+		raw8string nt_name;
+		raw8string comment;
+	} group_mapping_rec;
+
+	/*
+	 * MEMBEROF/<member sid> contains the space
+	 * separated list of the alias sids.
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		raw8string aliases;
+	} group_mapping_memberof_rec;
+}
