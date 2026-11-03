@@ -634,6 +634,12 @@ static int dbwrap_marshall_fn(struct db_record *rec, void *private_data)
 	return 0;
 }
 
+/*
+ * The format is used in MSG_SMB_NOTIFY_DB between
+ * notifyd instances on different ctdb nodes, so it
+ * must not change, see test_dbwrap_marshall() in
+ * source3/lib/test_ndr_wire_layouts.c.
+ */
 size_t dbwrap_marshall(struct db_context *db, uint8_t *buf, size_t bufsize)
 {
 	struct dbwrap_marshall_state state;
