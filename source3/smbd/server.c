@@ -1867,6 +1867,17 @@ static void smbd_claim_version_parser(struct server_id exclusive,
 	state->version = talloc_strdup(state->mem_ctx, (const char *)data);
 }
 
+/*
+ * With clustering = yes all nodes need to run the same version,
+ * unless allow unsafe cluster upgrade = yes is used.
+ *
+ * The g_lock.tdb record "samba_version_string" (including the
+ * terminating nul byte) holds the version as nul-terminated
+ * string in the g_lock data and the parent smbd of each node
+ * holds a G_LOCK_READ on it. This is the guard against mixed
+ * versions in a cluster, so the key and the data format must
+ * never change, as older versions need to detect newer ones.
+ */
 static NTSTATUS smbd_claim_version(struct messaging_context *msg,
 				   const char *version)
 {
