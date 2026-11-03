@@ -1,0 +1,53 @@
+#include "idl_types.h"
+
+/*
+ * The record formats of printer_list.tdb used by
+ * source3/printing/printer_list.c
+ *
+ * They are hand-marshalled with tdb_pack() (little endian),
+ * this describes them in order to protect them with [ndr_abi],
+ * the equivalence is verified by LOCAL-PRINTER-LIST-WIRE-FORMAT
+ * (source3/torture/test_tdb_wire_formats.c).
+ *
+ * printer_list.tdb is opened without TDB_CLEAR_IF_FIRST,
+ * so it is a persistent database, which is shared by all
+ * nodes with clustering = yes.
+ *
+ * The record keys include the terminating nul byte.
+ */
+
+[
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * source3/librpc/ABI/printer_list.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
+	pointer_default(unique)
+]
+interface printer_list
+{
+	/*
+	 * PRINTERLIST/PRN/<upper case printer name>,
+	 * tdb_pack() format "ddPPP" (PL_DATA_FORMAT),
+	 * the time of the last refresh is split into
+	 * the high and low 32 bits.
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		uint32 refresh_high;
+		uint32 refresh_low;
+		raw8string name;
+		raw8string comment;
+		raw8string location;
+	} printer_list_printer_rec;
+
+	/*
+	 * PRINTERLIST/GLOBAL/LAST_REFRESH,
+	 * tdb_pack() format "dd" (PL_TSTAMP_FORMAT).
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		uint32 refresh_high;
+		uint32 refresh_low;
+	} printer_list_last_refresh_rec;
+}
