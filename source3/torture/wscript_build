@@ -62,6 +62,7 @@ bld.SAMBA3_BINARY('smbtorture' + bld.env.suffix3,
                         test_readdir_timestamp.c
                         test_rpc_scale.c
                         test_tdb_validate.c
+                       test_tdb_wire_formats.c
                         ''' + TORTURE3_ADDITIONAL_SOURCE,
                  deps='''
                       talloc
@@ -75,6 +76,7 @@ bld.SAMBA3_BINARY('smbtorture' + bld.env.suffix3,
                       NDR_OPEN_FILES
                       NDR_G_LOCK
                       NDR_DBWRAP_WATCH
+                      NDR_REGDB
                       idmap
                       IDMAP_TDB_COMMON
                       libcli_lsa3
