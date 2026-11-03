@@ -79,6 +79,7 @@ bld.SAMBA3_BINARY('smbtorture' + bld.env.suffix3,
                       NDR_REGDB
                       NDR_TDBSAM
                       NDR_GROUP_MAPPING
+                      NDR_ACCOUNT_POLICY
                       idmap
                       IDMAP_TDB_COMMON
                       libcli_lsa3
