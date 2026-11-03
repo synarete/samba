@@ -37,6 +37,9 @@
 #include "source3/param/loadparm.h"
 #include "librpc/gen_ndr/samr.h"
 #include "librpc/gen_ndr/ndr_tdbsam.h"
+#include "../libcli/security/security.h"
+#include "groupdb/mapping.h"
+#include "librpc/gen_ndr/ndr_group_mapping.h"
 
 static void fill_pattern(void *ptr, size_t len, uint8_t start)
 {
@@ -539,5 +542,165 @@ fail:
 	if (db_path != NULL) {
 		unlink(db_path);
 	}
+	return ret;
+}
+
+/*
+ * group_mapping.tdb, see source3/librpc/idl/group_mapping.idl
+ */
+bool run_group_mapping_wire_format(int dummy)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	const char *group_sid_str = "S-1-5-21-1-2-3-4567";
+	const char *alias_sid_str = "S-1-5-21-1-2-3-4568";
+	const char *member_sid_str = "S-1-5-21-1-2-3-4569";
+	struct dom_sid group_sid;
+	struct dom_sid alias_sid;
+	struct dom_sid member_sid;
+	GROUP_MAP group_map = {
+		.gid = 0x01020304,
+		.sid_name_use = SID_NAME_DOM_GRP,
+		.nt_name = discard_const_p(char, "wire format group"),
+		.comment = discard_const_p(char, "group comment"),
+	};
+	GROUP_MAP alias_map = {
+		.gid = 0x01020305,
+		.sid_name_use = SID_NAME_ALIAS,
+		.nt_name = discard_const_p(char, "wire format alias"),
+		.comment = discard_const_p(char, ""),
+	};
+	struct db_context *db = NULL;
+	char *db_path = NULL;
+	char *keystr = NULL;
+	struct group_mapping_rec rec = { .gid = 0, };
+	struct group_mapping_memberof_rec memberof = { .aliases = NULL, };
+	bool group_added = false;
+	bool alias_added = false;
+	bool member_added = false;
+	NTSTATUS status;
+	bool ret = false;
+	bool ok;
+
+	ok = string_to_sid(&group_sid, group_sid_str) &&
+	     string_to_sid(&alias_sid, alias_sid_str) &&
+	     string_to_sid(&member_sid, member_sid_str);
+	if (!ok) {
+		fprintf(stderr, "string_to_sid failed\n");
+		goto fail;
+	}
+	group_map.sid = group_sid;
+	alias_map.sid = alias_sid;
+
+	status = pdb_add_group_mapping_entry(&group_map);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "pdb_add_group_mapping_entry failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+	group_added = true;
+
+	status = pdb_add_group_mapping_entry(&alias_map);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "pdb_add_group_mapping_entry failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+	alias_added = true;
+
+	status = pdb_add_aliasmem(&alias_sid, &member_sid);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "pdb_add_aliasmem failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+	member_added = true;
+
+	/*
+	 * This shares the tdb with mapping_tdb.c
+	 */
+	db_path = state_path(frame, "group_mapping.tdb");
+	if (db_path == NULL) {
+		fprintf(stderr, "state_path failed\n");
+		goto fail;
+	}
+	db = db_open(frame, db_path, 0,
+		     TDB_DEFAULT, O_RDONLY, 0600,
+		     DBWRAP_LOCK_ORDER_1, DBWRAP_FLAG_NONE);
+	if (db == NULL) {
+		fprintf(stderr, "db_open(%s) failed\n", db_path);
+		goto fail;
+	}
+
+	keystr = talloc_asprintf(frame, "%s%s", GROUP_PREFIX, group_sid_str);
+	if (keystr == NULL) {
+		fprintf(stderr, "talloc_asprintf failed\n");
+		goto fail;
+	}
+	ok = TDB_WIRE_FORMAT_CHECK(db, keystr, &rec, group_mapping_rec);
+	if (!ok) {
+		goto fail;
+	}
+	if ((rec.gid != group_map.gid) ||
+	    (rec.sid_name_use != group_map.sid_name_use) ||
+	    (strcmp(rec.nt_name, group_map.nt_name) != 0) ||
+	    (strcmp(rec.comment, group_map.comment) != 0))
+	{
+		fprintf(stderr, "%s: content mismatch\n", keystr);
+		goto fail;
+	}
+
+	keystr = talloc_asprintf(frame, "%s%s", GROUP_PREFIX, alias_sid_str);
+	if (keystr == NULL) {
+		fprintf(stderr, "talloc_asprintf failed\n");
+		goto fail;
+	}
+	ok = TDB_WIRE_FORMAT_CHECK(db, keystr, &rec, group_mapping_rec);
+	if (!ok) {
+		goto fail;
+	}
+	if ((rec.gid != alias_map.gid) ||
+	    (rec.sid_name_use != alias_map.sid_name_use) ||
+	    (strcmp(rec.nt_name, alias_map.nt_name) != 0) ||
+	    (strcmp(rec.comment, alias_map.comment) != 0))
+	{
+		fprintf(stderr, "%s: content mismatch\n", keystr);
+		goto fail;
+	}
+
+	keystr = talloc_asprintf(frame,
+				 "%s%s",
+				 MEMBEROF_PREFIX,
+				 member_sid_str);
+	if (keystr == NULL) {
+		fprintf(stderr, "talloc_asprintf failed\n");
+		goto fail;
+	}
+	ok = TDB_WIRE_FORMAT_CHECK(db,
+				   keystr,
+				   &memberof,
+				   group_mapping_memberof_rec);
+	if (!ok) {
+		goto fail;
+	}
+	if (strcmp(memberof.aliases, alias_sid_str) != 0) {
+		fprintf(stderr, "%s: %s expected %s\n",
+			keystr,
+			memberof.aliases,
+			alias_sid_str);
+		goto fail;
+	}
+
+	ret = true;
+fail:
+	if (member_added) {
+		pdb_del_aliasmem(&alias_sid, &member_sid);
+	}
+	if (alias_added) {
+		pdb_delete_group_mapping_entry(alias_sid);
+	}
+	if (group_added) {
+		pdb_delete_group_mapping_entry(group_sid);
+	}
+	TALLOC_FREE(frame);
 	return ret;
 }

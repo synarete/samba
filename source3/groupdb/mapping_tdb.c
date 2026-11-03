@@ -153,6 +153,12 @@ static bool add_mapping_entry(GROUP_MAP *map, int flag)
 		return false;
 	}
 
+	/*
+	 * The format is group_mapping_rec, see
+	 * source3/librpc/idl/group_mapping.idl, it must not
+	 * change as group_mapping.tdb is shared by all
+	 * nodes in a cluster.
+	 */
 	len = tdb_pack(NULL, 0, "ddff",
 		map->gid, map->sid_name_use, map->nt_name, map->comment);
 
