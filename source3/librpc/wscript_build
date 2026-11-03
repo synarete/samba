@@ -40,6 +40,10 @@ bld.SAMBA3_SUBSYSTEM("NDR_TDBSAM",
                      source='gen_ndr/ndr_tdbsam.c',
                      public_deps='ndr')
 
+bld.SAMBA3_SUBSYSTEM("NDR_GROUP_MAPPING",
+                     source='gen_ndr/ndr_group_mapping.c',
+                     public_deps='ndr')
+
 bld.SAMBA3_SUBSYSTEM('NDR_OPEN_FILES',
 	source='gen_ndr/ndr_open_files.c',
 	public_deps='ndr NDR_SERVER_ID NDR_FILE_ID NDR_SECURITY NDR_SMB2_LEASE_STRUCT'
@@ -71,6 +75,7 @@ bld.SAMBA3_SUBSYSTEM('NDR_CLUSTER_LEVEL',
 bld.SAMBA_NDR_ABI('cluster_level', deps='NDR_CLUSTER_LEVEL')
 bld.SAMBA_NDR_ABI('dbwrap_watch', deps='NDR_DBWRAP_WATCH')
 bld.SAMBA_NDR_ABI('g_lock', deps='NDR_G_LOCK')
+bld.SAMBA_NDR_ABI('group_mapping', deps='NDR_GROUP_MAPPING')
 bld.SAMBA_NDR_ABI('leases_db', deps='NDR_LEASES_DB')
 bld.SAMBA_NDR_ABI('netsamlogoncache', deps='NDR_NETSAMLOGONCACHE NDR_NETLOGON')
 bld.SAMBA_NDR_ABI('notifyd', deps='NDR_NOTIFYD')
