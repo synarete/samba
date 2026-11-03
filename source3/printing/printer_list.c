@@ -27,6 +27,13 @@
 #define PL_KEY_PREFIX "PRINTERLIST/PRN/"
 #define PL_KEY_FORMAT PL_KEY_PREFIX"%s"
 #define PL_TIMESTAMP_KEY "PRINTERLIST/GLOBAL/LAST_REFRESH"
+/*
+ * The formats are printer_list_printer_rec and
+ * printer_list_last_refresh_rec, see
+ * source3/librpc/idl/printer_list.idl, they must not
+ * change as printer_list.tdb is shared by all
+ * nodes in a cluster.
+ */
 #define PL_DATA_FORMAT "ddPPP"
 #define PL_TSTAMP_FORMAT "dd"
 
