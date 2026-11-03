@@ -77,6 +77,7 @@ bld.SAMBA3_BINARY('smbtorture' + bld.env.suffix3,
                       NDR_G_LOCK
                       NDR_DBWRAP_WATCH
                       NDR_REGDB
+                      NDR_TDBSAM
                       idmap
                       IDMAP_TDB_COMMON
                       libcli_lsa3

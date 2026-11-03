@@ -16440,6 +16440,10 @@ static struct {
 		.fn    = run_registry_wire_format,
 	},
 	{
+		.name  = "LOCAL-PASSDB-WIRE-FORMAT",
+		.fn    = run_passdb_wire_format,
+	},
+	{
 		.name  = "LOCAL-CANONICALIZE-PATH",
 		.fn    = run_local_canonicalize_path,
 	},

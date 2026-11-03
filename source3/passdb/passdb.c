@@ -951,6 +951,12 @@ done:
 #define SAMU_BUFFER_FORMAT_V3       "dddddddBBBBBBBBBBBBddBBBdwdBwwd"
 /* nothing changed between V3 and V4 */
 
+/*
+ * SAMU_BUFFER_FORMAT_V3 is tdbsam_user_v3, see
+ * source3/librpc/idl/tdbsam.idl, it must not change
+ * as passdb.tdb is shared by all nodes in a cluster.
+ */
+
 /*********************************************************************
 *********************************************************************/
 

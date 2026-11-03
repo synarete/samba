@@ -1,0 +1,103 @@
+#include "idl_types.h"
+
+/*
+ * The record formats of passdb.tdb used by
+ * source3/passdb/pdb_tdb.c (passdb backend = tdbsam)
+ *
+ * They are hand-marshalled with tdb_pack() (little endian),
+ * this describes them in order to protect them with [ndr_abi],
+ * the equivalence is verified by LOCAL-PASSDB-WIRE-FORMAT
+ * (source3/torture/test_tdb_wire_formats.c).
+ *
+ * passdb.tdb is a persistent database, which is shared
+ * by all nodes with clustering = yes.
+ */
+
+[
+	/*
+	 * The NDR wire format of all [public] types
+	 * and everything they use is protected by
+	 * source3/librpc/ABI/tdbsam.ndrabi,
+	 * see librpc/ndr/ndr_abi.h
+	 */
+	ndr_abi,
+	pointer_default(unique)
+]
+interface tdbsam
+{
+	/*
+	 * INFO/version, INFO/minor_version stored
+	 * with dbwrap_store_int32_bystring().
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		int32 version;
+	} tdbsam_version_rec;
+
+	/*
+	 * NEXT_RID stored with dbwrap_store_uint32_bystring().
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		uint32 rid;
+	} tdbsam_next_rid_rec;
+
+	/*
+	 * RID_%08x contains the (lower case) user name
+	 * of USER_<name>.
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		raw8string name;
+	} tdbsam_rid_rec;
+
+	/*
+	 * tdb_pack() format "B", strings include the
+	 * terminating nul byte, NULL strings have
+	 * a length of 0.
+	 */
+	typedef [flag(NDR_NOALIGN)] struct {
+		uint32 length;
+		uint8 data[length];
+	} tdbsam_blob;
+
+	/*
+	 * USER_<name> with the lower case user name,
+	 * init_buffer_from_samu() with SAMU_BUFFER_V4,
+	 * which uses SAMU_BUFFER_FORMAT_V3
+	 * "dddddddBBBBBBBBBBBBddBBBdwdBwwd".
+	 *
+	 * The older formats are only used to upgrade
+	 * old databases.
+	 */
+	typedef [public,flag(NDR_NOALIGN)] struct {
+		uint32 logon_time;
+		uint32 logoff_time;
+		uint32 kickoff_time;
+		uint32 bad_password_time;
+		uint32 pass_last_set_time;
+		uint32 pass_can_change_time;
+		uint32 pass_must_change_time;
+		tdbsam_blob username;
+		tdbsam_blob domain;
+		tdbsam_blob nt_username;
+		tdbsam_blob fullname;
+		tdbsam_blob homedir;
+		tdbsam_blob dir_drive;
+		tdbsam_blob logon_script;
+		tdbsam_blob profile_path;
+		tdbsam_blob acct_desc;
+		tdbsam_blob workstations;
+		tdbsam_blob comment;
+		tdbsam_blob munged_dial;
+		uint32 user_rid;
+		uint32 group_rid;
+		tdbsam_blob lm_pw;
+		tdbsam_blob nt_pw;
+		tdbsam_blob nt_pw_hist;
+		uint32 acct_ctrl;
+		uint16 logon_divs;
+		uint32 hours_len;
+		tdbsam_blob hours;
+		uint16 bad_password_count;
+		uint16 logon_count;
+		uint32 unknown_6;
+	} tdbsam_user_v3;
+}
