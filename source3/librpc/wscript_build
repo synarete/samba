@@ -32,6 +32,10 @@ bld.SAMBA3_SUBSYSTEM("NDR_DBWRAP_WATCH",
                      source='gen_ndr/ndr_dbwrap_watch.c',
                      public_deps='ndr NDR_SERVER_ID')
 
+bld.SAMBA3_SUBSYSTEM("NDR_REGDB",
+                     source='gen_ndr/ndr_regdb.c',
+                     public_deps='ndr')
+
 bld.SAMBA3_SUBSYSTEM('NDR_OPEN_FILES',
 	source='gen_ndr/ndr_open_files.c',
 	public_deps='ndr NDR_SERVER_ID NDR_FILE_ID NDR_SECURITY NDR_SMB2_LEASE_STRUCT'
@@ -68,6 +72,7 @@ bld.SAMBA_NDR_ABI('netsamlogoncache', deps='NDR_NETSAMLOGONCACHE NDR_NETLOGON')
 bld.SAMBA_NDR_ABI('notifyd', deps='NDR_NOTIFYD')
 bld.SAMBA_NDR_ABI('open_files', deps='NDR_OPEN_FILES')
 bld.SAMBA_NDR_ABI('ratelimit', deps='NDR_RATELIMIT')
+bld.SAMBA_NDR_ABI('regdb', deps='NDR_REGDB')
 bld.SAMBA_NDR_ABI('rpcd_witness', deps='NDR_RPCD_WITNESS')
 bld.SAMBA_NDR_ABI('secrets', deps='NDR_SECRETS')
 bld.SAMBA_NDR_ABI('smbXsrv', deps='NDR_SMBXSRV')
