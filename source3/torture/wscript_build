@@ -80,8 +80,10 @@ bld.SAMBA3_BINARY('smbtorture' + bld.env.suffix3,
                       NDR_TDBSAM
                       NDR_GROUP_MAPPING
                       NDR_ACCOUNT_POLICY
+                      NDR_IDMAP_TDB
                       idmap
                       IDMAP_TDB_COMMON
+                      IDMAP_AUTORID_TDB
                       libcli_lsa3
                       samba-cluster-support
                       util_sd
