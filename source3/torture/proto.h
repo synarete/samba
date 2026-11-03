@@ -199,6 +199,7 @@ bool run_passdb_wire_format(int dummy);
 bool run_group_mapping_wire_format(int dummy);
 bool run_account_policy_wire_format(int dummy);
 bool run_idmap_wire_format(int dummy);
+bool run_printer_list_wire_format(int dummy);
 bool run_local_namemap_cache1(int dummy);
 bool run_local_idmap_cache1(int dummy);
 bool run_hidenewfiles(int dummy);
