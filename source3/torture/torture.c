@@ -16452,6 +16452,10 @@ static struct {
 		.fn    = run_account_policy_wire_format,
 	},
 	{
+		.name  = "LOCAL-IDMAP-WIRE-FORMAT",
+		.fn    = run_idmap_wire_format,
+	},
+	{
 		.name  = "LOCAL-CANONICALIZE-PATH",
 		.fn    = run_local_canonicalize_path,
 	},
