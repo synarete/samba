@@ -16444,6 +16444,10 @@ static struct {
 		.fn    = run_passdb_wire_format,
 	},
 	{
+		.name  = "LOCAL-GROUP-MAPPING-WIRE-FORMAT",
+		.fn    = run_group_mapping_wire_format,
+	},
+	{
 		.name  = "LOCAL-CANONICALIZE-PATH",
 		.fn    = run_local_canonicalize_path,
 	},
