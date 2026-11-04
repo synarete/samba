@@ -22,6 +22,20 @@
 
 #include <tdb.h>
 
+/*
+ * The wire format of the ctdb protocol is used between
+ * the nodes of a cluster, which may run different versions
+ * during an upgrade, and between ctdbd and its clients.
+ *
+ * It's protected by ctdb/protocol/ABI/ctdb_protocol.ndrabi,
+ * see ctdb/tests/src/protocol_abi.c and librpc/ndr/ndr_abi.h.
+ *
+ * Existing packets, controls, messages and structures
+ * must not change, new ones can be added, but need
+ * to be gated by the cluster functional level before
+ * they can be sent to other nodes.
+ */
+
 #define CTDB_PORT 4379
 
 #define CTDB_MAGIC	0x43544442 /* CTDB */
