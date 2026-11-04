@@ -120,6 +120,8 @@ extern uint8_t BUFFER[1024*1024];
 
 void protocol_test_srandom(uint64_t seed);
 int rand_int(int max);
+void protocol_test_set_max_count(int max_count);
+int rand_count(int max);
 uint8_t rand8(void);
 uint16_t rand16(void);
 int32_t rand32i(void);
