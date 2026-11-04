@@ -98,6 +98,13 @@ MonitorInterval=20
 	CTDB 4.5.x and CTDB 4.6.y do not match.
       </para>
       <para>
+	Starting with CTDB 4.25 the protocols and formats shared
+	between the nodes are protected by cluster functional levels,
+	so all versions starting with 4.25 are allowed to run
+	concurrently in the same cluster, without setting this tunable.
+	Older versions are still rejected.
+      </para>
+      <para>
 	CTDB with version check support will lose to CTDB without
 	version check support.	Between two different CTDB versions with
 	version check support, one running for less time will lose.
