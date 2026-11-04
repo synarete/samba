@@ -38,22 +38,34 @@ d="$CTDB_TEST_HELPER_BINDIR"
 try_command_on_node "$test_node" "${d}/ctdb-path" "pidfile" "ctdbd"
 pidfile="$out"
 
-# Changed major version - this should fail
+# Versions starting with 4.25 support cluster functional levels,
+# which protect against incompatible versions, so the version check
+# only rejects versions before 4.25.
+
+# Changed major version - this should work
 export CTDB_TEST_SAMBA_VERSION=$((((major + 1) << 16) | minor))
 printf '\nRestarting node %d with CTDB_TEST_SAMBA_VERSION=0x%08x\n' \
 	"$test_node" \
 	"$CTDB_TEST_SAMBA_VERSION"
 ctdb_nodes_restart "$test_node"
-echo "Will use PID file ${pidfile} to check for ctdbd exit"
-wait_until 30 ! test -f "$pidfile"
-echo "GOOD: ctdbd exited early on node ${test_node}"
+wait_until_ready
+echo "GOOD: ctdbd restarted successfully on node ${test_node}"
 
-# Changed minor version - this should fail
+# Changed minor version - this should work
 export CTDB_TEST_SAMBA_VERSION=$(((major << 16) | (minor + 1)))
 printf '\nRestarting node %d with CTDB_TEST_SAMBA_VERSION=0x%08x\n' \
 	"$test_node" \
 	"$CTDB_TEST_SAMBA_VERSION"
-ctdb_nodes_start "$test_node"
+ctdb_nodes_restart "$test_node"
+wait_until_ready
+echo "GOOD: ctdbd restarted successfully on node ${test_node}"
+
+# Version without cluster functional levels (4.24) - this should fail
+export CTDB_TEST_SAMBA_VERSION=$(((4 << 16) | 24))
+printf '\nRestarting node %d with CTDB_TEST_SAMBA_VERSION=0x%08x\n' \
+	"$test_node" \
+	"$CTDB_TEST_SAMBA_VERSION"
+ctdb_nodes_restart "$test_node"
 echo "Will use PID file ${pidfile} to check for ctdbd exit"
 wait_until 30 ! test -f "$pidfile"
 echo "GOOD: ctdbd exited early on node ${test_node}"
