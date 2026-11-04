@@ -1092,6 +1092,14 @@ def build(bld):
                                  samba-util talloc tdb''',
                          install_path='${CTDB_TEST_LIBEXECDIR}')
 
+    # The wire format of the ctdb protocol, see
+    # ctdb/tests/src/protocol_abi.c
+    bld.SAMBA_BINARY('ctdb_protocol_abi',
+                     source='tests/src/protocol_abi.c',
+                     deps='''ctdb-protocol-tests-common
+                             ctdb-util samba-util talloc tdb''',
+                     install=False)
+
     bld.SAMBA_BINARY('event_protocol_test',
                      source='event/event_protocol_test.c',
                      deps='''ctdb-protocol-tests-basic
