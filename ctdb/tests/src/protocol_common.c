@@ -29,7 +29,7 @@
 
 void fill_tdb_data_nonnull(TALLOC_CTX *mem_ctx, TDB_DATA *p)
 {
-	p->dsize = rand_int(1024) + 1;
+	p->dsize = rand_count(1024) + 1;
 	p->dptr = talloc_array(mem_ctx, uint8_t, p->dsize);
 	assert(p->dptr != NULL);
 	fill_buffer(p->dptr, p->dsize);
@@ -224,7 +224,7 @@ void fill_ctdb_vnn_map(TALLOC_CTX *mem_ctx, struct ctdb_vnn_map *p)
 	unsigned int i;
 
 	p->generation = rand32();
-	p->size = rand_int(20);
+	p->size = rand_count(20);
 	if (p->size > 0) {
 		p->map = talloc_array(mem_ctx, uint32_t, p->size);
 		assert(p->map != NULL);
@@ -264,7 +264,7 @@ void fill_ctdb_dbid_map(TALLOC_CTX *mem_ctx, struct ctdb_dbid_map *p)
 {
 	unsigned int i;
 
-	p->num = rand_int(40);
+	p->num = rand_count(40);
 	if (p->num > 0) {
 		p->dbs = talloc_zero_array(mem_ctx, struct ctdb_dbid, p->num);
 		assert(p->dbs != NULL);
@@ -397,7 +397,7 @@ void fill_ctdb_rec_buffer(TALLOC_CTX *mem_ctx, struct ctdb_rec_buffer *p)
 	p->buf = NULL;
 	p->buflen = 0;
 
-	count = rand_int(100);
+	count = rand_count(100);
 	if (count > 0) {
 		for (i=0; i<count; i++) {
 			fill_ctdb_rec_data(mem_ctx, &rec);
@@ -542,7 +542,7 @@ void fill_ctdb_connection_list(TALLOC_CTX *mem_ctx,
 {
 	uint32_t i;
 
-	p->num = rand_int(1000);
+	p->num = rand_count(1000);
 	if (p->num > 0) {
 		p->conn = talloc_array(mem_ctx, struct ctdb_connection, p->num);
 		assert(p->conn != NULL);
@@ -597,7 +597,7 @@ void fill_ctdb_var_list(TALLOC_CTX *mem_ctx, struct ctdb_var_list *p)
 {
 	int i;
 
-	p->count = rand_int(100) + 1;
+	p->count = rand_count(100) + 1;
 	p->var = talloc_array(mem_ctx, const char *, p->count);
 	for (i=0; i<p->count; i++) {
 		fill_ctdb_string(p->var, &p->var[i]);
@@ -752,7 +752,7 @@ void fill_ctdb_tickle_list(TALLOC_CTX *mem_ctx, struct ctdb_tickle_list *p)
 	unsigned int i;
 
 	fill_ctdb_sock_addr(mem_ctx, &p->addr);
-	p->num = rand_int(1000);
+	p->num = rand_count(1000);
 	if (p->num > 0) {
 		p->conn = talloc_array(mem_ctx, struct ctdb_connection, p->num);
 		assert(p->conn != NULL);
@@ -843,7 +843,7 @@ void fill_ctdb_public_ip_list(TALLOC_CTX *mem_ctx,
 {
 	unsigned int i;
 
-	p->num = rand_int(32);
+	p->num = rand_count(32);
 	if (p->num > 0) {
 		p->ip = talloc_array(mem_ctx, struct ctdb_public_ip, p->num);
 		assert(p->ip != NULL);
@@ -886,7 +886,7 @@ void fill_ctdb_node_map(TALLOC_CTX *mem_ctx, struct ctdb_node_map *p)
 {
 	unsigned int i;
 
-	p->num = rand_int(32);
+	p->num = rand_count(32);
 	if (p->num > 0) {
 		p->node = talloc_array(mem_ctx, struct ctdb_node_and_flags,
 				       p->num);
@@ -931,7 +931,7 @@ void fill_ctdb_script_list(TALLOC_CTX *mem_ctx, struct ctdb_script_list *p)
 {
 	unsigned int i;
 
-	p->num_scripts = rand_int(32);
+	p->num_scripts = rand_count(32);
 	if (p->num_scripts > 0) {
 		p->script = talloc_zero_array(mem_ctx, struct ctdb_script,
 					      p->num_scripts);
@@ -999,7 +999,7 @@ void fill_ctdb_iface_list(TALLOC_CTX *mem_ctx, struct ctdb_iface_list *p)
 {
 	unsigned int i;
 
-	p->num = rand_int(32);
+	p->num = rand_count(32);
 	if (p->num > 0) {
 		p->iface = talloc_array(mem_ctx, struct ctdb_iface, p->num);
 		assert(p->iface != NULL);
@@ -1045,7 +1045,7 @@ void fill_ctdb_statistics_list(TALLOC_CTX *mem_ctx,
 {
 	int i;
 
-	p->num = rand_int(10);
+	p->num = rand_count(10);
 	if (p->num > 0) {
 		p->stats = talloc_zero_array(mem_ctx, struct ctdb_statistics,
 					     p->num);
@@ -1236,7 +1236,7 @@ void fill_ctdb_g_lock_list(TALLOC_CTX *mem_ctx, struct ctdb_g_lock_list *p)
 {
 	unsigned int i;
 
-	p->num = rand_int(20) + 1;
+	p->num = rand_count(20) + 1;
 	p->lock = talloc_zero_array(mem_ctx, struct ctdb_g_lock, p->num);
 	assert(p->lock != NULL);
 	for (i=0; i<p->num; i++) {
