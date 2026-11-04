@@ -1842,6 +1842,7 @@ static void smbd_parent_sig_hup_handler(struct tevent_context *ev,
 
 struct smbd_claim_version_state {
 	TALLOC_CTX *mem_ctx;
+	size_t num_shared;
 	char *version;
 };
 
@@ -1853,6 +1854,8 @@ static void smbd_claim_version_parser(struct server_id exclusive,
 				      void *private_data)
 {
 	struct smbd_claim_version_state *state = private_data;
+
+	state->num_shared = num_shared;
 
 	if (datalen == 0) {
 		state->version = NULL;
@@ -1868,8 +1871,45 @@ static void smbd_claim_version_parser(struct server_id exclusive,
 }
 
 /*
+ * Samba 4.25 introduced the cluster functional levels,
+ * all formats shared between the nodes of a cluster are
+ * either stable or are only changed after all nodes
+ * support (and activated) a new cluster level,
+ * see cluster_level_db_check() in source3/lib/cluster_level_db.c
+ * which refuses to connect to ctdb if the active cluster
+ * level is not supported.
+ *
+ * So all versions starting with 4.25 can run
+ * concurrently in the same cluster.
+ */
+static bool smbd_version_has_cluster_level(const char *version)
+{
+	unsigned int major = 0;
+	unsigned int minor = 0;
+	int ret;
+
+	ret = sscanf(version, "%u.%u", &major, &minor);
+	if (ret != 2) {
+		return false;
+	}
+
+	if (major > 4) {
+		return true;
+	}
+	if (major < 4) {
+		return false;
+	}
+
+	return minor >= 25;
+}
+
+/*
  * With clustering = yes all nodes need to run the same version,
  * unless allow unsafe cluster upgrade = yes is used.
+ *
+ * Versions supporting cluster functional levels
+ * (see smbd_version_has_cluster_level()) are allowed
+ * to run concurrently.
  *
  * The g_lock.tdb record "samba_version_string" (including the
  * terminating nul byte) holds the version as nul-terminated
@@ -1922,6 +1962,26 @@ static NTSTATUS smbd_claim_version(struct messaging_context *msg,
 		 * Leave the read lock for us around. Someone else already
 		 * set the version correctly
 		 */
+		TALLOC_FREE(ctx);
+		return NT_STATUS_OK;
+	}
+
+	if ((state.version != NULL) &&
+	    (state.num_shared > 1) &&
+	    smbd_version_has_cluster_level(version) &&
+	    smbd_version_has_cluster_level(state.version)) {
+		/*
+		 * Other nodes are running, leave the read lock
+		 * for us around, but don't change the version
+		 * string, as nodes with older versions may
+		 * require an exact match.
+		 *
+		 * The cluster functional level protects us
+		 * against incompatible formats.
+		 */
+		DBG_NOTICE("smbd %s already running, starting "
+			   "version %s using cluster functional levels\n",
+			   state.version, version);
 		TALLOC_FREE(ctx);
 		return NT_STATUS_OK;
 	}
