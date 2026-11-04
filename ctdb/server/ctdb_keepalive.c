@@ -186,6 +186,21 @@ void ctdb_stop_keepalive(struct ctdb_context *ctdb)
 	ctdb->keepalive_ctx = NULL;
 }
 
+/*
+ * Samba 4.25 introduced the cluster functional levels,
+ * all formats and protocols shared between the nodes
+ * of a cluster are either stable or are only changed
+ * after all nodes support (and activated) a new
+ * cluster level.
+ *
+ * So all versions starting with 4.25 can run
+ * concurrently in the same cluster.
+ */
+static bool keepalive_version_has_cluster_level(uint32_t version)
+{
+	return version >= ((4 << 16) | 25);
+}
+
 void ctdb_request_keepalive(struct ctdb_context *ctdb,
 			    struct ctdb_req_header *hdr)
 {
@@ -205,6 +220,14 @@ void ctdb_request_keepalive(struct ctdb_context *ctdb,
 	}
 
 	if (c->version != my_version) {
+		if (keepalive_version_has_cluster_level(my_version) &&
+		    keepalive_version_has_cluster_level(c->version)) {
+			/*
+			 * The cluster functional level protects
+			 * against incompatible versions.
+			 */
+			return;
+		}
 		if (c->uptime > my_uptime) {
 			goto fail2;
 		} else if (c->uptime == my_uptime) {
