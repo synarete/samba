@@ -71,6 +71,25 @@ int rand_int(int max)
 	return protocol_test_random() % max;
 }
 
+/*
+ * The number of elements in arrays or the size of buffers,
+ * this can be limited in order to generate small samples.
+ */
+static int protocol_test_max_count;
+
+void protocol_test_set_max_count(int max_count)
+{
+	protocol_test_max_count = max_count;
+}
+
+int rand_count(int max)
+{
+	if (protocol_test_max_count > 0 && max > protocol_test_max_count) {
+		max = protocol_test_max_count;
+	}
+	return rand_int(max);
+}
+
 uint8_t rand8(void)
 {
 	uint8_t val = rand_int(256) & 0xff;
@@ -217,7 +236,7 @@ void fill_ctdb_string(TALLOC_CTX *mem_ctx, const char **p)
 	char *str;
 	int len;
 
-	len = rand_int(1024) + 2;
+	len = rand_count(1024) + 2;
 	str = talloc_size(mem_ctx, len+1);
 	assert(str != NULL);
 
