@@ -11,6 +11,14 @@
 	parameter to <value type="example">yes</value> disables this
 	safety check.
 	</para>
+
+	<para>Starting with Samba 4.25 the formats shared between the
+	nodes are protected by cluster functional levels, so all
+	versions starting with 4.25 are allowed to run concurrently
+	in the same cluster, even with
+	<smbconfoption name="allow unsafe cluster upgrade">no</smbconfoption>.
+	Older versions are still refused.
+	</para>
 </description>
 <value type="default">no</value>
 </samba:parameter>
