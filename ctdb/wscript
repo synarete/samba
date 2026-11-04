@@ -1100,6 +1100,15 @@ def build(bld):
                              ctdb-util samba-util talloc tdb''',
                      install=False)
 
+    # The ctdb protocol uses the host byte order and
+    # the alignment depends on the size of pointers
+    # (see ctdb_padding_push()), so the ABI file is only
+    # valid on 64-bit little endian hosts.
+    if (bld.CONFIG_SET('HAVE_LITTLE_ENDIAN') and
+            str(bld.CONFIG_GET('SIZEOF_VOID_P')) == '8'):
+        bld.SAMBA_NDR_ABI_CHECK('ctdb_protocol_abi',
+                                'protocol/ABI/ctdb_protocol.ndrabi')
+
     bld.SAMBA_BINARY('event_protocol_test',
                      source='event/event_protocol_test.c',
                      deps='''ctdb-protocol-tests-basic
