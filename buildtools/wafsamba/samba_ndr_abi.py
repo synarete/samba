@@ -131,10 +131,33 @@ def ndr_abi_check_task(self):
         libpath.append(env['LD_LIBRARY_PATH'])
     env['LD_LIBRARY_PATH'] = ':'.join(libpath)
 
-    try:
-        new_txt = samba_utils.get_string(Utils.cmd_output([binpath], env=env))
-    except Exception as e:
-        raise Errors.WafError('%s failed: %s' % (binpath, e))
+    # The output must not depend on uninitialized memory
+    # (e.g. padding bytes), so we run the binary twice with
+    # different fill patterns for freed (talloc) and
+    # allocated (glibc malloc) memory. The binary can also
+    # use TALLOC_FREE_FILL to initialize its own buffers.
+    outputs = []
+    for fill in [0xa5, 0x5a]:
+        env['TALLOC_FREE_FILL'] = '0x%02x' % fill
+        env['MALLOC_PERTURB_'] = '%u' % fill
+        try:
+            outputs.append(samba_utils.get_string(
+                Utils.cmd_output([binpath], env=env)))
+        except Exception as e:
+            raise Errors.WafError('%s failed: %s' % (binpath, e))
+    new_txt = outputs[0]
+    if outputs[1] != new_txt:
+        lines0 = outputs[0].splitlines()
+        lines1 = outputs[1].splitlines()
+        i = 0
+        while i < min(len(lines0), len(lines1)) and lines0[i] == lines1[i]:
+            i += 1
+        raise Errors.WafError(
+            'The output of %s depends on uninitialized memory!\n'
+            'First difference in line %u:\n\t%s\n\t%s' % (
+                binpath, i + 1,
+                lines0[i] if i < len(lines0) else '<EOF>',
+                lines1[i] if i < len(lines1) else '<EOF>'))
 
     new_roots, new_types, new_samples = ndr_abi_parse(new_txt)
 
