@@ -1,0 +1,4936 @@
+# ctdb wire format ABI
+#
+# This is the output of ctdb_protocol_abi
+# (ctdb/tests/src/protocol_abi.c), see librpc/ndr/ndr_abi.h.
+#
+# Lines starting with '#' and everything after '\t#'
+# are comments, they are not compared.
+
+root ctdb_req_header
+root ctdb_req_call
+root ctdb_reply_call
+root ctdb_reply_error
+root ctdb_req_dmaster
+root ctdb_reply_dmaster
+root ctdb_req_control
+root ctdb_reply_control
+root ctdb_req_message
+root ctdb_req_message_data
+root ctdb_req_keepalive
+root ctdb_req_tunnel
+
+enum ctdb_constants {
+	CTDB_MAGIC = 0x43544442
+	CTDB_PROTOCOL = 1
+	CTDB_DS_ALIGNMENT = 8
+}
+
+enum ctdb_operation {
+	CTDB_REQ_CALL = 0
+	CTDB_REPLY_CALL = 1
+	CTDB_REQ_DMASTER = 2
+	CTDB_REPLY_DMASTER = 3
+	CTDB_REPLY_ERROR = 4
+	CTDB_REQ_MESSAGE = 5
+	CTDB_REQ_CONTROL = 7
+	CTDB_REPLY_CONTROL = 8
+	CTDB_REQ_KEEPALIVE = 9
+	CTDB_REQ_TUNNEL = 10
+}
+
+enum ctdb_controls {
+	CTDB_CONTROL_PROCESS_EXISTS = 0
+	CTDB_CONTROL_STATISTICS = 1
+	CTDB_CONTROL_PING = 3
+	CTDB_CONTROL_GETDBPATH = 4
+	CTDB_CONTROL_GETVNNMAP = 5
+	CTDB_CONTROL_SETVNNMAP = 6
+	CTDB_CONTROL_GET_DEBUG = 7
+	CTDB_CONTROL_SET_DEBUG = 8
+	CTDB_CONTROL_GET_DBMAP = 9
+	CTDB_CONTROL_GET_NODEMAPv4 = 10
+	CTDB_CONTROL_SET_DMASTER = 11
+	CTDB_CONTROL_GET_RECMODE = 15
+	CTDB_CONTROL_SET_RECMODE = 16
+	CTDB_CONTROL_STATISTICS_RESET = 17
+	CTDB_CONTROL_DB_ATTACH = 18
+	CTDB_CONTROL_SET_CALL = 19
+	CTDB_CONTROL_TRAVERSE_START = 20
+	CTDB_CONTROL_TRAVERSE_ALL = 21
+	CTDB_CONTROL_TRAVERSE_DATA = 22
+	CTDB_CONTROL_REGISTER_SRVID = 23
+	CTDB_CONTROL_DEREGISTER_SRVID = 24
+	CTDB_CONTROL_GET_DBNAME = 25
+	CTDB_CONTROL_ENABLE_SEQNUM = 26
+	CTDB_CONTROL_UPDATE_SEQNUM = 27
+	CTDB_CONTROL_DUMP_MEMORY = 29
+	CTDB_CONTROL_GET_PID = 30
+	CTDB_CONTROL_GET_RECMASTER = 31
+	CTDB_CONTROL_SET_RECMASTER = 32
+	CTDB_CONTROL_FREEZE = 33
+	CTDB_CONTROL_THAW = 34
+	CTDB_CONTROL_GET_PNN = 35
+	CTDB_CONTROL_SHUTDOWN = 36
+	CTDB_CONTROL_GET_MONMODE = 37
+	CTDB_CONTROL_TAKEOVER_IPv4 = 42
+	CTDB_CONTROL_RELEASE_IPv4 = 43
+	CTDB_CONTROL_TCP_CLIENT = 44
+	CTDB_CONTROL_TCP_ADD = 45
+	CTDB_CONTROL_TCP_REMOVE = 46
+	CTDB_CONTROL_STARTUP = 47
+	CTDB_CONTROL_SET_TUNABLE = 48
+	CTDB_CONTROL_GET_TUNABLE = 49
+	CTDB_CONTROL_LIST_TUNABLES = 50
+	CTDB_CONTROL_GET_PUBLIC_IPSv4 = 51
+	CTDB_CONTROL_MODIFY_FLAGS = 52
+	CTDB_CONTROL_GET_ALL_TUNABLES = 53
+	CTDB_CONTROL_KILL_TCP = 54
+	CTDB_CONTROL_GET_TCP_TICKLE_LIST = 55
+	CTDB_CONTROL_SET_TCP_TICKLE_LIST = 56
+	CTDB_CONTROL_REGISTER_SERVER_ID = 57
+	CTDB_CONTROL_UNREGISTER_SERVER_ID = 58
+	CTDB_CONTROL_CHECK_SERVER_ID = 59
+	CTDB_CONTROL_GET_SERVER_ID_LIST = 60
+	CTDB_CONTROL_DB_ATTACH_PERSISTENT = 61
+	CTDB_CONTROL_PERSISTENT_STORE = 62
+	CTDB_CONTROL_UPDATE_RECORD = 63
+	CTDB_CONTROL_SEND_GRATUITOUS_ARP = 64
+	CTDB_CONTROL_TRANSACTION_START = 65
+	CTDB_CONTROL_TRANSACTION_COMMIT = 66
+	CTDB_CONTROL_WIPE_DATABASE = 67
+	CTDB_CONTROL_UPTIME = 69
+	CTDB_CONTROL_START_RECOVERY = 70
+	CTDB_CONTROL_END_RECOVERY = 71
+	CTDB_CONTROL_RELOAD_NODES_FILE = 72
+	CTDB_CONTROL_TRY_DELETE_RECORDS = 74
+	CTDB_CONTROL_ENABLE_MONITOR = 75
+	CTDB_CONTROL_DISABLE_MONITOR = 76
+	CTDB_CONTROL_ADD_PUBLIC_IP = 77
+	CTDB_CONTROL_DEL_PUBLIC_IP = 78
+	CTDB_CONTROL_RUN_EVENTSCRIPTS = 79
+	CTDB_CONTROL_GET_CAPABILITIES = 80
+	CTDB_CONTROL_START_PERSISTENT_UPDATE = 81
+	CTDB_CONTROL_CANCEL_PERSISTENT_UPDATE = 82
+	CTDB_CONTROL_TRANS2_COMMIT = 83
+	CTDB_CONTROL_TRANS2_FINISHED = 84
+	CTDB_CONTROL_TRANS2_ERROR = 85
+	CTDB_CONTROL_TRANS2_COMMIT_RETRY = 86
+	CTDB_CONTROL_RECD_PING = 87
+	CTDB_CONTROL_RELEASE_IP = 88
+	CTDB_CONTROL_TAKEOVER_IP = 89
+	CTDB_CONTROL_GET_PUBLIC_IPS = 90
+	CTDB_CONTROL_GET_NODEMAP = 91
+	CTDB_CONTROL_GET_EVENT_SCRIPT_STATUS = 96
+	CTDB_CONTROL_TRAVERSE_KILL = 97
+	CTDB_CONTROL_RECD_RECLOCK_LATENCY = 98
+	CTDB_CONTROL_GET_RECLOCK_FILE = 99
+	CTDB_CONTROL_STOP_NODE = 101
+	CTDB_CONTROL_CONTINUE_NODE = 102
+	CTDB_CONTROL_SET_NATGWSTATE = 103
+	CTDB_CONTROL_SET_LMASTERROLE = 104
+	CTDB_CONTROL_SET_RECMASTERROLE = 105
+	CTDB_CONTROL_ENABLE_SCRIPT = 107
+	CTDB_CONTROL_DISABLE_SCRIPT = 108
+	CTDB_CONTROL_SET_BAN_STATE = 109
+	CTDB_CONTROL_GET_BAN_STATE = 110
+	CTDB_CONTROL_SET_DB_PRIORITY = 111
+	CTDB_CONTROL_GET_DB_PRIORITY = 112
+	CTDB_CONTROL_TRANSACTION_CANCEL = 113
+	CTDB_CONTROL_REGISTER_NOTIFY = 114
+	CTDB_CONTROL_DEREGISTER_NOTIFY = 115
+	CTDB_CONTROL_TRANS2_ACTIVE = 116
+	CTDB_CONTROL_GET_LOG = 117
+	CTDB_CONTROL_CLEAR_LOG = 118
+	CTDB_CONTROL_TRANS3_COMMIT = 119
+	CTDB_CONTROL_GET_DB_SEQNUM = 120
+	CTDB_CONTROL_DB_SET_HEALTHY = 121
+	CTDB_CONTROL_DB_GET_HEALTH = 122
+	CTDB_CONTROL_GET_PUBLIC_IP_INFO = 123
+	CTDB_CONTROL_GET_IFACES = 124
+	CTDB_CONTROL_SET_IFACE_LINK_STATE = 125
+	CTDB_CONTROL_TCP_ADD_DELAYED_UPDATE = 126
+	CTDB_CONTROL_GET_STAT_HISTORY = 127
+	CTDB_CONTROL_SCHEDULE_FOR_DELETION = 128
+	CTDB_CONTROL_SET_DB_READONLY = 129
+	CTDB_CONTROL_CHECK_SRVIDS = 130
+	CTDB_CONTROL_TRAVERSE_START_EXT = 131
+	CTDB_CONTROL_GET_DB_STATISTICS = 132
+	CTDB_CONTROL_SET_DB_STICKY = 133
+	CTDB_CONTROL_RELOAD_PUBLIC_IPS = 134
+	CTDB_CONTROL_TRAVERSE_ALL_EXT = 135
+	CTDB_CONTROL_RECEIVE_RECORDS = 136
+	CTDB_CONTROL_IPREALLOCATED = 137
+	CTDB_CONTROL_GET_RUNSTATE = 138
+	CTDB_CONTROL_DB_DETACH = 139
+	CTDB_CONTROL_GET_NODES_FILE = 140
+	CTDB_CONTROL_DB_FREEZE = 141
+	CTDB_CONTROL_DB_THAW = 142
+	CTDB_CONTROL_DB_TRANSACTION_START = 143
+	CTDB_CONTROL_DB_TRANSACTION_COMMIT = 144
+	CTDB_CONTROL_DB_TRANSACTION_CANCEL = 145
+	CTDB_CONTROL_DB_PULL = 146
+	CTDB_CONTROL_DB_PUSH_START = 147
+	CTDB_CONTROL_DB_PUSH_CONFIRM = 148
+	CTDB_CONTROL_DB_OPEN_FLAGS = 149
+	CTDB_CONTROL_DB_ATTACH_REPLICATED = 150
+	CTDB_CONTROL_CHECK_PID_SRVID = 151
+	CTDB_CONTROL_TUNNEL_REGISTER = 152
+	CTDB_CONTROL_TUNNEL_DEREGISTER = 153
+	CTDB_CONTROL_VACUUM_FETCH = 154
+	CTDB_CONTROL_DB_VACUUM = 155
+	CTDB_CONTROL_ECHO_DATA = 156
+	CTDB_CONTROL_DISABLE_NODE = 157
+	CTDB_CONTROL_ENABLE_NODE = 158
+	CTDB_CONTROL_TCP_CLIENT_DISCONNECTED = 159
+	CTDB_CONTROL_TCP_CLIENT_PASSED = 160
+	CTDB_CONTROL_START_IPREALLOCATE = 161
+	CTDB_CONTROL_PUSH_RECORD = 162
+	CTDB_CONTROL_PUSH_RECORD_STORE = 163
+}
+
+enum ctdb_srvid {
+	CTDB_SRVID_ALL = 0xffffffffffffffff
+	CTDB_SRVID_RECOVERY = 0xf001000000000000
+	CTDB_SRVID_BANNING = 0xf002000000000000
+	CTDB_SRVID_ELECTION = 0xf100000000000000
+	CTDB_SRVID_LEADER = 0xf101000000000000
+	CTDB_SRVID_RECONFIGURE = 0xf200000000000000
+	CTDB_SRVID_RELEASE_IP = 0xf300000000000000
+	CTDB_SRVID_TAKE_IP = 0xf301000000000000
+	CTDB_SRVID_IPREALLOCATED = 0xf302000000000000
+	CTDB_SRVID_START_IPREALLOCATE = 0xf303000000000000
+	CTDB_SRVID_SET_NODE_FLAGS = 0xf400000000000000
+	CTDB_SRVID_RECD_UPDATE_IP = 0xf500000000000000
+	CTDB_SRVID_VACUUM_FETCH = 0xf700000000000000
+	CTDB_SRVID_DETACH_DATABASE = 0xf701000000000000
+	CTDB_SRVID_MEM_DUMP = 0xf800000000000000
+	CTDB_SRVID_GETLOG = 0xf801000000000000
+	CTDB_SRVID_CLEARLOG = 0xf802000000000000
+	CTDB_SRVID_PUSH_NODE_FLAGS = 0xf900000000000000
+	CTDB_SRVID_RELOAD_NODES = 0xfa00000000000000
+	CTDB_SRVID_TAKEOVER_RUN = 0xfb00000000000000
+	CTDB_SRVID_REBALANCE_NODE = 0xfb01000000000000
+	CTDB_SRVID_DISABLE_TAKEOVER_RUNS = 0xfb03000000000000
+	CTDB_SRVID_DISABLE_RECOVERIES = 0xfb04000000000000
+	CTDB_SRVID_DISABLE_IP_CHECK = 0xfc00000000000000
+	CTDB_SRVID_PID_RANGE = 0x0000000000000000
+	CTDB_SRVID_SAMBA_NOTIFY = 0xfe00000000000000
+	CTDB_SRVID_SAMBA_RANGE = 0xfe00000000000000
+	CTDB_SRVID_NFSD_RANGE = 0xee00000000000000
+	CTDB_SRVID_ISCSID_RANGE = 0xde00000000000000
+	CTDB_SRVID_TOOL_RANGE = 0xce00000000000000
+	CTDB_SRVID_CLIENT_RANGE = 0xbe00000000000000
+	CTDB_SRVID_TEST_RANGE = 0xae00000000000000
+	CTDB_SRVID_SERVER_RANGE = 0x9e00000000000000
+}
+
+struct ctdb_tunable_list {
+	scalar:uint32 <obsolete>
+	scalar:uint32 SeqnumInterval
+	scalar:uint32 ControlTimeout
+	scalar:uint32 TraverseTimeout
+	scalar:uint32 KeepaliveInterval
+	scalar:uint32 KeepaliveLimit
+	scalar:uint32 RecoverTimeout
+	scalar:uint32 RecoverInterval
+	scalar:uint32 ElectionTimeout
+	scalar:uint32 TakeoverTimeout
+	scalar:uint32 MonitorInterval
+	scalar:uint32 TickleUpdateInterval
+	scalar:uint32 EventScriptTimeout
+	scalar:uint32 MonitorTimeoutCount
+	scalar:uint32 <obsolete>
+	scalar:uint32 RecoveryGracePeriod
+	scalar:uint32 RecoveryBanPeriod
+	scalar:uint32 DatabaseHashSize
+	scalar:uint32 DatabaseMaxDead
+	scalar:uint32 RerecoveryTimeout
+	scalar:uint32 EnableBans
+	scalar:uint32 <obsolete>
+	scalar:uint32 <obsolete>
+	scalar:uint32 NoIPFailback
+	scalar:uint32 <obsolete>
+	scalar:uint32 VerboseMemoryNames
+	scalar:uint32 RecdPingTimeout
+	scalar:uint32 RecdFailCount
+	scalar:uint32 LogLatencyMs
+	scalar:uint32 RecLockLatencyMs
+	scalar:uint32 RecoveryDropAllIPs
+	scalar:uint32 <obsolete>
+	scalar:uint32 VacuumInterval
+	scalar:uint32 VacuumMaxRunTime
+	scalar:uint32 RepackLimit
+	scalar:uint32 <obsolete>
+	scalar:uint32 MaxQueueDropMsg
+	scalar:uint32 AllowUnhealthyDBRead
+	scalar:uint32 StatHistoryInterval
+	scalar:uint32 DeferredAttachTO
+	scalar:uint32 VacuumFastPathCount
+	scalar:uint32 <obsolete>
+	scalar:uint32 AllowClientDBAttach
+	scalar:uint32 <obsolete>
+	scalar:uint32 <obsolete>
+	scalar:uint32 FetchCollapse
+	scalar:uint32 HopcountMakeSticky
+	scalar:uint32 StickyDuration
+	scalar:uint32 StickyPindown
+	scalar:uint32 NoIPTakeover
+	scalar:uint32 DBRecordCountWarn
+	scalar:uint32 DBRecordSizeWarn
+	scalar:uint32 DBSizeWarn
+	scalar:uint32 PullDBPreallocation
+	scalar:uint32 <obsolete>
+	scalar:uint32 <obsolete>
+	scalar:uint32 <obsolete>
+	scalar:uint32 LockProcessesPerDB
+	scalar:uint32 RecBufferSizeLimit
+	scalar:uint32 QueueBufferSize
+	scalar:uint32 IPAllocAlgorithm
+	scalar:uint32 AllowMixedVersions
+}
+
+sample ctdb_req_header length(32) {
+	[0000] 27 92 c9 6e ec 06 28 0c  23 95 76 44 63 ba 46 3d
+	[0010] 51 3f 17 23 48 35 d6 5b  3a 69 0d 38 4a 30 dd 43
+}
+
+sample ctdb_req_call length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 2e fe 27 12
+	[0010] 00 00 00 00 e2 e8 bc 5b  de 21 c7 6d e5 77 d3 2e
+	[0020] 1c 89 35 69 55 4d d5 4d  2c 55 6f 2e ea 0b ef 25
+	[0030] 01 00 00 00 00 00 00 00  34 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x1227fe2e
+#	  REQ_CALL dst:1539107042 src:1841766878 reqid:0x2ed377e5
+#	Data
+#	  db:0x4dd54d55 UNKNOWN(779048236)
+#	  key:4
+
+sample ctdb_reply_call length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 ae e6 0a 5e
+	[0010] 01 00 00 00 89 b0 9b 11  f7 01 ff 6d 5b 35 0b 61
+	[0020] 25 42 42 76 02 00 00 00  76 66 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5e0ae6ae
+#	  REPLY_CALL dst:295415945 src:1845428727 reqid:0x610b355b
+#	Data
+#	  status:1984053797
+
+sample ctdb_reply_error length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 fd 5e 5e 79
+	[0010] 04 00 00 00 ea 95 d4 41  e4 fb 5d 34 70 05 e3 7b
+	[0020] 09 e1 95 63 02 00 00 00  ff 7d 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x795e5efd
+#	  REPLY_ERROR dst:1104451050 src:878574564 reqid:0x7be30570
+#	Data
+#	  status:1670766857
+#	  msg:\FF}
+
+sample ctdb_req_dmaster length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 e1 d3 89 75
+	[0010] 02 00 00 00 76 e3 c1 7b  91 ed 3b 65 87 f2 8e 05
+	[0020] 1c 28 0d 57 00 00 00 00  25 7e c6 6f ae 24 28 69
+	[0030] 86 1e bd 59 02 00 00 00  00 00 00 00 a5 d2 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x7589d3e1
+#	  REQ_DMASTER dst:2076304246 src:1698426257 reqid:0x58ef287
+#	Data
+#	  db:0x570d281c rsn:0x692824ae6fc67e25 dmaster:1505566342
+#	  key:\A5\D2
+#	  data:
+
+sample ctdb_reply_dmaster length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 4c 13 13 6e
+	[0010] 03 00 00 00 46 6c c7 37  72 b2 79 53 ab 28 1a 1d
+	[0020] 51 62 de 25 00 00 00 00  e9 53 26 4b 50 c2 c0 3e
+	[0030] 01 00 00 00 01 00 00 00  34 cc 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x6e13134c
+#	  REPLY_DMASTER dst:935816262 src:1400484466 reqid:0x1d1a28ab
+#	Data
+#	  db:0x25de6251 rsn:0x3ec0c2504b2653e9
+#	  key:4
+#	  data:\CC
+
+sample ctdb_req_control@PROCESS_EXISTS length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 d5 33 e5 49
+	[0010] 07 00 00 00 a2 a8 63 5e  15 d5 74 2e 32 c2 34 58
+	[0020] 00 00 00 00 4c 65 11 42  2f 7f 1b 4f 5d 54 aa 1c
+	[0030] 37 20 81 11 e9 e8 d1 40  04 00 00 00 8f 56 c3 70
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x49e533d5
+#	  REQ_CONTROL dst:1583589538 src:779408661 reqid:0x5834c232
+#	Data
+#	  PROCESS_EXISTS srvid:0x1caa545d4f1b7f2f client_id:0x11812037 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@STATISTICS length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 97 83 f7 02
+	[0010] 07 00 00 00 3b a2 cd 72  cb 47 c9 14 6b 11 63 65
+	[0020] 01 00 00 00 da e7 98 0c  10 e9 b4 77 aa f3 21 0f
+	[0030] 0b f2 6e 16 47 92 e0 01  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x2f78397
+#	  REQ_CONTROL dst:1926079035 src:348735435 reqid:0x6563116b
+#	Data
+#	  STATISTICS srvid:0xf21f3aa77b4e910 client_id:0x166ef20b NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(2) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 48 aa d0 36
+	[0010] 07 00 00 00 8a 48 e8 2d  d9 57 0e 2d 11 79 5e 1c
+	[0020] 02 00 00 00 02 65 29 4a  ba 2c 20 18 9b 62 cb 7e
+	[0030] 4c eb 8f 5f 07 5f 14 03  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x36d0aa48
+#	  REQ_CONTROL dst:770197642 src:755914713 reqid:0x1c5e7911
+#	Data
+#	  UNKNOWN(2) srvid:0x7ecb629b18202cba client_id:0x5f8feb4c NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@PING length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 a6 f2 dc 0e
+	[0010] 07 00 00 00 14 a3 7c 2a  ab ec 9e 40 06 eb 44 3d
+	[0020] 03 00 00 00 c2 fa 88 72  b6 9e 56 2e b1 bf fb 1a
+	[0030] 16 62 10 05 57 97 a7 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0xedcf2a6
+#	  REQ_CONTROL dst:712811284 src:1084157099 reqid:0x3d44eb06
+#	Data
+#	  PING srvid:0x1afbbfb12e569eb6 client_id:0x5106216 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GETDBPATH length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 c6 27 6e 55
+	[0010] 07 00 00 00 31 cd eb 41  ad ae 3b 49 7f 3c f4 50
+	[0020] 04 00 00 00 bf 93 28 0e  89 7e 12 45 1e df 5f 79
+	[0030] d6 20 0c 19 1e 10 19 44  04 00 00 00 d2 45 17 01
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x556e27c6
+#	  REQ_CONTROL dst:1105972529 src:1228648109 reqid:0x50f43c7f
+#	Data
+#	  GETDBPATH srvid:0x795fdf1e45127e89 client_id:0x190c20d6 OPCODE_SPECIFIC
+
+sample ctdb_req_control@GETVNNMAP length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 3a 5a 0b 68
+	[0010] 07 00 00 00 ea c2 68 7f  30 fd 65 33 f2 eb 4b 73
+	[0020] 05 00 00 00 04 68 f5 7b  34 ee 5f 2c 79 6a c2 7e
+	[0030] 46 6a 7d 75 0a df 1f 77  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x680b5a3a
+#	  REQ_CONTROL dst:2137572074 src:862321968 reqid:0x734bebf2
+#	Data
+#	  GETVNNMAP srvid:0x7ec26a792c5fee34 client_id:0x757d6a46 OPCODE_SPECIFIC
+
+sample ctdb_req_control@SETVNNMAP length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 42 bd 05 7a
+	[0010] 07 00 00 00 22 8c a1 26  05 a5 89 76 a4 3b a9 57
+	[0020] 06 00 00 00 43 de 6d 55  6a b3 24 66 df cb ad 62
+	[0030] c0 1c fe 54 66 e3 4c 59  08 00 00 00 33 e3 26 55
+	[0040] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x7a05bd42
+#	  REQ_CONTROL dst:648121378 src:1988732165 reqid:0x57a93ba4
+#	Data
+#	  SETVNNMAP srvid:0x62adcbdf6624b36a client_id:0x54fe1cc0 OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_DEBUG length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 96 73 c7 2c
+	[0010] 07 00 00 00 c1 16 ab 3c  30 8c 43 49 2c 52 29 35
+	[0020] 07 00 00 00 5e 7d c1 14  48 da ea 42 f3 03 6c 2a
+	[0030] e5 c1 f2 75 2c 71 0a 2e  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x2cc77396
+#	  REQ_CONTROL dst:1017845441 src:1229163568 reqid:0x3529522c
+#	Data
+#	  GET_DEBUG srvid:0x2a6c03f342eada48 client_id:0x75f2c1e5 OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_DEBUG length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 81 60 55 62
+	[0010] 07 00 00 00 ca 36 58 33  c2 50 b4 1d 62 83 5a 21
+	[0020] 08 00 00 00 29 25 7d 4d  d3 c0 d0 3a 84 5b 8d 43
+	[0030] c9 a2 60 02 0b 4b 81 58  04 00 00 00 02 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x62556081
+#	  REQ_CONTROL dst:861419210 src:498356418 reqid:0x215a8362
+#	Data
+#	  SET_DEBUG srvid:0x438d5b843ad0c0d3 client_id:0x260a2c9 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_DBMAP length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 ab 74 5a 04
+	[0010] 07 00 00 00 6d 61 b3 18  83 9f 02 3a 24 fc 30 27
+	[0020] 09 00 00 00 fd 2b 48 2f  be 5a 44 33 c1 83 6f 10
+	[0030] 5a 52 6b 00 eb 42 ff 49  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x45a74ab
+#	  REQ_CONTROL dst:414409069 src:973250435 reqid:0x2730fc24
+#	Data
+#	  GET_DBMAP srvid:0x106f83c133445abe client_id:0x6b525a NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_NODEMAPv4 length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 eb 1a 36 46
+	[0010] 07 00 00 00 24 91 70 14  ed b2 b4 51 28 15 56 4e
+	[0020] 0a 00 00 00 37 43 69 5c  94 32 5b 20 fa 3e 4d 3d
+	[0030] 2b 27 d7 64 c2 d8 b2 50  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x46361aeb
+#	  REQ_CONTROL dst:342921508 src:1370796781 reqid:0x4e561528
+#	Data
+#	  GET_NODEMAPv4 srvid:0x3d4d3efa205b3294 client_id:0x64d7272b OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_DMASTER length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 05 d6 c6 70
+	[0010] 07 00 00 00 7d 3a 30 6b  c3 df 21 3d 67 f9 de 38
+	[0020] 0b 00 00 00 9f d1 d1 2a  d7 86 e8 1d 37 63 a1 6d
+	[0030] 74 6e 6c 78 67 15 f8 70  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x70c6d605
+#	  REQ_CONTROL dst:1798322813 src:1025630147 reqid:0x38def967
+#	Data
+#	  SET_DMASTER srvid:0x6da163371de886d7 client_id:0x786c6e74 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(12) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 6e 58 05 45
+	[0010] 07 00 00 00 a8 75 a1 6d  e3 6e 24 1f 21 5a 36 16
+	[0020] 0c 00 00 00 39 65 71 69  1b 8f f2 4e a5 5d 8a 75
+	[0030] 15 63 f1 21 03 e7 ae 70  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x4505586e
+#	  REQ_CONTROL dst:1839297960 src:522481379 reqid:0x16365a21
+#	Data
+#	  UNKNOWN(12) srvid:0x758a5da54ef28f1b client_id:0x21f16315 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(13) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 86 e2 ea 07
+	[0010] 07 00 00 00 76 3e 4e 32  c5 5f cf 1a 26 a0 b2 0f
+	[0020] 0d 00 00 00 4c d5 15 4a  79 35 b6 66 0d c3 3c 7e
+	[0030] 9a ae 60 6a ad 57 ba 4f  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x7eae286
+#	  REQ_CONTROL dst:843988598 src:449798085 reqid:0xfb2a026
+#	Data
+#	  UNKNOWN(13) srvid:0x7e3cc30d66b63579 client_id:0x6a60ae9a NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(14) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 fd ba 5f 19
+	[0010] 07 00 00 00 da de 5a 4f  35 cb d1 04 bb 0a 87 28
+	[0020] 0e 00 00 00 25 3a e6 57  ac 25 6f 17 d7 31 94 65
+	[0030] e3 10 df 42 84 f4 58 67  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x195fbafd
+#	  REQ_CONTROL dst:1331355354 src:80857909 reqid:0x28870abb
+#	Data
+#	  UNKNOWN(14) srvid:0x659431d7176f25ac client_id:0x42df10e3 OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_RECMODE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 fb b9 60 3e
+	[0010] 07 00 00 00 46 cb 23 01  d0 ff f6 43 4c c6 2d 7e
+	[0020] 0f 00 00 00 2b 7d b4 00  ac 9b c4 74 20 16 b5 5e
+	[0030] 64 bf 45 14 4c 1e 9e 43  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3e60b9fb
+#	  REQ_CONTROL dst:19123014 src:1140260816 reqid:0x7e2dc64c
+#	Data
+#	  GET_RECMODE srvid:0x5eb5162074c49bac client_id:0x1445bf64 OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_RECMODE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 72 0a df 16
+	[0010] 07 00 00 00 85 86 48 44  90 65 9c 65 05 1b ae 31
+	[0020] 10 00 00 00 e2 9f f5 22  8b 16 c5 2e 4f c8 5f 1f
+	[0030] 98 a5 75 5d de d1 30 72  04 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x16df0a72
+#	  REQ_CONTROL dst:1145603717 src:1704748432 reqid:0x31ae1b05
+#	Data
+#	  SET_RECMODE srvid:0x1f5fc84f2ec5168b client_id:0x5d75a598 OPCODE_SPECIFIC
+
+sample ctdb_req_control@STATISTICS_RESET length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 8b dd 4c 59
+	[0010] 07 00 00 00 ea 72 fd 29  62 9a 16 42 fc 0a ef 0b
+	[0020] 11 00 00 00 c4 a6 54 24  49 91 5a 19 31 b8 c7 1f
+	[0030] 32 6d f3 24 53 90 9c 31  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x594cdd8b
+#	  REQ_CONTROL dst:704475882 src:1108777570 reqid:0xbef0afc
+#	Data
+#	  STATISTICS_RESET srvid:0x1fc7b831195a9149 client_id:0x24f36d32 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_ATTACH length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 ed 02 1f 29
+	[0010] 07 00 00 00 f4 d4 16 46  f7 30 00 42 ec 56 34 3e
+	[0020] 12 00 00 00 85 cc 40 25  40 ab 92 47 54 75 ff 7a
+	[0030] 28 58 ff 61 df 49 50 06  04 00 00 00 4d 50 41 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x291f02ed
+#	  REQ_CONTROL dst:1175901428 src:1107308791 reqid:0x3e3456ec
+#	Data
+#	  DB_ATTACH srvid:0x7aff75544792ab40 client_id:0x61ff5828 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_CALL length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 a0 88 5d 45
+	[0010] 07 00 00 00 d1 9d 29 7e  63 c1 29 0d 4c f8 bb 57
+	[0020] 13 00 00 00 3d f6 53 11  ff 78 ed 65 b3 08 c9 40
+	[0030] 78 08 8f 6e 73 8a f9 2e  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x455d88a0
+#	  REQ_CONTROL dst:2116656593 src:220840291 reqid:0x57bbf84c
+#	Data
+#	  SET_CALL srvid:0x40c908b365ed78ff client_id:0x6e8f0878 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRAVERSE_START length(80) {
+	[0000] 50 00 00 00 42 44 54 43  01 00 00 00 71 00 7f 33
+	[0010] 07 00 00 00 a4 59 79 1d  87 e5 66 19 70 3b 3a 77
+	[0020] 14 00 00 00 52 4b bc 58  49 f8 18 0e 4f 47 fd 78
+	[0030] 0e 05 40 44 7e 5a f3 7c  10 00 00 00 33 5b cb 17
+	[0040] 44 64 0e 2e 4a e9 96 77  06 84 2f 04 00 00 00 00
+}
+#	Buffer len:80
+#	Header
+#	  length:80 magic:0x43544442 version:1 generation:0x337f0071
+#	  REQ_CONTROL dst:494492068 src:426173831 reqid:0x773a3b70
+#	Data
+#	  TRAVERSE_START srvid:0x78fd474f0e18f849 client_id:0x4440050e OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRAVERSE_ALL length(88) {
+	[0000] 58 00 00 00 42 44 54 43  01 00 00 00 c4 39 41 62
+	[0010] 07 00 00 00 8a 6e 77 20  58 cd cf 4e 1b 4a 3c 62
+	[0020] 15 00 00 00 6f 48 ce 61  c6 d3 5a 6c 5c 12 a3 78
+	[0030] d3 88 89 35 85 a0 66 00  18 00 00 00 8d 15 14 42
+	[0040] 22 ef 86 07 ce 8d b7 1d  e9 30 41 32 3b a7 7d 38
+	[0050] bd e8 61 68 00 00 00 00
+}
+#	Buffer len:88
+#	Header
+#	  length:88 magic:0x43544442 version:1 generation:0x624139c4
+#	  REQ_CONTROL dst:544697994 src:1322241368 reqid:0x623c4a1b
+#	Data
+#	  TRAVERSE_ALL srvid:0x78a3125c6c5ad3c6 client_id:0x358988d3 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRAVERSE_DATA length(80) {
+	[0000] 50 00 00 00 42 44 54 43  01 00 00 00 0e 0e 6b 7a
+	[0010] 07 00 00 00 bb ef e7 76  c0 a8 76 2b 89 d6 75 59
+	[0020] 16 00 00 00 9d 4f 63 08  d2 e3 3a 15 85 60 59 39
+	[0030] d6 a6 c4 08 30 a2 e2 7e  13 00 00 00 13 00 00 00
+	[0040] 72 e0 4a 36 02 00 00 00  01 00 00 00 57 b1 1e 00
+}
+#	Buffer len:80
+#	Header
+#	  length:80 magic:0x43544442 version:1 generation:0x7a6b0e0e
+#	  REQ_CONTROL dst:1994911675 src:729196736 reqid:0x5975d689
+#	Data
+#	  TRAVERSE_DATA srvid:0x39596085153ae3d2 client_id:0x8c4a6d6 OPCODE_SPECIFIC
+
+sample ctdb_req_control@REGISTER_SRVID length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 83 03 95 3a
+	[0010] 07 00 00 00 65 8a 9f 42  b6 e8 72 4b 1b 27 6e 4d
+	[0020] 17 00 00 00 2e 1f 05 63  d9 65 a4 1f fd 9f 59 6d
+	[0030] 01 3c 85 64 d6 fd 1c 3e  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3a950383
+#	  REQ_CONTROL dst:1117751909 src:1265821878 reqid:0x4d6e271b
+#	Data
+#	  REGISTER_SRVID srvid:0x6d599ffd1fa465d9 client_id:0x64853c01 OPCODE_SPECIFIC
+
+sample ctdb_req_control@DEREGISTER_SRVID length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 de 1f db 6d
+	[0010] 07 00 00 00 74 f5 93 3e  7e 2d eb 6b 1b dd 80 23
+	[0020] 18 00 00 00 10 cd 17 59  77 a5 68 1e 3b c2 12 73
+	[0030] d5 90 76 4f b8 09 d0 65  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x6ddb1fde
+#	  REQ_CONTROL dst:1049884020 src:1810574718 reqid:0x2380dd1b
+#	Data
+#	  DEREGISTER_SRVID srvid:0x7312c23b1e68a577 client_id:0x4f7690d5 OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_DBNAME length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 8f ab 9e 25
+	[0010] 07 00 00 00 73 06 b7 31  10 21 07 3f a1 47 aa 08
+	[0020] 19 00 00 00 60 5e 0e 46  16 e3 75 6e c9 9c df 14
+	[0030] 5a 0a 6b 6c 8e e5 f9 75  04 00 00 00 77 ab 4f 0e
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x259eab8f
+#	  REQ_CONTROL dst:834078323 src:1057431824 reqid:0x8aa47a1
+#	Data
+#	  GET_DBNAME srvid:0x14df9cc96e75e316 client_id:0x6c6b0a5a OPCODE_SPECIFIC
+
+sample ctdb_req_control@ENABLE_SEQNUM length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 73 5d aa 19
+	[0010] 07 00 00 00 bb 5c 72 30  50 eb 9a 53 1e 99 66 42
+	[0020] 1a 00 00 00 69 ea 7b 26  c9 ae 15 63 2e be fb 58
+	[0030] 0c e7 5c 7a 74 dd 57 0f  04 00 00 00 a5 16 a8 45
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x19aa5d73
+#	  REQ_CONTROL dst:812801211 src:1402661712 reqid:0x4266991e
+#	Data
+#	  ENABLE_SEQNUM srvid:0x58fbbe2e6315aec9 client_id:0x7a5ce70c OPCODE_SPECIFIC
+
+sample ctdb_req_control@UPDATE_SEQNUM length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 41 d4 d9 32
+	[0010] 07 00 00 00 c5 da 4c 00  94 36 2f 1f 52 ac 3e 38
+	[0020] 1b 00 00 00 9c a4 24 20  d5 49 b1 25 02 3c 2f 7a
+	[0030] 5b bd ae 0b 0b d3 8f 03  04 00 00 00 5e 01 2d 36
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x32d9d441
+#	  REQ_CONTROL dst:5036741 src:523187860 reqid:0x383eac52
+#	Data
+#	  UPDATE_SEQNUM srvid:0x7a2f3c0225b149d5 client_id:0xbaebd5b NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(28) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 77 32 7a 08
+	[0010] 07 00 00 00 2a a1 7d 6e  04 1c e3 2c 9e cd bb 1a
+	[0020] 1c 00 00 00 b2 1b 9f 5b  bc e0 a7 19 63 d9 da 30
+	[0030] 51 44 cb 74 ec 8b 07 0f  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x87a3277
+#	  REQ_CONTROL dst:1853727018 src:753081348 reqid:0x1abbcd9e
+#	Data
+#	  UNKNOWN(28) srvid:0x30dad96319a7e0bc client_id:0x74cb4451 OPCODE_SPECIFIC
+
+sample ctdb_req_control@DUMP_MEMORY length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 48 c3 0f 41
+	[0010] 07 00 00 00 57 f3 6c 20  92 9b 00 10 08 23 b5 72
+	[0020] 1d 00 00 00 29 05 f8 5c  df a4 ce 11 c4 2f a2 7b
+	[0030] 98 a1 33 34 79 0d b8 02  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x410fc348
+#	  REQ_CONTROL dst:544011095 src:268475282 reqid:0x72b52308
+#	Data
+#	  DUMP_MEMORY srvid:0x7ba22fc411cea4df client_id:0x3433a198 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_PID length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 b5 78 23 08
+	[0010] 07 00 00 00 33 5c 7c 3d  10 33 e6 68 7f 01 eb 33
+	[0020] 1e 00 00 00 c2 2f 55 56  16 d1 a5 45 d5 00 4a 5f
+	[0030] 50 8e ee 2b 07 51 bd 5a  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x82378b5
+#	  REQ_CONTROL dst:1031560243 src:1759916816 reqid:0x33eb017f
+#	Data
+#	  GET_PID srvid:0x5f4a00d545a5d116 client_id:0x2bee8e50 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_RECMASTER length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 f2 79 f3 7d
+	[0010] 07 00 00 00 4d fb c6 47  47 40 38 58 ad 53 d1 4c
+	[0020] 1f 00 00 00 2d 7d 69 23  5a 89 ff 3d 18 7b a1 29
+	[0030] 94 ad 6d 0b fb 74 ca 5c  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x7df379f2
+#	  REQ_CONTROL dst:1204222797 src:1480081479 reqid:0x4cd153ad
+#	Data
+#	  GET_RECMASTER srvid:0x29a17b183dff895a client_id:0xb6dad94 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_RECMASTER length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 b2 57 05 11
+	[0010] 07 00 00 00 a3 b2 ba 06  86 6e 2f 02 a0 5d 8f 4c
+	[0020] 20 00 00 00 d8 8e bd 3a  40 8b 7a 2c 07 10 bb 68
+	[0030] 13 88 50 6e 47 82 cb 11  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x110557b2
+#	  REQ_CONTROL dst:112898723 src:36662918 reqid:0x4c8f5da0
+#	Data
+#	  SET_RECMASTER srvid:0x68bb10072c7a8b40 client_id:0x6e508813 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@FREEZE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 25 29 3d 67
+	[0010] 07 00 00 00 71 b6 c4 38  71 1c b1 31 e8 72 fb 46
+	[0020] 21 00 00 00 71 15 e4 56  80 44 4c 2a d3 40 bb 59
+	[0030] b6 27 8a 00 70 e7 ba 63  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x673d2925
+#	  REQ_CONTROL dst:952415857 src:833690737 reqid:0x46fb72e8
+#	Data
+#	  FREEZE srvid:0x59bb40d32a4c4480 client_id:0x8a27b6 OPCODE_SPECIFIC
+
+sample ctdb_req_control@THAW length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 ae 35 b5 41
+	[0010] 07 00 00 00 c8 ca fe 38  b6 f3 3a 41 eb 70 e7 3f
+	[0020] 22 00 00 00 13 55 3f 1b  dc 62 fa 41 aa 79 78 11
+	[0030] 9f 79 a4 16 ef 70 eb 68  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x41b535ae
+#	  REQ_CONTROL dst:956222152 src:1094382518 reqid:0x3fe770eb
+#	Data
+#	  THAW srvid:0x117879aa41fa62dc client_id:0x16a4799f NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_PNN length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 0e cb 7e 4e
+	[0010] 07 00 00 00 86 7f e3 78  15 89 c3 0d 8e 46 39 61
+	[0020] 23 00 00 00 d9 13 a9 7d  00 54 2c 51 ef 30 cc 09
+	[0030] 22 47 64 2a f0 a0 7e 30  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x4e7ecb0e
+#	  REQ_CONTROL dst:2028175238 src:230918421 reqid:0x6139468e
+#	Data
+#	  GET_PNN srvid:0x9cc30ef512c5400 client_id:0x2a644722 OPCODE_SPECIFIC
+
+sample ctdb_req_control@SHUTDOWN length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 3e e8 af 4a
+	[0010] 07 00 00 00 04 1a c4 5a  fd b0 aa 1e ef 60 b9 0c
+	[0020] 24 00 00 00 05 c9 72 02  4a 2f c6 6a 54 42 04 15
+	[0030] b9 f0 ce 23 6a 78 e2 12  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x4aafe83e
+#	  REQ_CONTROL dst:1522801156 src:514502909 reqid:0xcb960ef
+#	Data
+#	  SHUTDOWN srvid:0x150442546ac62f4a client_id:0x23cef0b9 OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_MONMODE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 a8 ff a6 01
+	[0010] 07 00 00 00 8d 7d dd 3b  26 cf 25 0c c9 d1 dc 67
+	[0020] 25 00 00 00 e0 5d a2 66  88 83 b2 6d df 05 fb 32
+	[0030] fd aa ae 22 fd 92 de 59  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x1a6ffa8
+#	  REQ_CONTROL dst:1004371341 src:203804454 reqid:0x67dcd1c9
+#	Data
+#	  GET_MONMODE srvid:0x32fb05df6db28388 client_id:0x22aeaafd NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(38) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 52 40 a1 74
+	[0010] 07 00 00 00 36 7c 90 01  fd 40 1c 34 7b 78 be 0f
+	[0020] 26 00 00 00 7e 50 1c 39  07 50 bd 04 24 25 fd 70
+	[0030] 48 98 8b 2a b4 92 40 36  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x74a14052
+#	  REQ_CONTROL dst:26246198 src:874266877 reqid:0xfbe787b
+#	Data
+#	  UNKNOWN(38) srvid:0x70fd252404bd5007 client_id:0x2a8b9848 OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(39) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 7f c6 65 53
+	[0010] 07 00 00 00 a8 c3 5c 38  1f 99 be 41 bf 6f 12 14
+	[0020] 27 00 00 00 1d 94 65 24  bf be 48 5e 25 45 2c 4b
+	[0030] 16 0e 9d 08 24 97 b3 03  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x5365c67f
+#	  REQ_CONTROL dst:945603496 src:1103010079 reqid:0x14126fbf
+#	Data
+#	  UNKNOWN(39) srvid:0x4b2c45255e48bebf client_id:0x89d0e16 OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(40) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 06 9b 4d 16
+	[0010] 07 00 00 00 c6 fa 76 7f  c8 13 6c 1d 99 eb 2c 78
+	[0020] 28 00 00 00 41 ba 9c 20  9f d0 9e 4c 99 cb 4c 33
+	[0030] 57 bf 8d 4d f5 56 8c 16  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x164d9b06
+#	  REQ_CONTROL dst:2138503878 src:493622216 reqid:0x782ceb99
+#	Data
+#	  UNKNOWN(40) srvid:0x334ccb994c9ed09f client_id:0x4d8dbf57 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(41) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 a3 84 65 77
+	[0010] 07 00 00 00 68 52 8e 75  56 98 11 1a de cc 8b 36
+	[0020] 29 00 00 00 d0 6e 85 04  01 40 2f 73 42 3c fc 0e
+	[0030] f0 ef 96 1f 1f 3e 83 7a  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x776584a3
+#	  REQ_CONTROL dst:1972261480 src:437360726 reqid:0x368bccde
+#	Data
+#	  UNKNOWN(41) srvid:0xefc3c42732f4001 client_id:0x1f96eff0 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TAKEOVER_IPv4 length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 a4 06 76 5c
+	[0010] 07 00 00 00 38 fc a5 6d  95 ba a3 10 7b 98 12 15
+	[0020] 2a 00 00 00 94 a8 cb 4d  5b cd 6a 5c 39 d0 85 2f
+	[0030] 73 d7 04 13 6f d1 aa 03  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x5c7606a4
+#	  REQ_CONTROL dst:1839594552 src:279165589 reqid:0x1512987b
+#	Data
+#	  TAKEOVER_IPv4 srvid:0x2f85d0395c6acd5b client_id:0x1304d773 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@RELEASE_IPv4 length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 95 d1 00 78
+	[0010] 07 00 00 00 76 9a b0 69  8f fc c2 3a 60 73 be 0d
+	[0020] 2b 00 00 00 42 60 93 13  bf de bb 35 5a dd 82 33
+	[0030] bf cd f6 17 4f fe 4d 7d  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x7800d195
+#	  REQ_CONTROL dst:1773181558 src:985857167 reqid:0xdbe7360
+#	Data
+#	  RELEASE_IPv4 srvid:0x3382dd5a35bbdebf client_id:0x17f6cdbf NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TCP_CLIENT length(120) {
+	[0000] 78 00 00 00 42 44 54 43  01 00 00 00 8d 29 c8 43
+	[0010] 07 00 00 00 13 d4 65 03  84 6e 13 68 df 8e 8e 40
+	[0020] 2c 00 00 00 95 4b 4a 74  df 40 c6 70 67 72 d2 67
+	[0030] 62 10 e1 7c 49 b9 af 0c  38 00 00 00 02 00 34 33
+	[0040] 2d 8d 86 56 00 00 00 00  00 00 00 00 00 00 00 00
+	[0050] 00 00 00 00 00 00 00 00  0a 00 7f c4 00 00 00 00
+	[0060] 49 2c 56 8a 64 ff 88 22  35 46 d5 85 7c 67 19 95
+	[0070] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:120
+#	Header
+#	  length:120 magic:0x43544442 version:1 generation:0x43c8298d
+#	  REQ_CONTROL dst:57005075 src:1746103940 reqid:0x408e8edf
+#	Data
+#	  TCP_CLIENT srvid:0x67d2726770c640df client_id:0x7ce11062 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TCP_ADD length(120) {
+	[0000] 78 00 00 00 42 44 54 43  01 00 00 00 5b e1 29 3e
+	[0010] 07 00 00 00 cb db e7 03  36 ef bd 3a 80 6d 71 42
+	[0020] 2d 00 00 00 d6 4b 90 59  6a d0 0f 69 60 b1 15 6f
+	[0030] a9 9b 21 00 64 b2 ab 17  38 00 00 00 0a 00 cd fd
+	[0040] 00 00 00 00 ba 09 56 e9  3d c9 f4 80 62 2d b1 51
+	[0050] 09 ef 0f f6 00 00 00 00  0a 00 29 f4 00 00 00 00
+	[0060] bb 59 fb 95 36 e6 12 d5  a9 4f 58 e4 bc a6 14 9f
+	[0070] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:120
+#	Header
+#	  length:120 magic:0x43544442 version:1 generation:0x3e29e15b
+#	  REQ_CONTROL dst:65526731 src:985526070 reqid:0x42716d80
+#	Data
+#	  TCP_ADD srvid:0x6f15b160690fd06a client_id:0x219ba9 OPCODE_SPECIFIC
+
+sample ctdb_req_control@TCP_REMOVE length(120) {
+	[0000] 78 00 00 00 42 44 54 43  01 00 00 00 ce 24 12 73
+	[0010] 07 00 00 00 2d d4 32 6f  93 81 98 75 6d 65 4c 65
+	[0020] 2e 00 00 00 a0 86 cf 0a  1d dc b0 4d ed e4 69 17
+	[0030] f7 2e 21 4e 64 52 f9 5f  38 00 00 00 0a 00 7f ef
+	[0040] 00 00 00 00 c7 cf fa 59  18 c6 bd 0d ce 65 4e 42
+	[0050] 36 26 6a 93 00 00 00 00  0a 00 8e c0 00 00 00 00
+	[0060] 26 be c3 18 61 30 34 98  b8 07 c0 38 a1 7d 94 59
+	[0070] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:120
+#	Header
+#	  length:120 magic:0x43544442 version:1 generation:0x731224ce
+#	  REQ_CONTROL dst:1865602093 src:1972928915 reqid:0x654c656d
+#	Data
+#	  TCP_REMOVE srvid:0x1769e4ed4db0dc1d client_id:0x4e212ef7 OPCODE_SPECIFIC
+
+sample ctdb_req_control@STARTUP length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 e2 88 4b 2b
+	[0010] 07 00 00 00 e9 4c 21 3c  de a0 dd 1e 0f 00 3f 43
+	[0020] 2f 00 00 00 99 9e 29 51  ac 31 26 0b 78 ae e5 27
+	[0030] a7 21 bb 13 40 d7 30 68  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x2b4b88e2
+#	  REQ_CONTROL dst:1008815337 src:517841118 reqid:0x433f000f
+#	Data
+#	  STARTUP srvid:0x27e5ae780b2631ac client_id:0x13bb21a7 OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_TUNABLE length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 2c 67 a8 79
+	[0010] 07 00 00 00 d5 1a b2 7e  d7 40 f4 7d 7b fe 83 62
+	[0020] 30 00 00 00 0e f7 77 4a  d1 fa 49 4a 1f cb ab 1a
+	[0030] 3a 01 a5 52 1e 30 52 7b  0b 00 00 00 61 cc 74 09
+	[0040] 03 00 00 00 48 4d 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x79a8672c
+#	  REQ_CONTROL dst:2125601493 src:2113159383 reqid:0x6283fe7b
+#	Data
+#	  SET_TUNABLE srvid:0x1aabcb1f4a49fad1 client_id:0x52a5013a OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_TUNABLE length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 ac f9 70 0b
+	[0010] 07 00 00 00 9a 4c 23 22  24 fc e5 3c 9f 91 b6 35
+	[0020] 31 00 00 00 b0 89 c4 76  28 e2 39 2f 20 82 40 37
+	[0030] 81 8a a4 35 e3 e2 e2 45  07 00 00 00 03 00 00 00
+	[0040] 4a 4e 00 00 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0xb70f9ac
+#	  REQ_CONTROL dst:572738714 src:1021705252 reqid:0x35b6919f
+#	Data
+#	  GET_TUNABLE srvid:0x374082202f39e228 client_id:0x35a48a81 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@LIST_TUNABLES length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 fc d4 b5 0e
+	[0010] 07 00 00 00 a9 f0 74 5e  a6 2f 63 21 f3 49 e3 42
+	[0020] 32 00 00 00 b0 7e 71 29  34 12 9b 09 84 e8 30 70
+	[0030] ea 6e 93 3c 0a 83 90 75  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0xeb5d4fc
+#	  REQ_CONTROL dst:1584722089 src:560148390 reqid:0x42e349f3
+#	Data
+#	  LIST_TUNABLES srvid:0x7030e884099b1234 client_id:0x3c936eea OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_PUBLIC_IPSv4 length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 b0 b3 f3 73
+	[0010] 07 00 00 00 f1 e1 9a 55  63 fd 00 6f 69 a8 5c 0e
+	[0020] 33 00 00 00 5b 75 da 28  23 5a 66 45 9a f0 40 2a
+	[0030] cb 37 d5 69 01 7c f1 39  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x73f3b3b0
+#	  REQ_CONTROL dst:1436213745 src:1862335843 reqid:0xe5ca869
+#	Data
+#	  GET_PUBLIC_IPSv4 srvid:0x2a40f09a45665a23 client_id:0x69d537cb NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@MODIFY_FLAGS length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 1e 04 83 50
+	[0010] 07 00 00 00 14 66 16 48  58 b8 3d 58 4a 17 b2 4b
+	[0020] 34 00 00 00 65 63 f7 30  d8 79 57 1e 19 d4 29 2e
+	[0030] d4 14 b0 76 0d 84 10 1f  0c 00 00 00 68 a3 f1 70
+	[0040] 82 d8 53 4a 4f f8 93 38
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x5083041e
+#	  REQ_CONTROL dst:1209427476 src:1480439896 reqid:0x4bb2174a
+#	Data
+#	  MODIFY_FLAGS srvid:0x2e29d4191e5779d8 client_id:0x76b014d4 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_ALL_TUNABLES length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 ba e8 d8 7e
+	[0010] 07 00 00 00 21 cf 3a 61  ed 3a a9 4e 69 68 6e 29
+	[0020] 35 00 00 00 cd 59 4a 4c  01 85 fc 7a bd a7 7f 2f
+	[0030] 89 3e 59 21 01 94 0e 16  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x7ed8e8ba
+#	  REQ_CONTROL dst:1631244065 src:1319713517 reqid:0x296e6869
+#	Data
+#	  GET_ALL_TUNABLES srvid:0x2f7fa7bd7afc8501 client_id:0x21593e89 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@KILL_TCP length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 92 35 8c 54
+	[0010] 07 00 00 00 2c 59 f7 2a  aa d8 14 62 86 a3 a1 3f
+	[0020] 36 00 00 00 3a 5d b5 79  84 2d 46 3e 60 14 9a 4a
+	[0030] 4b 94 b5 63 c7 ad 21 71  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x548c3592
+#	  REQ_CONTROL dst:720853292 src:1645533354 reqid:0x3fa1a386
+#	Data
+#	  KILL_TCP srvid:0x4a9a14603e462d84 client_id:0x63b5944b NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_TCP_TICKLE_LIST length(88) {
+	[0000] 58 00 00 00 42 44 54 43  01 00 00 00 00 00 fb 51
+	[0010] 07 00 00 00 df a2 b0 16  75 2d 81 4e 0a a2 40 42
+	[0020] 37 00 00 00 8f 67 2d 0b  23 bb 24 62 74 a4 26 0d
+	[0030] 71 3c 25 44 c7 99 a5 05  1c 00 00 00 02 00 23 4c
+	[0040] f3 09 a5 a7 00 00 00 00  00 00 00 00 00 00 00 00
+	[0050] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:88
+#	Header
+#	  length:88 magic:0x43544442 version:1 generation:0x51fb0000
+#	  REQ_CONTROL dst:380674783 src:1317088629 reqid:0x4240a20a
+#	Data
+#	  GET_TCP_TICKLE_LIST srvid:0xd26a4746224bb23 client_id:0x44253c71 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_TCP_TICKLE_LIST length(152) {
+	[0000] 98 00 00 00 42 44 54 43  01 00 00 00 5a 25 50 5b
+	[0010] 07 00 00 00 da 83 9d 60  06 56 96 3a df ff 0e 00
+	[0020] 38 00 00 00 ca af 6f 4e  97 9b 34 6c 3c 86 51 3d
+	[0030] 0d d1 ed 4f d9 4a 37 70  58 00 00 00 0a 00 18 13
+	[0040] 00 00 00 00 8b e6 00 07  73 1b e0 7c 99 4e 60 1b
+	[0050] 20 4a e9 15 00 00 00 00  01 00 00 00 02 00 2f 3a
+	[0060] 55 1e eb 49 00 00 00 00  00 00 00 00 00 00 00 00
+	[0070] 00 00 00 00 00 00 00 00  02 00 27 0f ca 92 5c f7
+	[0080] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+	[0090] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:152
+#	Header
+#	  length:152 magic:0x43544442 version:1 generation:0x5b50255a
+#	  REQ_CONTROL dst:1620935642 src:982930950 reqid:0xeffdf
+#	Data
+#	  SET_TCP_TICKLE_LIST srvid:0x3d51863c6c349b97 client_id:0x4fedd10d NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@REGISTER_SERVER_ID length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 3e 4f 51 3c
+	[0010] 07 00 00 00 27 5b f1 2e  28 cf 99 12 34 d3 62 0c
+	[0020] 39 00 00 00 b5 79 31 57  58 ce 8f 06 9d c5 4b 5a
+	[0030] 79 04 7d 61 f7 aa d1 74  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3c514f3e
+#	  REQ_CONTROL dst:787569447 src:312069928 reqid:0xc62d334
+#	Data
+#	  REGISTER_SERVER_ID srvid:0x5a4bc59d068fce58 client_id:0x617d0479 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNREGISTER_SERVER_ID length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 a7 36 7b 02
+	[0010] 07 00 00 00 36 db e6 4f  f5 b7 ba 53 b3 e2 ea 6c
+	[0020] 3a 00 00 00 64 07 77 71  f2 86 be 57 4d 69 e8 09
+	[0030] 81 f4 c5 26 35 8d 59 64  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x27b36a7
+#	  REQ_CONTROL dst:1340529462 src:1404745717 reqid:0x6ceae2b3
+#	Data
+#	  UNREGISTER_SERVER_ID srvid:0x9e8694d57be86f2 client_id:0x26c5f481 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@CHECK_SERVER_ID length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 d5 d4 f5 1e
+	[0010] 07 00 00 00 f2 fe 92 2e  45 2f be 2e a1 16 ac 13
+	[0020] 3b 00 00 00 32 56 2f 2a  06 6e 85 2a 17 07 3d 62
+	[0030] 5c 19 0f 5f 58 07 c2 1e  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x1ef5d4d5
+#	  REQ_CONTROL dst:781385458 src:784215877 reqid:0x13ac16a1
+#	Data
+#	  CHECK_SERVER_ID srvid:0x623d07172a856e06 client_id:0x5f0f195c OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_SERVER_ID_LIST length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 b5 25 34 21
+	[0010] 07 00 00 00 fa 59 42 43  6f d1 b7 46 64 58 ba 59
+	[0020] 3c 00 00 00 98 11 04 24  fb 4b 78 40 b8 24 ff 16
+	[0030] 37 42 e4 66 d9 03 c7 24  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x213425b5
+#	  REQ_CONTROL dst:1128421882 src:1186451823 reqid:0x59ba5864
+#	Data
+#	  GET_SERVER_ID_LIST srvid:0x16ff24b840784bfb client_id:0x66e44237 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_ATTACH_PERSISTENT length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 9a 9b ae 3e
+	[0010] 07 00 00 00 e2 e0 1d 32  9a e8 40 5e 60 52 2b 6d
+	[0020] 3d 00 00 00 bb 29 ab 00  bb 87 12 3f 02 99 2d 3c
+	[0030] b9 ad 78 7d c2 f3 07 67  04 00 00 00 4b 53 4b 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3eae9b9a
+#	  REQ_CONTROL dst:840818914 src:1581312154 reqid:0x6d2b5260
+#	Data
+#	  DB_ATTACH_PERSISTENT srvid:0x3c2d99023f1287bb client_id:0x7d78adb9 OPCODE_SPECIFIC
+
+sample ctdb_req_control@PERSISTENT_STORE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 75 2c 5a 17
+	[0010] 07 00 00 00 f4 75 00 6c  ff 6b 2d 42 76 14 fd 13
+	[0020] 3e 00 00 00 b2 af b9 55  be 48 d5 57 08 28 e9 00
+	[0030] d2 dc c7 36 78 39 b4 40  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x175a2c75
+#	  REQ_CONTROL dst:1811969524 src:1110273023 reqid:0x13fd1476
+#	Data
+#	  PERSISTENT_STORE srvid:0xe9280857d548be client_id:0x36c7dcd2 OPCODE_SPECIFIC
+
+sample ctdb_req_control@UPDATE_RECORD length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 3a 4a 36 57
+	[0010] 07 00 00 00 2e 02 a1 53  22 2c a9 43 43 76 cf 60
+	[0020] 3f 00 00 00 8e 90 24 06  38 09 13 12 08 fd 13 26
+	[0030] 4b cd c7 1b bb 7c 34 14  08 00 00 00 8b 76 78 1c
+	[0040] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x57364a3a
+#	  REQ_CONTROL dst:1403060782 src:1135160354 reqid:0x60cf7643
+#	Data
+#	  UPDATE_RECORD srvid:0x2613fd0812130938 client_id:0x1bc7cd4b NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@SEND_GRATUITOUS_ARP length(104) {
+	[0000] 68 00 00 00 42 44 54 43  01 00 00 00 6c 12 f9 0c
+	[0010] 07 00 00 00 e5 57 e4 35  85 65 bd 10 62 79 90 75
+	[0020] 40 00 00 00 83 b4 01 2b  14 99 02 5c 19 a6 23 33
+	[0030] bb bf 90 10 8a cb d1 61  27 00 00 00 0a 00 5b 01
+	[0040] 00 00 00 00 8a a5 b7 79  23 ef ec 6a 08 f1 dd 53
+	[0050] 27 cf 86 ab 00 00 00 00  1b 00 00 00 03 00 00 00
+	[0060] 50 42 00 00 00 00 00 00
+}
+#	Buffer len:104
+#	Header
+#	  length:104 magic:0x43544442 version:1 generation:0xcf9126c
+#	  REQ_CONTROL dst:904157157 src:280847749 reqid:0x75907962
+#	Data
+#	  SEND_GRATUITOUS_ARP srvid:0x3323a6195c029914 client_id:0x1090bfbb OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRANSACTION_START length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 23 fc 9c 06
+	[0010] 07 00 00 00 10 33 92 1e  9c 61 75 09 a3 49 69 46
+	[0020] 41 00 00 00 79 f4 4e 5e  ec 21 90 5c d3 c8 dc 4e
+	[0030] 69 3b f7 1b fa 7b 17 5f  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x69cfc23
+#	  REQ_CONTROL dst:512897808 src:158687644 reqid:0x466949a3
+#	Data
+#	  TRANSACTION_START srvid:0x4edcc8d35c9021ec client_id:0x1bf73b69 OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRANSACTION_COMMIT length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 9b e9 1e 64
+	[0010] 07 00 00 00 b3 7f dc 75  9b 47 b7 70 d1 62 3b 45
+	[0020] 42 00 00 00 cb b0 ed 7c  06 95 c2 55 df cc 58 3d
+	[0030] 7d 51 6d 3d 87 35 40 06  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x641ee99b
+#	  REQ_CONTROL dst:1977384883 src:1891059611 reqid:0x453b62d1
+#	Data
+#	  TRANSACTION_COMMIT srvid:0x3d58ccdf55c29506 client_id:0x3d6d517d NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@WIPE_DATABASE length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 b6 7d de 47
+	[0010] 07 00 00 00 29 e0 f8 23  6b 4b 97 40 a9 cd a2 79
+	[0020] 43 00 00 00 83 ac e1 04  08 dd ea 05 25 9a ec 07
+	[0030] a9 42 fd 78 0e 39 d2 57  08 00 00 00 eb c1 82 21
+	[0040] 3d ac 02 29 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x47de7db6
+#	  REQ_CONTROL dst:603512873 src:1083657067 reqid:0x79a2cda9
+#	Data
+#	  WIPE_DATABASE srvid:0x7ec9a2505eadd08 client_id:0x78fd42a9 OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(68) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 be 0f 22 3c
+	[0010] 07 00 00 00 04 10 7d 05  e3 df d9 7f b5 4f e6 06
+	[0020] 44 00 00 00 4f 6d fc 79  91 94 c8 1e 2f 23 6b 32
+	[0030] 28 d3 c5 31 ca a8 b5 48  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3c220fbe
+#	  REQ_CONTROL dst:92082180 src:2144985059 reqid:0x6e64fb5
+#	Data
+#	  UNKNOWN(68) srvid:0x326b232f1ec89491 client_id:0x31c5d328 OPCODE_SPECIFIC
+
+sample ctdb_req_control@UPTIME length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 de 8c 1f 56
+	[0010] 07 00 00 00 04 9a d1 6e  ac cf 90 5e 0b 5f d9 6e
+	[0020] 45 00 00 00 48 1c 23 36  a4 f6 a2 2b 2b e8 40 58
+	[0030] 1f e7 b1 15 68 cd 23 06  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x561f8cde
+#	  REQ_CONTROL dst:1859230212 src:1586548652 reqid:0x6ed95f0b
+#	Data
+#	  UPTIME srvid:0x5840e82b2ba2f6a4 client_id:0x15b1e71f OPCODE_SPECIFIC
+
+sample ctdb_req_control@START_RECOVERY length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 8e 31 51 2f
+	[0010] 07 00 00 00 46 ab e4 6d  77 f6 be 69 1d 92 93 7b
+	[0020] 46 00 00 00 5a 91 99 5e  01 0c a3 1b e8 2b 91 0f
+	[0030] 2f 39 95 7d d7 6c 8c 04  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x2f51318e
+#	  REQ_CONTROL dst:1843702598 src:1774122615 reqid:0x7b93921d
+#	Data
+#	  START_RECOVERY srvid:0xf912be81ba30c01 client_id:0x7d95392f NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@END_RECOVERY length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 d4 e4 9b 57
+	[0010] 07 00 00 00 d0 6e b8 6a  c0 28 0f 77 e7 44 4b 38
+	[0020] 47 00 00 00 91 ea d7 05  d0 1b 21 08 ba 9a 2c 2a
+	[0030] f1 7e 2b 56 33 85 63 2b  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x579be4d4
+#	  REQ_CONTROL dst:1790471888 src:1997482176 reqid:0x384b44e7
+#	Data
+#	  END_RECOVERY srvid:0x2a2c9aba08211bd0 client_id:0x562b7ef1 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@RELOAD_NODES_FILE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 1d e4 da 03
+	[0010] 07 00 00 00 cf 6f 53 74  3a 29 b8 54 e8 18 16 17
+	[0020] 48 00 00 00 2b 30 d5 3b  1e 58 58 2d 6d ba cb 49
+	[0030] a9 4f c2 78 72 c4 dd 14  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3dae41d
+#	  REQ_CONTROL dst:1951625167 src:1421355322 reqid:0x171618e8
+#	Data
+#	  RELOAD_NODES_FILE srvid:0x49cbba6d2d58581e client_id:0x78c24fa9 OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(73) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 8f f9 fd 78
+	[0010] 07 00 00 00 93 a3 a9 59  11 6b 76 21 08 76 4c 6e
+	[0020] 49 00 00 00 be 58 8e 35  0e f8 7a 18 11 50 6b 4b
+	[0030] a7 53 96 50 35 79 da 72  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x78fdf98f
+#	  REQ_CONTROL dst:1504289683 src:561408785 reqid:0x6e4c7608
+#	Data
+#	  UNKNOWN(73) srvid:0x4b6b5011187af80e client_id:0x509653a7 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRY_DELETE_RECORDS length(96) {
+	[0000] 60 00 00 00 42 44 54 43  01 00 00 00 a2 a8 f6 13
+	[0010] 07 00 00 00 99 f2 c4 1c  e6 21 3f 1a e1 f4 a1 64
+	[0020] 4a 00 00 00 1a 24 5c 70  1c 19 1c 11 2c 46 f9 6f
+	[0030] ad 6c b7 18 5a 03 19 5c  1d 00 00 00 7d 54 0c 4c
+	[0040] 01 00 00 00 15 00 00 00  9d d4 b6 0d 03 00 00 00
+	[0050] 02 00 00 00 e6 8c 53 97  ff 00 00 00 00 00 00 00
+}
+#	Buffer len:96
+#	Header
+#	  length:96 magic:0x43544442 version:1 generation:0x13f6a8a2
+#	  REQ_CONTROL dst:482669209 src:440345062 reqid:0x64a1f4e1
+#	Data
+#	  TRY_DELETE_RECORDS srvid:0x6ff9462c111c191c client_id:0x18b76cad OPCODE_SPECIFIC
+
+sample ctdb_req_control@ENABLE_MONITOR length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 66 9f c3 3e
+	[0010] 07 00 00 00 1c d4 27 15  e3 2f 6f 25 e7 13 30 0c
+	[0020] 4b 00 00 00 e6 24 bb 3f  1d da c3 39 d4 54 56 23
+	[0030] cf c5 0d 4b 1e 1f 0c 54  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3ec39f66
+#	  REQ_CONTROL dst:354931740 src:628043747 reqid:0xc3013e7
+#	Data
+#	  ENABLE_MONITOR srvid:0x235654d439c3da1d client_id:0x4b0dc5cf OPCODE_SPECIFIC
+
+sample ctdb_req_control@DISABLE_MONITOR length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 97 38 8e 3b
+	[0010] 07 00 00 00 84 6f 5d 1c  5b 21 f7 10 0b a3 a5 43
+	[0020] 4c 00 00 00 1b aa 66 7d  9e bf 88 2e 30 5c d7 4d
+	[0030] a4 87 3f 08 26 14 ab 05  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3b8e3897
+#	  REQ_CONTROL dst:475885444 src:284631387 reqid:0x43a5a30b
+#	Data
+#	  DISABLE_MONITOR srvid:0x4dd75c302e88bf9e client_id:0x83f87a4 OPCODE_SPECIFIC
+
+sample ctdb_req_control@ADD_PUBLIC_IP length(104) {
+	[0000] 68 00 00 00 42 44 54 43  01 00 00 00 80 07 90 4f
+	[0010] 07 00 00 00 33 65 50 51  2a 15 67 07 2d ed 0f 52
+	[0020] 4d 00 00 00 3b dc 3c 48  fe e3 67 39 30 6b b0 5e
+	[0030] 7e 86 71 1a 8b 3f 5e 5b  28 00 00 00 0a 00 a8 3d
+	[0040] 00 00 00 00 e8 2f 5b bc  cb f6 60 9c 97 86 59 cb
+	[0050] 99 85 ce 10 00 00 00 00  1d 00 00 00 04 00 00 00
+	[0060] 49 47 50 00 00 00 00 00
+}
+#	Buffer len:104
+#	Header
+#	  length:104 magic:0x43544442 version:1 generation:0x4f900780
+#	  REQ_CONTROL dst:1364223283 src:124196138 reqid:0x520fed2d
+#	Data
+#	  ADD_PUBLIC_IP srvid:0x5eb06b303967e3fe client_id:0x1a71867e NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DEL_PUBLIC_IP length(104) {
+	[0000] 68 00 00 00 42 44 54 43  01 00 00 00 20 55 be 6c
+	[0010] 07 00 00 00 33 3d df 39  0d b5 f4 48 e0 48 c4 75
+	[0020] 4e 00 00 00 17 b6 38 03  33 76 be 67 41 90 24 6a
+	[0030] 4d 7e 0a 15 a2 96 58 7d  26 00 00 00 02 00 53 d7
+	[0040] eb 71 93 65 00 00 00 00  00 00 00 00 00 00 00 00
+	[0050] 00 00 00 00 00 00 00 00  13 00 00 00 02 00 00 00
+	[0060] 59 00 00 00 00 00 00 00
+}
+#	Buffer len:104
+#	Header
+#	  length:104 magic:0x43544442 version:1 generation:0x6cbe5520
+#	  REQ_CONTROL dst:970931507 src:1223996685 reqid:0x75c448e0
+#	Data
+#	  DEL_PUBLIC_IP srvid:0x6a24904167be7633 client_id:0x150a7e4d OPCODE_SPECIFIC
+
+sample ctdb_req_control@RUN_EVENTSCRIPTS length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 56 81 1a 27
+	[0010] 07 00 00 00 e9 6f 80 45  89 50 86 6f c9 aa b7 01
+	[0020] 4f 00 00 00 7a ae bf 0e  ea 4b cf 2c 40 12 c3 03
+	[0030] c7 22 46 49 f3 95 f3 7e  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x271a8156
+#	  REQ_CONTROL dst:1166045161 src:1871073417 reqid:0x1b7aac9
+#	Data
+#	  RUN_EVENTSCRIPTS srvid:0x3c312402ccf4bea client_id:0x494622c7 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_CAPABILITIES length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 88 b9 7a 12
+	[0010] 07 00 00 00 70 d0 ac 67  16 22 7b 6c 35 a8 02 00
+	[0020] 50 00 00 00 91 82 3c 1e  01 6f a2 76 fe 37 79 67
+	[0030] 00 35 50 56 7b 24 b6 65  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x127ab988
+#	  REQ_CONTROL dst:1739378800 src:1820008982 reqid:0x2a835
+#	Data
+#	  GET_CAPABILITIES srvid:0x677937fe76a26f01 client_id:0x56503500 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@START_PERSISTENT_UPDATE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 bb 33 d2 35
+	[0010] 07 00 00 00 cc 76 6e 0b  fc 4a 80 19 55 ac 1e 11
+	[0020] 51 00 00 00 7a cf 56 2f  7a 08 8b 7a 9e 8f 15 7c
+	[0030] 4a d5 4c 20 0a 58 f1 3c  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x35d233bb
+#	  REQ_CONTROL dst:191788748 src:427838204 reqid:0x111eac55
+#	Data
+#	  START_PERSISTENT_UPDATE srvid:0x7c158f9e7a8b087a client_id:0x204cd54a OPCODE_SPECIFIC
+
+sample ctdb_req_control@CANCEL_PERSISTENT_UPDATE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 06 bc 4a 77
+	[0010] 07 00 00 00 a1 32 c4 0a  c9 85 f1 74 29 77 32 73
+	[0020] 52 00 00 00 d1 9b 29 5e  f3 ef 39 58 75 50 10 28
+	[0030] 6d 47 7e 1d 55 68 8c 10  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x774abc06
+#	  REQ_CONTROL dst:180630177 src:1961985481 reqid:0x73327729
+#	Data
+#	  CANCEL_PERSISTENT_UPDATE srvid:0x281050755839eff3 client_id:0x1d7e476d NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRANS2_COMMIT length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 e4 35 87 7f
+	[0010] 07 00 00 00 52 10 ff 27  e0 77 95 5e 4b 52 2a 28
+	[0020] 53 00 00 00 28 30 eb 30  2e b7 fb 20 2e b4 bf 19
+	[0030] 61 c3 cc 1e 25 38 92 10  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x7f8735e4
+#	  REQ_CONTROL dst:671027282 src:1586853856 reqid:0x282a524b
+#	Data
+#	  TRANS2_COMMIT srvid:0x19bfb42e20fbb72e client_id:0x1eccc361 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRANS2_FINISHED length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 3d d6 69 43
+	[0010] 07 00 00 00 30 8c 44 09  43 75 2c 3e 10 ed 20 6b
+	[0020] 54 00 00 00 c8 5f 51 4d  1f 10 f6 7e 14 0d 29 4d
+	[0030] 94 f4 0f 47 6e c5 7c 3d  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x4369d63d
+#	  REQ_CONTROL dst:155487280 src:1043100995 reqid:0x6b20ed10
+#	Data
+#	  TRANS2_FINISHED srvid:0x4d290d147ef6101f client_id:0x470ff494 OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRANS2_ERROR length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 5a 96 6f 27
+	[0010] 07 00 00 00 9a c0 c2 15  86 85 aa 42 67 72 eb 50
+	[0020] 55 00 00 00 16 e1 fc 63  f8 b8 20 1d b4 10 5a 24
+	[0030] 42 ba 31 3e 41 49 b8 12  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x276f965a
+#	  REQ_CONTROL dst:365084826 src:1118471558 reqid:0x50eb7267
+#	Data
+#	  TRANS2_ERROR srvid:0x245a10b41d20b8f8 client_id:0x3e31ba42 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRANS2_COMMIT_RETRY length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 14 c5 f2 5f
+	[0010] 07 00 00 00 a7 28 03 52  51 f4 8c 01 07 3c f2 0f
+	[0020] 56 00 00 00 e6 02 0e 75  b7 95 66 65 f8 72 4e 44
+	[0030] 56 3e 56 6c 25 80 16 3b  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x5ff2c514
+#	  REQ_CONTROL dst:1375938727 src:26014801 reqid:0xff23c07
+#	Data
+#	  TRANS2_COMMIT_RETRY srvid:0x444e72f8656695b7 client_id:0x6c563e56 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@RECD_PING length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 f1 5e 37 20
+	[0010] 07 00 00 00 04 41 26 2f  96 84 1b 35 5e a5 ef 77
+	[0020] 57 00 00 00 b1 fc 41 21  cf d9 e3 3c f7 af e9 36
+	[0030] 26 65 60 12 98 ee 79 20  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x20375ef1
+#	  REQ_CONTROL dst:791036164 src:890995862 reqid:0x77efa55e
+#	Data
+#	  RECD_PING srvid:0x36e9aff73ce3d9cf client_id:0x12606526 OPCODE_SPECIFIC
+
+sample ctdb_req_control@RELEASE_IP length(96) {
+	[0000] 60 00 00 00 42 44 54 43  01 00 00 00 71 9b aa 23
+	[0010] 07 00 00 00 8f 6c 6e 6f  d5 8a 47 5e 2a d9 55 68
+	[0020] 58 00 00 00 fd bf 2f 19  6b f3 9a 71 46 cb c2 4b
+	[0030] d6 d2 36 11 b8 75 c3 69  20 00 00 00 01 a7 be 42
+	[0040] 0a 00 68 3f 00 00 00 00  88 46 13 2d 86 62 cf 23
+	[0050] 21 1e 24 11 79 5c 57 16  00 00 00 00 00 00 00 00
+}
+#	Buffer len:96
+#	Header
+#	  length:96 magic:0x43544442 version:1 generation:0x23aa9b71
+#	  REQ_CONTROL dst:1869507727 src:1581746901 reqid:0x6855d92a
+#	Data
+#	  RELEASE_IP srvid:0x4bc2cb46719af36b client_id:0x1136d2d6 OPCODE_SPECIFIC
+
+sample ctdb_req_control@TAKEOVER_IP length(96) {
+	[0000] 60 00 00 00 42 44 54 43  01 00 00 00 bd 3f a4 4e
+	[0010] 07 00 00 00 db 8b 79 3c  ea 3e 54 4a 4d ff f5 4b
+	[0020] 59 00 00 00 05 50 40 6d  5a b5 60 4a 1c 57 be 56
+	[0030] d4 d6 54 4c 21 5d a0 45  20 00 00 00 93 b4 b6 2a
+	[0040] 0a 00 7f e7 00 00 00 00  33 6c a9 9a 86 be e2 e6
+	[0050] 32 b3 e4 40 08 8c db 77  00 00 00 00 00 00 00 00
+}
+#	Buffer len:96
+#	Header
+#	  length:96 magic:0x43544442 version:1 generation:0x4ea43fbd
+#	  REQ_CONTROL dst:1014598619 src:1247035114 reqid:0x4bf5ff4d
+#	Data
+#	  TAKEOVER_IP srvid:0x56be571c4a60b55a client_id:0x4c54d6d4 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_PUBLIC_IPS length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 1d 94 ac 57
+	[0010] 07 00 00 00 fa 96 44 40  60 19 d8 16 d2 a7 15 4e
+	[0020] 5a 00 00 00 36 eb 60 41  64 e1 21 62 4b ce 0e 21
+	[0030] 4f dc fe 67 52 de 91 08  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x57ac941d
+#	  REQ_CONTROL dst:1078236922 src:383261024 reqid:0x4e15a7d2
+#	Data
+#	  GET_PUBLIC_IPS srvid:0x210ece4b6221e164 client_id:0x67fedc4f OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_NODEMAP length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 d4 8b ce 54
+	[0010] 07 00 00 00 fd 13 02 1b  37 9a 0f 11 71 7b df 4d
+	[0020] 5b 00 00 00 fe 8c af 28  a7 0c 60 14 76 be 2a 27
+	[0030] 61 57 08 35 f3 4d 28 74  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x54ce8bd4
+#	  REQ_CONTROL dst:453121021 src:286235191 reqid:0x4ddf7b71
+#	Data
+#	  GET_NODEMAP srvid:0x272abe7614600ca7 client_id:0x35085761 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(92) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 b5 d1 34 1a
+	[0010] 07 00 00 00 4b c9 72 77  a5 ef 80 0b 54 09 2a 6e
+	[0020] 5c 00 00 00 bb 83 15 70  65 ca b4 74 4e e9 9a 26
+	[0030] 93 6e 6b 2c 20 da ab 20  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x1a34d1b5
+#	  REQ_CONTROL dst:2004011339 src:192999333 reqid:0x6e2a0954
+#	Data
+#	  UNKNOWN(92) srvid:0x269ae94e74b4ca65 client_id:0x2c6b6e93 OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(93) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 83 9a 89 19
+	[0010] 07 00 00 00 ef f6 2b 3e  36 93 54 02 02 21 72 0b
+	[0020] 5d 00 00 00 ca af a3 35  32 8d 7a 64 a2 89 f7 41
+	[0030] 4a 25 df 02 a5 9e d5 5a  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x19899a83
+#	  REQ_CONTROL dst:1043068655 src:39097142 reqid:0xb722102
+#	Data
+#	  UNKNOWN(93) srvid:0x41f789a2647a8d32 client_id:0x2df254a NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(94) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 9d de 2b 29
+	[0010] 07 00 00 00 f0 eb d1 29  ab 38 85 53 ac a0 a6 38
+	[0020] 5e 00 00 00 64 29 5b 02  6d 50 9b 41 23 a9 02 3b
+	[0030] 97 0a 99 51 44 a6 d8 08  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x292bde9d
+#	  REQ_CONTROL dst:701623280 src:1401239723 reqid:0x38a6a0ac
+#	Data
+#	  UNKNOWN(94) srvid:0x3b02a923419b506d client_id:0x51990a97 OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(95) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 31 6b ef 55
+	[0010] 07 00 00 00 cc 6b 1f 4a  b4 ba ce 7f 75 eb 09 7f
+	[0020] 5f 00 00 00 da 0a b5 01  66 e8 15 45 92 c4 3f 5d
+	[0030] 68 da 1e 03 27 1e 75 25  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x55ef6b31
+#	  REQ_CONTROL dst:1243573196 src:2144254644 reqid:0x7f09eb75
+#	Data
+#	  UNKNOWN(95) srvid:0x5d3fc4924515e866 client_id:0x31eda68 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_EVENT_SCRIPT_STATUS length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 fb 2b 97 0e
+	[0010] 07 00 00 00 f1 04 44 67  bf 62 97 7f 45 03 25 59
+	[0020] 60 00 00 00 1e 4e b7 76  30 78 58 45 d0 1a 35 70
+	[0030] a9 0e 1f 3f 50 5f 37 19  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0xe972bfb
+#	  REQ_CONTROL dst:1732510961 src:2140627647 reqid:0x59250345
+#	Data
+#	  GET_EVENT_SCRIPT_STATUS srvid:0x70351ad045587830 client_id:0x3f1f0ea9 OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRAVERSE_KILL length(80) {
+	[0000] 50 00 00 00 42 44 54 43  01 00 00 00 40 b6 e0 7f
+	[0010] 07 00 00 00 7c ec a0 37  57 33 ec 54 63 32 32 25
+	[0020] 61 00 00 00 75 ee 21 0d  7d f2 10 47 8a 24 c7 1b
+	[0030] a6 37 95 3a 88 9e 6b 73  10 00 00 00 33 d1 24 26
+	[0040] 74 a6 6c 7b f9 1e 65 1e  bc fb d6 18 00 00 00 00
+}
+#	Buffer len:80
+#	Header
+#	  length:80 magic:0x43544442 version:1 generation:0x7fe0b640
+#	  REQ_CONTROL dst:933293180 src:1424765783 reqid:0x25323263
+#	Data
+#	  TRAVERSE_KILL srvid:0x1bc7248a4710f27d client_id:0x3a9537a6 OPCODE_SPECIFIC
+
+sample ctdb_req_control@RECD_RECLOCK_LATENCY length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 e0 fc b8 14
+	[0010] 07 00 00 00 92 56 a6 4a  13 36 71 27 c2 87 57 47
+	[0020] 62 00 00 00 38 6c 32 1a  64 8a 75 4e 35 0a 90 55
+	[0030] 81 5d 94 48 67 65 01 53  08 00 00 00 a5 c1 07 3a
+	[0040] df a8 01 3c 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x14b8fce0
+#	  REQ_CONTROL dst:1252415122 src:661730835 reqid:0x475787c2
+#	Data
+#	  RECD_RECLOCK_LATENCY srvid:0x55900a354e758a64 client_id:0x48945d81 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_RECLOCK_FILE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 4e c2 37 2e
+	[0010] 07 00 00 00 8a 7d 4f 12  15 b3 d3 31 53 5e c3 47
+	[0020] 63 00 00 00 b5 48 1f 12  e4 21 4e 45 50 bf 09 28
+	[0030] 81 d5 d2 60 2c 6a 38 15  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x2e37c24e
+#	  REQ_CONTROL dst:307199370 src:835957525 reqid:0x47c35e53
+#	Data
+#	  GET_RECLOCK_FILE srvid:0x2809bf50454e21e4 client_id:0x60d2d581 OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(100) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 3c 7f 02 61
+	[0010] 07 00 00 00 c8 71 a9 33  62 4e c0 13 a2 66 8e 18
+	[0020] 64 00 00 00 35 cf b7 01  4a e9 14 3b de f6 97 2c
+	[0030] d9 9a ba 43 fc 5f dd 08  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x61027f3c
+#	  REQ_CONTROL dst:866742728 src:331370082 reqid:0x188e66a2
+#	Data
+#	  UNKNOWN(100) srvid:0x2c97f6de3b14e94a client_id:0x43ba9ad9 OPCODE_SPECIFIC
+
+sample ctdb_req_control@STOP_NODE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 78 2f 90 7d
+	[0010] 07 00 00 00 2d fc ff 0f  2a 1a 49 3d b0 ac 03 4f
+	[0020] 65 00 00 00 d5 ec b7 79  70 14 e1 07 3b 40 b7 1c
+	[0030] 3f 66 33 66 04 da 63 6b  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x7d902f78
+#	  REQ_CONTROL dst:268434477 src:1028201002 reqid:0x4f03acb0
+#	Data
+#	  STOP_NODE srvid:0x1cb7403b07e11470 client_id:0x6633663f OPCODE_SPECIFIC
+
+sample ctdb_req_control@CONTINUE_NODE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 2a 3a a4 27
+	[0010] 07 00 00 00 02 58 37 6a  15 6e 40 1b 87 ba 95 6b
+	[0020] 66 00 00 00 d8 c3 23 47  8e 6d c8 14 4a e7 b3 74
+	[0030] c0 76 94 39 be 5f 11 7a  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x27a43a2a
+#	  REQ_CONTROL dst:1782011906 src:457207317 reqid:0x6b95ba87
+#	Data
+#	  CONTINUE_NODE srvid:0x74b3e74a14c86d8e client_id:0x399476c0 OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_NATGWSTATE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 3e 29 29 3f
+	[0010] 07 00 00 00 f0 8a 87 39  8b bb b0 6b 97 f0 48 34
+	[0020] 67 00 00 00 a9 20 f2 1d  ce ac f9 6c 91 c9 f3 36
+	[0030] 56 db 4f 78 41 71 30 66  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3f29293e
+#	  REQ_CONTROL dst:965184240 src:1806744459 reqid:0x3448f097
+#	Data
+#	  SET_NATGWSTATE srvid:0x36f3c9916cf9acce client_id:0x784fdb56 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_LMASTERROLE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 72 30 38 78
+	[0010] 07 00 00 00 09 fd 2c 12  63 eb 16 29 da c8 f9 18
+	[0020] 68 00 00 00 15 9c 09 70  c7 2f be 08 ac 49 15 23
+	[0030] 11 3f 8d 1c ea 89 ac 51  04 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x78383072
+#	  REQ_CONTROL dst:304938249 src:689367907 reqid:0x18f9c8da
+#	Data
+#	  SET_LMASTERROLE srvid:0x231549ac08be2fc7 client_id:0x1c8d3f11 OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_RECMASTERROLE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 85 83 3a 1f
+	[0010] 07 00 00 00 0e 8d a8 33  28 77 72 7e e4 a3 b0 7a
+	[0020] 69 00 00 00 80 85 05 13  b4 4c e4 28 32 85 d1 76
+	[0030] dd e1 e6 54 a0 a0 36 38  04 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x1f3a8385
+#	  REQ_CONTROL dst:866684174 src:2121430824 reqid:0x7ab0a3e4
+#	Data
+#	  SET_RECMASTERROLE srvid:0x76d1853228e44cb4 client_id:0x54e6e1dd OPCODE_SPECIFIC
+
+sample ctdb_req_control@UNKNOWN(106) length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 07 13 52 13
+	[0010] 07 00 00 00 8b f1 43 1b  cf a1 01 00 b1 23 3c 1f
+	[0020] 6a 00 00 00 46 7b c3 10  03 b9 a9 54 44 41 ae 43
+	[0030] 05 3a 2f 13 95 03 af 76  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x13521307
+#	  REQ_CONTROL dst:457437579 src:106959 reqid:0x1f3c23b1
+#	Data
+#	  UNKNOWN(106) srvid:0x43ae414454a9b903 client_id:0x132f3a05 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@ENABLE_SCRIPT length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 e6 52 26 7d
+	[0010] 07 00 00 00 14 30 fa 2c  86 41 79 4e 36 00 bb 42
+	[0020] 6b 00 00 00 23 14 53 6a  bc 76 41 1c f2 4f d7 35
+	[0030] 4a a3 a1 6e c5 f1 d0 1e  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x7d2652e6
+#	  REQ_CONTROL dst:754593812 src:1316569478 reqid:0x42bb0036
+#	Data
+#	  ENABLE_SCRIPT srvid:0x35d74ff21c4176bc client_id:0x6ea1a34a NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DISABLE_SCRIPT length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 25 07 84 4f
+	[0010] 07 00 00 00 a0 ce ac 01  24 53 ac 79 9b b2 38 22
+	[0020] 6c 00 00 00 13 91 e9 50  a6 3c ea 0e 6b 8b 0c 41
+	[0030] 62 91 ed 4f 21 86 90 27  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x4f840725
+#	  REQ_CONTROL dst:28102304 src:2041336612 reqid:0x2238b29b
+#	Data
+#	  DISABLE_SCRIPT srvid:0x410c8b6b0eea3ca6 client_id:0x4fed9162 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_BAN_STATE length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 46 e6 20 5f
+	[0010] 07 00 00 00 e1 d7 60 0c  d9 01 52 2e 51 d2 84 5b
+	[0020] 6d 00 00 00 78 b3 9f 6c  b5 f9 68 41 14 64 57 6e
+	[0030] b8 fd 2c 1a 7d cc 6c 7f  08 00 00 00 42 52 7a 49
+	[0040] ad 36 4b 49 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x5f20e646
+#	  REQ_CONTROL dst:207673313 src:777126361 reqid:0x5b84d251
+#	Data
+#	  SET_BAN_STATE srvid:0x6e5764144168f9b5 client_id:0x1a2cfdb8 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_BAN_STATE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 e7 d9 4d 27
+	[0010] 07 00 00 00 9d 67 32 25  d0 f1 52 0d 26 85 3d 2e
+	[0020] 6e 00 00 00 c9 c8 56 51  34 8e bc 5d b8 65 68 43
+	[0030] d4 ff a3 5b 2c 64 e5 09  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x274dd9e7
+#	  REQ_CONTROL dst:624060317 src:223539664 reqid:0x2e3d8526
+#	Data
+#	  GET_BAN_STATE srvid:0x436865b85dbc8e34 client_id:0x5ba3ffd4 OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_DB_PRIORITY length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 6d 72 26 21
+	[0010] 07 00 00 00 c8 ac 10 0c  ab 91 e4 43 2b 38 c2 7d
+	[0020] 6f 00 00 00 62 d4 1c 17  6b 3c 9b 33 bc c9 40 7a
+	[0030] 5a 45 8a 2a 72 94 bd 4d  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x2126726d
+#	  REQ_CONTROL dst:202419400 src:1139052971 reqid:0x7dc2382b
+#	Data
+#	  SET_DB_PRIORITY srvid:0x7a40c9bc339b3c6b client_id:0x2a8a455a OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_DB_PRIORITY length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 ba 91 25 05
+	[0010] 07 00 00 00 9f fb f3 52  d9 d0 dd 49 50 94 30 5c
+	[0020] 70 00 00 00 1c 6d e7 37  06 c5 fa 16 7b 1b 38 48
+	[0030] 68 7a 5d 7f ac 88 e8 60  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x52591ba
+#	  REQ_CONTROL dst:1391721375 src:1239273689 reqid:0x5c309450
+#	Data
+#	  GET_DB_PRIORITY srvid:0x48381b7b16fac506 client_id:0x7f5d7a68 OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRANSACTION_CANCEL length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 0d 9a cc 36
+	[0010] 07 00 00 00 59 ec 2b 52  f3 94 ae 04 48 43 e5 07
+	[0020] 71 00 00 00 5f b4 f9 38  39 9f a0 47 b4 b1 16 45
+	[0030] 81 86 e1 31 b4 4f 91 32  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x36cc9a0d
+#	  REQ_CONTROL dst:1378610265 src:78550259 reqid:0x7e54348
+#	Data
+#	  TRANSACTION_CANCEL srvid:0x4516b1b447a09f39 client_id:0x31e18681 OPCODE_SPECIFIC
+
+sample ctdb_req_control@REGISTER_NOTIFY length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 6d c4 20 7d
+	[0010] 07 00 00 00 a4 83 59 03  27 97 44 24 01 65 a2 79
+	[0020] 72 00 00 00 8e db 18 36  9e be b8 24 69 1b cd 0b
+	[0030] c5 eb 92 74 83 30 74 4d  0c 00 00 00 54 2c 07 0b
+	[0040] dc 43 7c 1f 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x7d20c46d
+#	  REQ_CONTROL dst:56198052 src:608474919 reqid:0x79a26501
+#	Data
+#	  REGISTER_NOTIFY srvid:0xbcd1b6924b8be9e client_id:0x7492ebc5 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DEREGISTER_NOTIFY length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 bd b3 3a 42
+	[0010] 07 00 00 00 18 4e 13 4b  e3 f8 f7 49 e0 4a 3d 47
+	[0020] 73 00 00 00 36 f7 ce 00  e2 a2 26 6b 8b 55 cc 7f
+	[0030] 51 e1 8a 52 f4 d2 87 25  08 00 00 00 f7 12 32 54
+	[0040] 03 b8 3d 1f 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x423ab3bd
+#	  REQ_CONTROL dst:1259556376 src:1240987875 reqid:0x473d4ae0
+#	Data
+#	  DEREGISTER_NOTIFY srvid:0x7fcc558b6b26a2e2 client_id:0x528ae151 OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRANS2_ACTIVE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 d4 90 81 30
+	[0010] 07 00 00 00 b0 0c 31 65  89 7f 68 36 fa a3 0f 44
+	[0020] 74 00 00 00 52 f4 21 64  2e c0 3a 62 2e 21 66 53
+	[0030] d6 a7 61 23 ce ba 40 32  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x308190d4
+#	  REQ_CONTROL dst:1697713328 src:912818057 reqid:0x440fa3fa
+#	Data
+#	  TRANS2_ACTIVE srvid:0x5366212e623ac02e client_id:0x2361a7d6 OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_LOG length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 69 9f 07 1b
+	[0010] 07 00 00 00 fd 36 02 5b  fd 72 56 7f 94 4a b6 2f
+	[0020] 75 00 00 00 5f 1c ca 7e  c9 16 57 6e 94 54 e0 02
+	[0030] cf ce 37 4f d4 5f 4f 07  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x1b079f69
+#	  REQ_CONTROL dst:1526871805 src:2136371965 reqid:0x2fb64a94
+#	Data
+#	  GET_LOG srvid:0x2e054946e5716c9 client_id:0x4f37cecf OPCODE_SPECIFIC
+
+sample ctdb_req_control@CLEAR_LOG length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 c4 e9 fb 00
+	[0010] 07 00 00 00 05 eb 74 27  a0 7e 9e 46 aa 27 28 47
+	[0020] 76 00 00 00 a6 9d d3 56  82 52 52 17 bc 5a ef 51
+	[0030] 73 61 69 78 b8 c1 67 3b  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0xfbe9c4
+#	  REQ_CONTROL dst:661973765 src:1184792224 reqid:0x472827aa
+#	Data
+#	  CLEAR_LOG srvid:0x51ef5abc17525282 client_id:0x78696173 OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRANS3_COMMIT length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 5e 75 41 22
+	[0010] 07 00 00 00 6b ad 54 2a  e2 3f 72 02 6b 37 95 62
+	[0020] 77 00 00 00 75 1a 7b 6b  f7 42 79 26 03 ad 74 15
+	[0030] ef 06 d5 02 f8 15 37 56  08 00 00 00 c9 f2 fb 57
+	[0040] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x2241755e
+#	  REQ_CONTROL dst:710192491 src:41041890 reqid:0x6295376b
+#	Data
+#	  TRANS3_COMMIT srvid:0x1574ad03267942f7 client_id:0x2d506ef OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_DB_SEQNUM length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 b5 d4 7f 39
+	[0010] 07 00 00 00 81 38 e7 65  8a 4b 14 47 40 94 fb 27
+	[0020] 78 00 00 00 13 1e b4 5c  a0 e1 be 4f a3 76 29 36
+	[0030] 61 e5 2b 16 c4 bc 0c 24  08 00 00 00 dc 9a ac 19
+	[0040] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x397fd4b5
+#	  REQ_CONTROL dst:1709652097 src:1192512394 reqid:0x27fb9440
+#	Data
+#	  GET_DB_SEQNUM srvid:0x362976a34fbee1a0 client_id:0x162be561 OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_SET_HEALTHY length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 fa 21 4b 2c
+	[0010] 07 00 00 00 68 f7 5a 4c  7c 5c f2 1a 65 4f 1d 53
+	[0020] 79 00 00 00 94 17 9d 6c  f3 b3 03 00 6c 11 58 09
+	[0030] d5 a3 5d 7a 29 6a e6 69  04 00 00 00 f5 7f 4b 47
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x2c4b21fa
+#	  REQ_CONTROL dst:1281029992 src:452091004 reqid:0x531d4f65
+#	Data
+#	  DB_SET_HEALTHY srvid:0x958116c0003b3f3 client_id:0x7a5da3d5 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_GET_HEALTH length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 66 a3 54 1d
+	[0010] 07 00 00 00 8f 4c 15 16  a0 75 7d 12 fe bc 2b 37
+	[0020] 7a 00 00 00 37 c5 fa 0f  31 2f e1 6d 87 37 83 5f
+	[0030] f9 44 e3 08 ea d6 ed 67  04 00 00 00 c6 ce b1 63
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x1d54a366
+#	  REQ_CONTROL dst:370494607 src:310212000 reqid:0x372bbcfe
+#	Data
+#	  DB_GET_HEALTH srvid:0x5f8337876de12f31 client_id:0x8e344f9 OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_PUBLIC_IP_INFO length(88) {
+	[0000] 58 00 00 00 42 44 54 43  01 00 00 00 93 62 08 67
+	[0010] 07 00 00 00 fb 55 2b 59  d3 43 df 31 d0 02 e0 49
+	[0020] 7b 00 00 00 a4 1a ab 0c  a9 78 ae 48 8c b3 62 4c
+	[0030] 41 b4 f8 09 7d d5 e3 01  1c 00 00 00 02 00 c1 18
+	[0040] 97 8b 7c 45 00 00 00 00  00 00 00 00 00 00 00 00
+	[0050] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:88
+#	Header
+#	  length:88 magic:0x43544442 version:1 generation:0x67086293
+#	  REQ_CONTROL dst:1496012283 src:836715475 reqid:0x49e002d0
+#	Data
+#	  GET_PUBLIC_IP_INFO srvid:0x4c62b38c48ae78a9 client_id:0x9f8b441 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_IFACES length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 f5 80 30 70
+	[0010] 07 00 00 00 83 04 b1 2b  07 04 88 32 df aa 32 06
+	[0020] 7c 00 00 00 4e 38 6e 08  e2 22 4b 24 3d e6 0b 2d
+	[0030] 0c 24 dd 74 4d 37 1c 41  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x703080f5
+#	  REQ_CONTROL dst:733021315 src:847774727 reqid:0x632aadf
+#	Data
+#	  GET_IFACES srvid:0x2d0be63d244b22e2 client_id:0x74dd240c NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_IFACE_LINK_STATE length(88) {
+	[0000] 58 00 00 00 42 44 54 43  01 00 00 00 2a f0 72 33
+	[0010] 07 00 00 00 a3 fd e4 1b  60 de f5 3b 47 f3 27 26
+	[0020] 7d 00 00 00 bc 17 00 00  d8 1e 28 4e a7 f5 f4 76
+	[0030] 2e ae 48 2a c1 af 37 22  18 00 00 00 45 54 4d 4e
+	[0040] 45 49 55 58 4d 4d 57 41  59 52 4c 59 45 00 07 da
+	[0050] cd e3 4d 5a 00 00 00 00
+}
+#	Buffer len:88
+#	Header
+#	  length:88 magic:0x43544442 version:1 generation:0x3372f02a
+#	  REQ_CONTROL dst:467991971 src:1005968992 reqid:0x2627f347
+#	Data
+#	  SET_IFACE_LINK_STATE srvid:0x76f4f5a74e281ed8 client_id:0x2a48ae2e NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TCP_ADD_DELAYED_UPDATE length(120) {
+	[0000] 78 00 00 00 42 44 54 43  01 00 00 00 4a 5c 85 7e
+	[0010] 07 00 00 00 8c 8e 7d 56  ec 30 d7 67 7f e9 d6 34
+	[0020] 7e 00 00 00 1e b8 2d 6f  0b 03 be 11 a6 f6 03 36
+	[0030] c0 9b a0 03 bd e7 2e 6f  38 00 00 00 02 00 2b 8c
+	[0040] cc 3e 03 11 00 00 00 00  00 00 00 00 00 00 00 00
+	[0050] 00 00 00 00 00 00 00 00  0a 00 ac 8e 00 00 00 00
+	[0060] e3 d1 bf b5 98 19 bc b2  5c 81 16 71 59 56 e2 e9
+	[0070] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:120
+#	Header
+#	  length:120 magic:0x43544442 version:1 generation:0x7e855c4a
+#	  REQ_CONTROL dst:1451069068 src:1742156012 reqid:0x34d6e97f
+#	Data
+#	  TCP_ADD_DELAYED_UPDATE srvid:0x3603f6a611be030b client_id:0x3a09bc0 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_STAT_HISTORY length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 18 05 75 01
+	[0010] 07 00 00 00 31 ab fc 6c  1a e7 2a 7c ef da 4f 21
+	[0020] 7f 00 00 00 1f 20 a8 28  89 f2 ad 5e ec be 83 7b
+	[0030] b4 36 ae 19 91 eb 35 16  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x1750518
+#	  REQ_CONTROL dst:1828498225 src:2083186458 reqid:0x214fdaef
+#	Data
+#	  GET_STAT_HISTORY srvid:0x7b83beec5eadf289 client_id:0x19ae36b4 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@SCHEDULE_FOR_DELETION length(104) {
+	[0000] 68 00 00 00 42 44 54 43  01 00 00 00 b5 f7 2b 54
+	[0010] 07 00 00 00 91 86 cc 4b  89 d4 fe 37 11 d0 74 44
+	[0020] 80 00 00 00 e7 16 e9 71  17 dd e7 32 4a 14 49 24
+	[0030] b3 71 81 1c 93 fd 9c 47  25 00 00 00 fe f0 1f 4f
+	[0040] 00 00 00 00 11 e9 9e 7a  a9 c7 93 49 1e 44 68 24
+	[0050] be 3e 09 13 63 03 be 35  00 00 00 00 01 00 00 00
+	[0060] 7b 00 00 00 00 00 00 00
+}
+#	Buffer len:104
+#	Header
+#	  length:104 magic:0x43544442 version:1 generation:0x542bf7b5
+#	  REQ_CONTROL dst:1271694993 src:939447433 reqid:0x4474d011
+#	Data
+#	  SCHEDULE_FOR_DELETION srvid:0x2449144a32e7dd17 client_id:0x1c8171b3 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_DB_READONLY length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 1f d2 b6 26
+	[0010] 07 00 00 00 67 a4 39 2d  59 bf 2e 07 e0 ea c0 68
+	[0020] 81 00 00 00 62 75 61 1e  24 94 58 34 a9 10 0e 4b
+	[0030] c1 6d 28 4e 37 2b a6 3c  04 00 00 00 e7 fd bb 4d
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x26b6d21f
+#	  REQ_CONTROL dst:758752359 src:120504153 reqid:0x68c0eae0
+#	Data
+#	  SET_DB_READONLY srvid:0x4b0e10a934589424 client_id:0x4e286dc1 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@CHECK_SRVIDS length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 b3 f2 17 66
+	[0010] 07 00 00 00 51 fa 4d 23  c5 63 c4 07 11 2b 91 31
+	[0020] 82 00 00 00 46 ac 29 5f  a7 07 ac 45 32 94 53 73
+	[0030] 3e 5c 3c 12 1c 91 c4 3f  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x6617f2b3
+#	  REQ_CONTROL dst:592312913 src:130311109 reqid:0x31912b11
+#	Data
+#	  CHECK_SRVIDS srvid:0x7353943245ac07a7 client_id:0x123c5c3e OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRAVERSE_START_EXT length(88) {
+	[0000] 58 00 00 00 42 44 54 43  01 00 00 00 62 7b 4a 33
+	[0010] 07 00 00 00 41 3a 01 1c  d6 f3 be 47 64 c8 5c 61
+	[0020] 83 00 00 00 17 aa ab 57  db d4 63 08 8b aa 39 65
+	[0030] 64 f6 30 5c ac 5f ef 2b  18 00 00 00 b2 db 0e 4d
+	[0040] a9 60 48 1f 25 b4 78 15  91 61 13 3c 01 00 00 00
+	[0050] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:88
+#	Header
+#	  length:88 magic:0x43544442 version:1 generation:0x334a7b62
+#	  REQ_CONTROL dst:469842497 src:1203696598 reqid:0x615cc864
+#	Data
+#	  TRAVERSE_START_EXT srvid:0x6539aa8b0863d4db client_id:0x5c30f664 OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_DB_STATISTICS length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 1f 69 d1 5c
+	[0010] 07 00 00 00 20 70 46 5d  5b aa e2 28 92 4b 8c 6b
+	[0020] 84 00 00 00 45 8e 1c 49  62 b9 22 4d 47 32 76 38
+	[0030] 3f c8 b9 49 16 e8 58 00  04 00 00 00 12 a9 2e 4a
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x5cd1691f
+#	  REQ_CONTROL dst:1564897312 src:685943387 reqid:0x6b8c4b92
+#	Data
+#	  GET_DB_STATISTICS srvid:0x387632474d22b962 client_id:0x49b9c83f OPCODE_SPECIFIC
+
+sample ctdb_req_control@SET_DB_STICKY length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 05 d6 6b 20
+	[0010] 07 00 00 00 11 6a 77 4e  60 da fa 57 2a fd 85 71
+	[0020] 85 00 00 00 79 b7 16 72  d3 13 bf 31 1f 1d dd 19
+	[0030] 55 03 5b 5a 28 ea 3d 6b  04 00 00 00 8d 35 1f 42
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x206bd605
+#	  REQ_CONTROL dst:1316448785 src:1476057696 reqid:0x7185fd2a
+#	Data
+#	  SET_DB_STICKY srvid:0x19dd1d1f31bf13d3 client_id:0x5a5b0355 OPCODE_SPECIFIC
+
+sample ctdb_req_control@RELOAD_PUBLIC_IPS length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 31 93 25 3a
+	[0010] 07 00 00 00 88 a2 58 74  2c e5 04 79 7c 24 fa 46
+	[0020] 86 00 00 00 ed 29 29 1e  4d 50 8b 67 7b e3 33 59
+	[0030] a6 f4 b4 50 6d ae a8 0f  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3a259331
+#	  REQ_CONTROL dst:1951965832 src:2030363948 reqid:0x46fa247c
+#	Data
+#	  RELOAD_PUBLIC_IPS srvid:0x5933e37b678b504d client_id:0x50b4f4a6 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TRAVERSE_ALL_EXT length(96) {
+	[0000] 60 00 00 00 42 44 54 43  01 00 00 00 c8 00 3c 68
+	[0010] 07 00 00 00 48 21 5f 5a  a4 b9 c8 70 7d c0 ae 1e
+	[0020] 87 00 00 00 88 c6 3a 48  e7 2f 18 3f 81 c5 fa 29
+	[0030] 0e 57 7b 6d be 87 8d 33  20 00 00 00 8a c7 06 1e
+	[0040] 57 3d 20 60 68 e5 ee 21  0c c0 71 01 be 46 a5 18
+	[0050] fe 0d b1 09 01 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:96
+#	Header
+#	  length:96 magic:0x43544442 version:1 generation:0x683c00c8
+#	  REQ_CONTROL dst:1516183880 src:1892202916 reqid:0x1eaec07d
+#	Data
+#	  TRAVERSE_ALL_EXT srvid:0x29fac5813f182fe7 client_id:0x6d7b570e OPCODE_SPECIFIC
+
+sample ctdb_req_control@RECEIVE_RECORDS length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 68 a9 02 3a
+	[0010] 07 00 00 00 48 36 2b 04  8c 4e 28 30 fd 5b 4f 28
+	[0020] 88 00 00 00 37 0e 70 4c  58 75 d6 4d bb 4e 30 1a
+	[0030] 2e 1e 3a 49 b3 75 44 6f  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3a02a968
+#	  REQ_CONTROL dst:69940808 src:807947916 reqid:0x284f5bfd
+#	Data
+#	  RECEIVE_RECORDS srvid:0x1a304ebb4dd67558 client_id:0x493a1e2e NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@IPREALLOCATED length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 e2 6c d3 31
+	[0010] 07 00 00 00 c6 02 70 55  98 06 55 17 0a 45 68 39
+	[0020] 89 00 00 00 b8 6e 7a 7e  b5 d8 b9 18 a4 f2 20 3a
+	[0030] b9 d9 95 72 86 e6 98 6d  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x31d36ce2
+#	  REQ_CONTROL dst:1433404102 src:391448216 reqid:0x3968450a
+#	Data
+#	  IPREALLOCATED srvid:0x3a20f2a418b9d8b5 client_id:0x7295d9b9 OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_RUNSTATE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 d9 5c ee 0c
+	[0010] 07 00 00 00 15 24 c9 17  24 02 08 73 8c c4 72 42
+	[0020] 8a 00 00 00 a6 4a 52 44  b2 1e b3 5a 53 16 a9 18
+	[0030] 64 0d 25 1a 25 e8 40 15  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0xcee5cd9
+#	  REQ_CONTROL dst:399057941 src:1929904676 reqid:0x4272c48c
+#	Data
+#	  GET_RUNSTATE srvid:0x18a916535ab31eb2 client_id:0x1a250d64 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_DETACH length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 ba e3 94 1f
+	[0010] 07 00 00 00 7f 03 66 07  d5 e9 a6 66 a0 9c db 54
+	[0020] 8b 00 00 00 8d 28 9f 39  ca f8 c2 0b ec 7b 24 47
+	[0030] 28 81 95 7e 26 1d 65 42  04 00 00 00 f5 47 2a 60
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x1f94e3ba
+#	  REQ_CONTROL dst:124126079 src:1722214869 reqid:0x54db9ca0
+#	Data
+#	  DB_DETACH srvid:0x47247bec0bc2f8ca client_id:0x7e958128 OPCODE_SPECIFIC
+
+sample ctdb_req_control@GET_NODES_FILE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 67 ba 8d 72
+	[0010] 07 00 00 00 a6 12 04 4e  6e d6 f7 47 c9 99 e5 57
+	[0020] 8c 00 00 00 d0 93 62 09  29 15 b7 09 24 86 5a 49
+	[0030] 68 6e 71 27 9d b5 31 16  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x728dba67
+#	  REQ_CONTROL dst:1308889766 src:1207424622 reqid:0x57e599c9
+#	Data
+#	  GET_NODES_FILE srvid:0x495a862409b71529 client_id:0x27716e68 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_FREEZE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 aa ba 1b 42
+	[0010] 07 00 00 00 63 eb 84 4b  8d e0 67 13 ff 65 c1 71
+	[0020] 8d 00 00 00 dd 29 af 5d  81 22 c7 3d df d4 a5 19
+	[0030] db 12 7e 4d 27 7a e6 7d  04 00 00 00 71 59 7e 5f
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x421bbaaa
+#	  REQ_CONTROL dst:1267002211 src:325574797 reqid:0x71c165ff
+#	Data
+#	  DB_FREEZE srvid:0x19a5d4df3dc72281 client_id:0x4d7e12db NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_THAW length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 5b 85 f2 6e
+	[0010] 07 00 00 00 b8 73 c2 4b  00 9b 8c 68 e1 54 bf 7b
+	[0020] 8e 00 00 00 00 e1 ae 5e  63 a4 13 71 8d 69 b7 72
+	[0030] f1 9e ae 70 17 2a 3f 53  04 00 00 00 bd c0 9a 7a
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x6ef2855b
+#	  REQ_CONTROL dst:1271034808 src:1754045184 reqid:0x7bbf54e1
+#	Data
+#	  DB_THAW srvid:0x72b7698d7113a463 client_id:0x70ae9ef1 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_TRANSACTION_START length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 02 33 f0 49
+	[0010] 07 00 00 00 5d 9f 38 3a  7e 6e 64 67 bd 81 c5 50
+	[0020] 8f 00 00 00 f1 0d fd 75  29 c3 04 00 a9 b2 82 47
+	[0030] d5 1d c6 57 4a 79 15 2d  08 00 00 00 f1 13 6e 14
+	[0040] 45 82 aa 70 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x49f03302
+#	  REQ_CONTROL dst:976789341 src:1734635134 reqid:0x50c581bd
+#	Data
+#	  DB_TRANSACTION_START srvid:0x4782b2a90004c329 client_id:0x57c61dd5 OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_TRANSACTION_COMMIT length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 fa 08 51 7f
+	[0010] 07 00 00 00 f2 e7 d8 20  1e 2c 45 14 28 c2 a8 15
+	[0020] 90 00 00 00 e1 29 08 1d  c5 7a 1b 0c 28 08 33 70
+	[0030] b8 0e ef 3f 12 fc c7 0f  08 00 00 00 97 f7 a4 48
+	[0040] cb 7b 5b 71 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x7f5108fa
+#	  REQ_CONTROL dst:551086066 src:340077598 reqid:0x15a8c228
+#	Data
+#	  DB_TRANSACTION_COMMIT srvid:0x703308280c1b7ac5 client_id:0x3fef0eb8 OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_TRANSACTION_CANCEL length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 1a 6b 08 77
+	[0010] 07 00 00 00 b3 19 14 09  a6 55 51 37 cc 7d 34 5e
+	[0020] 91 00 00 00 8f 40 ef 2a  20 2a 60 69 d5 25 15 1a
+	[0030] 20 5d 6e 1a fd 6f c7 1f  04 00 00 00 d3 b3 5f 29
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x77086b1a
+#	  REQ_CONTROL dst:152312243 src:928077222 reqid:0x5e347dcc
+#	Data
+#	  DB_TRANSACTION_CANCEL srvid:0x1a1525d569602a20 client_id:0x1a6e5d20 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_PULL length(80) {
+	[0000] 50 00 00 00 42 44 54 43  01 00 00 00 72 52 99 0c
+	[0010] 07 00 00 00 9c f3 54 4e  5e 19 99 12 ff 13 c5 6b
+	[0020] 92 00 00 00 a3 78 03 1d  5f 5e a8 16 38 03 2b 78
+	[0030] 02 44 17 45 32 1e a4 7b  10 00 00 00 5f 50 93 31
+	[0040] 52 42 e2 45 56 81 e7 4a  1a 6e 33 08 00 00 00 00
+}
+#	Buffer len:80
+#	Header
+#	  length:80 magic:0x43544442 version:1 generation:0xc995272
+#	  REQ_CONTROL dst:1314190236 src:312023390 reqid:0x6bc513ff
+#	Data
+#	  DB_PULL srvid:0x782b033816a85e5f client_id:0x45174402 OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_PUSH_START length(80) {
+	[0000] 50 00 00 00 42 44 54 43  01 00 00 00 9d 43 50 42
+	[0010] 07 00 00 00 7e ec 7d 74  1b 02 e3 3f bc c1 bf 49
+	[0020] 93 00 00 00 d0 76 ff 5f  60 d1 f5 1e d8 1b 0d 02
+	[0030] 96 12 91 02 32 cc 58 40  10 00 00 00 a4 b3 71 13
+	[0040] f2 7a b6 45 45 fb 4a 32  6c d5 a3 2b 00 00 00 00
+}
+#	Buffer len:80
+#	Header
+#	  length:80 magic:0x43544442 version:1 generation:0x4250439d
+#	  REQ_CONTROL dst:1954409598 src:1071841819 reqid:0x49bfc1bc
+#	Data
+#	  DB_PUSH_START srvid:0x20d1bd81ef5d160 client_id:0x2911296 OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_PUSH_CONFIRM length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 3b 45 94 11
+	[0010] 07 00 00 00 c2 c2 77 7f  09 28 50 42 ee bd fe 4a
+	[0020] 94 00 00 00 ef e7 2a 1a  2e b4 18 3e 1f 1c 79 00
+	[0030] 78 46 c3 0e fb 4d a8 17  04 00 00 00 19 de e8 2f
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x1194453b
+#	  REQ_CONTROL dst:2138555074 src:1112549385 reqid:0x4afebdee
+#	Data
+#	  DB_PUSH_CONFIRM srvid:0x791c1f3e18b42e client_id:0xec34678 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_OPEN_FLAGS length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 d3 90 e5 1c
+	[0010] 07 00 00 00 2e 9a a0 56  d5 18 c0 7e 50 89 24 4c
+	[0020] 95 00 00 00 62 ec 29 13  c7 16 aa 11 37 67 68 59
+	[0030] 07 0b 4a 3c 1a 98 ec 3a  04 00 00 00 6d 6e 90 61
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x1ce590d3
+#	  REQ_CONTROL dst:1453365806 src:2126518485 reqid:0x4c248950
+#	Data
+#	  DB_OPEN_FLAGS srvid:0x5968673711aa16c7 client_id:0x3c4a0b07 OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_ATTACH_REPLICATED length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 43 11 a7 51
+	[0010] 07 00 00 00 4c 3a 75 24  54 cd 03 69 02 6c c4 6f
+	[0020] 96 00 00 00 3d a6 20 4e  5b 41 ae 32 da 56 48 14
+	[0030] f1 b0 f9 3f 92 14 b2 1e  02 00 00 00 4a 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x51a71143
+#	  REQ_CONTROL dst:611662412 src:1761856852 reqid:0x6fc46c02
+#	Data
+#	  DB_ATTACH_REPLICATED srvid:0x144856da32ae415b client_id:0x3ff9b0f1 OPCODE_SPECIFIC
+
+sample ctdb_req_control@CHECK_PID_SRVID length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 16 ad 8d 1c
+	[0010] 07 00 00 00 4e eb 87 0d  d6 ab 54 54 26 85 01 5a
+	[0020] 97 00 00 00 d7 e2 69 56  cf 6c 13 62 f5 e2 36 54
+	[0030] e3 a5 bd 1a 72 a4 97 25  0c 00 00 00 ab fb 89 3f
+	[0040] 33 21 5d 1c 97 7e e8 60
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x1c8dad16
+#	  REQ_CONTROL dst:227011406 src:1414835158 reqid:0x5a018526
+#	Data
+#	  CHECK_PID_SRVID srvid:0x5436e2f562136ccf client_id:0x1abda5e3 OPCODE_SPECIFIC
+
+sample ctdb_req_control@TUNNEL_REGISTER length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 e4 75 0f 09
+	[0010] 07 00 00 00 ba 96 e0 44  d1 29 55 69 54 c3 71 77
+	[0020] 98 00 00 00 fc ec 8c 15  05 16 f7 62 60 4d e4 79
+	[0030] c6 f2 26 46 4b c8 f4 03  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x90f75e4
+#	  REQ_CONTROL dst:1155569338 src:1767188945 reqid:0x7771c354
+#	Data
+#	  TUNNEL_REGISTER srvid:0x79e44d6062f71605 client_id:0x4626f2c6 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TUNNEL_DEREGISTER length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 6b df 7c 51
+	[0010] 07 00 00 00 e7 80 88 61  2c a8 59 77 7d ec 11 36
+	[0020] 99 00 00 00 c2 e2 01 66  38 fc 8a 4b 59 71 d2 4e
+	[0030] b8 93 02 76 ae 73 a6 4c  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x517cdf6b
+#	  REQ_CONTROL dst:1636335847 src:2002364460 reqid:0x3611ec7d
+#	Data
+#	  TUNNEL_DEREGISTER srvid:0x4ed271594b8afc38 client_id:0x760293b8 OPCODE_SPECIFIC
+
+sample ctdb_req_control@VACUUM_FETCH length(120) {
+	[0000] 78 00 00 00 42 44 54 43  01 00 00 00 ca ed 91 1a
+	[0010] 07 00 00 00 10 89 cb 0c  71 c3 51 18 5b 1a 9c 7e
+	[0020] 9a 00 00 00 45 61 59 64  ae c9 99 7e 37 f2 02 59
+	[0030] 8b d1 90 24 0f 6e b5 65  35 00 00 00 16 c2 0d 52
+	[0040] 01 00 00 00 2d 00 00 00  fe 5b fe 56 03 00 00 00
+	[0050] 1a 00 00 00 05 a6 87 b6  9d 51 77 21 33 f9 14 1b
+	[0060] 1d 98 61 33 eb 5a 0c 8b  3c 15 51 00 00 00 00 fc
+	[0070] af 00 00 00 00 00 00 00
+}
+#	Buffer len:120
+#	Header
+#	  length:120 magic:0x43544442 version:1 generation:0x1a91edca
+#	  REQ_CONTROL dst:214665488 src:408011633 reqid:0x7e9c1a5b
+#	Data
+#	  VACUUM_FETCH srvid:0x5902f2377e99c9ae client_id:0x2490d18b NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@DB_VACUUM length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 a0 6c 0d 61
+	[0010] 07 00 00 00 90 5d 41 12  56 39 25 2d dd 35 29 78
+	[0020] 9b 00 00 00 fa 84 97 18  02 e4 a0 34 0e f6 4d 4b
+	[0030] 4b 7b a3 78 4b fa 5c 3e  05 00 00 00 68 45 13 58
+	[0040] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x610d6ca0
+#	  REQ_CONTROL dst:306273680 src:757414230 reqid:0x782935dd
+#	Data
+#	  DB_VACUUM srvid:0x4b4df60e34a0e402 client_id:0x78a37b4b NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@ECHO_DATA length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 a8 d9 4a 54
+	[0010] 07 00 00 00 21 67 62 6b  e8 e9 4b 53 d7 6e 68 16
+	[0020] 9c 00 00 00 ea db 69 37  d8 91 c5 50 60 8d d4 73
+	[0030] 9c 50 fb 11 6c d6 ac 6b  09 00 00 00 fa 41 65 5b
+	[0040] 01 00 00 00 41 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x544ad9a8
+#	  REQ_CONTROL dst:1801611041 src:1397484008 reqid:0x16686ed7
+#	Data
+#	  ECHO_DATA srvid:0x73d48d6050c591d8 client_id:0x11fb509c OPCODE_SPECIFIC
+
+sample ctdb_req_control@DISABLE_NODE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 a5 a2 7d 0c
+	[0010] 07 00 00 00 13 ca b7 39  5b 28 bf 1e 49 66 64 1d
+	[0020] 9d 00 00 00 37 30 2e 7e  50 1e 43 7b 98 91 e5 7f
+	[0030] d6 75 b8 73 74 29 75 3e  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0xc7da2a5
+#	  REQ_CONTROL dst:968346131 src:515844187 reqid:0x1d646649
+#	Data
+#	  DISABLE_NODE srvid:0x7fe591987b431e50 client_id:0x73b875d6 OPCODE_SPECIFIC
+
+sample ctdb_req_control@ENABLE_NODE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 21 f1 54 24
+	[0010] 07 00 00 00 2b 99 a7 64  ec 6c b9 49 89 50 f3 0a
+	[0020] 9e 00 00 00 0e b1 34 08  24 ac d0 58 c9 a2 f5 2f
+	[0030] 5a b9 9b 36 1e 49 e5 6f  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x2454f121
+#	  REQ_CONTROL dst:1688705323 src:1236888812 reqid:0xaf35089
+#	Data
+#	  ENABLE_NODE srvid:0x2ff5a2c958d0ac24 client_id:0x369bb95a OPCODE_SPECIFIC
+
+sample ctdb_req_control@TCP_CLIENT_DISCONNECTED length(120) {
+	[0000] 78 00 00 00 42 44 54 43  01 00 00 00 3d c5 32 03
+	[0010] 07 00 00 00 9f d4 13 52  ca 0a fd 18 73 b1 a0 21
+	[0020] 9f 00 00 00 22 dc 5f 7f  31 4b 73 0d b0 69 f5 08
+	[0030] 63 3e 88 3b 99 78 8b 1b  38 00 00 00 02 00 8c f8
+	[0040] f6 5a 11 ec 00 00 00 00  00 00 00 00 00 00 00 00
+	[0050] 00 00 00 00 00 00 00 00  02 00 45 6b 27 8a d6 ae
+	[0060] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+	[0070] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:120
+#	Header
+#	  length:120 magic:0x43544442 version:1 generation:0x332c53d
+#	  REQ_CONTROL dst:1377031327 src:419236554 reqid:0x21a0b173
+#	Data
+#	  TCP_CLIENT_DISCONNECTED srvid:0x8f569b00d734b31 client_id:0x3b883e63 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@TCP_CLIENT_PASSED length(120) {
+	[0000] 78 00 00 00 42 44 54 43  01 00 00 00 fe 2b 86 03
+	[0010] 07 00 00 00 51 5e 3d 1c  cf e7 f9 06 c6 e8 f2 36
+	[0020] a0 00 00 00 b2 1f 9a 15  7c ac a1 03 75 b2 2d 31
+	[0030] 53 d2 86 51 d5 c4 1e 5d  38 00 00 00 02 00 e1 42
+	[0040] fc e4 cc c3 00 00 00 00  00 00 00 00 00 00 00 00
+	[0050] 00 00 00 00 00 00 00 00  02 00 f0 de a6 d3 9e 46
+	[0060] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+	[0070] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:120
+#	Header
+#	  length:120 magic:0x43544442 version:1 generation:0x3862bfe
+#	  REQ_CONTROL dst:473783889 src:117041103 reqid:0x36f2e8c6
+#	Data
+#	  TCP_CLIENT_PASSED srvid:0x312db27503a1ac7c client_id:0x5186d253 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@START_IPREALLOCATE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 fc 5e 26 26
+	[0010] 07 00 00 00 38 da 34 1b  6b bb d2 33 cc b3 ce 70
+	[0020] a1 00 00 00 22 a2 13 62  4f 7b 4c 60 06 b3 2b 74
+	[0030] e2 92 a5 61 e0 6a 91 52  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x26265efc
+#	  REQ_CONTROL dst:456448568 src:869448555 reqid:0x70ceb3cc
+#	Data
+#	  START_IPREALLOCATE srvid:0x742bb306604c7b4f client_id:0x61a592e2 OPCODE_SPECIFIC
+
+sample ctdb_req_control@PUSH_RECORD length(104) {
+	[0000] 68 00 00 00 42 44 54 43  01 00 00 00 49 f3 72 04
+	[0010] 07 00 00 00 b3 f1 74 3e  0f 7c 78 08 33 c9 b5 71
+	[0020] a2 00 00 00 30 1f 4c 12  b3 24 93 34 40 29 0c 65
+	[0030] 17 57 64 2f 31 29 56 4f  2a 00 00 00 63 af df 31
+	[0040] b8 26 81 68 fb ed 86 3e  60 61 71 76 f9 fd 39 54
+	[0050] 13 9e 7c 19 ed b1 2e 71  00 00 00 00 01 00 00 00
+	[0060] fe 01 00 00 00 32 00 00
+}
+#	Buffer len:104
+#	Header
+#	  length:104 magic:0x43544442 version:1 generation:0x472f349
+#	  REQ_CONTROL dst:1047851443 src:142113807 reqid:0x71b5c933
+#	Data
+#	  PUSH_RECORD srvid:0x650c2940349324b3 client_id:0x2f645717 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_req_control@PUSH_RECORD_STORE length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 b9 9a 87 03
+	[0010] 07 00 00 00 ce 3b 7c 32  d2 2d 84 54 3b 79 37 01
+	[0020] a3 00 00 00 73 59 98 4c  ec 84 6b 16 ae 30 70 5e
+	[0030] e4 4f f1 03 bf 6b ae 08  00 00 00 00 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x3879ab9
+#	  REQ_CONTROL dst:847002574 src:1417948626 reqid:0x137793b
+#	Data
+#	  PUSH_RECORD_STORE srvid:0x5e7030ae166b84ec client_id:0x3f14fe4 NOREPLY OPCODE_SPECIFIC
+
+sample ctdb_reply_control@PROCESS_EXISTS length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 10 9a b7 2a
+	[0010] 08 00 00 00 4e da bc 01  ed 80 98 03 29 54 b7 16
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 46 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2ab79a10
+#	  REPLY_CONTROL dst:29153870 src:60326125 reqid:0x16b75429
+#	Data
+#	  status:-1 errmsg: F
+
+sample ctdb_reply_control@STATISTICS length(536) {
+	[0000] 18 02 00 00 42 44 54 43  01 00 00 00 d9 ab c9 70
+	[0010] 08 00 00 00 c5 3f 9e 38  57 b5 43 18 d9 46 6a 14
+	[0020] 00 00 00 00 e8 01 00 00  00 00 00 00 cd ad 8a 07
+	[0030] f2 c7 06 13 bd 5d 91 53  a8 e6 82 04 56 6f ee 3b
+	[0040] 7e 7b a7 02 c6 f5 54 52  cf cb 08 63 e3 71 d7 0b
+	[0050] e8 3a 1d 25 d9 a4 f4 78  e4 71 68 45 84 a8 fb 3e
+	[0060] 43 61 21 15 cd 0b 5a 14  da b4 ca 53 38 00 b6 27
+	[0070] 00 00 00 00 66 29 11 00  81 2b 44 3c 84 45 31 68
+	[0080] 00 00 00 00 e5 4f 4a 69  d2 f1 c5 61 6b 53 4f 62
+	[0090] 00 00 00 00 ed 8a c6 b4  00 00 00 00 e0 cb 47 0f
+	[00a0] 58 8c 22 3c 57 9f 7e ab  26 4c 24 3c b4 e5 36 18
+	[00b0] cc 8f 00 3c 46 d9 0d b3  00 00 00 00 20 70 33 b1
+	[00c0] 52 58 0d 3c 2b 2a b8 5a  8b 35 3e 3c dd 73 18 a1
+	[00d0] 82 45 04 3c 6a 79 b6 6a  b7 15 10 55 f3 62 1d 6d
+	[00e0] fa 3e 13 68 0b e0 0d a8  00 00 00 00 11 90 fb 71
+	[00f0] 4d 81 52 3c 05 5d 1d 86  e1 fb 01 3c a5 4e ec c7
+	[0100] 60 98 08 3c c8 61 9c 29  96 85 6e 6e 0f bc 08 04
+	[0110] d8 f6 34 67 b4 e0 21 1f  d5 80 b8 62 01 ab 7e 2e
+	[0120] c0 98 00 0e dd b5 49 1b  82 ad eb 72 5b 12 5c 09
+	[0130] 1e de 8f 14 c8 81 08 6a  89 37 30 75 39 6f 52 6d
+	[0140] a1 43 8a 46 6a 70 f5 1f  9a b7 37 74 0c 6d e6 00
+	[0150] 03 c5 5d 68 0a 91 38 3e  b8 2a c5 1d aa 5d 02 5f
+	[0160] e0 4d 01 01 4d 96 a7 25  65 1e 4f 63 80 d8 5c 5e
+	[0170] 86 14 69 5d dc 19 fb 46  40 33 12 42 5a 8d d2 2e
+	[0180] b0 e6 bf 3a b0 03 d3 53  b1 bf 58 27 7f c7 24 46
+	[0190] 9d 60 15 55 f4 bc fa 14  8d c2 90 22 3e c5 f7 0d
+	[01a0] 00 00 00 00 92 29 df a7  00 00 00 00 5a de c8 30
+	[01b0] d0 ba 26 3c c1 bd 8f 8d  e5 1f 04 3c 72 8b 40 20
+	[01c0] ab fc 00 3c 4c c0 f1 e1  00 00 00 00 51 53 77 dd
+	[01d0] e9 08 45 3c 19 f9 4d c2  5f 01 09 3c 07 55 57 c6
+	[01e0] 71 47 03 3c be 1e 07 2d  00 00 00 00 87 3f 07 03
+	[01f0] 00 00 00 00 90 38 0f 00  00 00 00 00 a5 9c e8 1d
+	[0200] 00 00 00 00 0b 48 03 00  00 00 00 00 98 86 d2 39
+	[0210] 6c 7b 76 5c 00 00 00 00
+}
+#	Buffer len:536
+#	Header
+#	  length:536 magic:0x43544442 version:1 generation:0x70c9abd9
+#	  REPLY_CONTROL dst:949895109 src:407090519 reqid:0x146a46d9
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@UNKNOWN(2) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 27 1e 33 08
+	[0010] 08 00 00 00 c3 e4 df 6c  82 f3 ae 21 25 55 0c 2a
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x8331e27
+#	  REPLY_CONTROL dst:1826612419 src:565113730 reqid:0x2a0c5525
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@PING length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 60 40 aa 7c
+	[0010] 08 00 00 00 ab ac ed 13  f4 b9 71 3e b1 6c 03 7c
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 43 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x7caa4060
+#	  REPLY_CONTROL dst:334343339 src:1047640564 reqid:0x7c036cb1
+#	Data
+#	  status:-1 errmsg: C
+
+sample ctdb_reply_control@GETDBPATH length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 c8 c6 fa 43
+	[0010] 08 00 00 00 1f da f5 77  09 a1 60 76 46 99 10 65
+	[0020] 00 00 00 00 04 00 00 00  00 00 00 00 4b 55 50 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x43fac6c8
+#	  REPLY_CONTROL dst:2012600863 src:1986044169 reqid:0x65109946
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GETVNNMAP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 3b b2 90 52
+	[0010] 08 00 00 00 ba 5f 49 56  04 5f 4f 05 ab d2 7d 07
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 41 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5290b23b
+#	  REPLY_CONTROL dst:1447649210 src:89087748 reqid:0x77dd2ab
+#	Data
+#	  status:-1 errmsg: A
+
+sample ctdb_reply_control@SETVNNMAP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 57 2d 99 3f
+	[0010] 08 00 00 00 60 05 8b 53  15 97 e8 6f 2c 49 c5 6a
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x3f992d57
+#	  REPLY_CONTROL dst:1401619808 src:1877514005 reqid:0x6ac5492c
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_DEBUG length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 4c 04 71 6a
+	[0010] 08 00 00 00 68 52 f5 7a  b4 eb 59 17 47 68 d9 77
+	[0020] 00 00 00 00 04 00 00 00  00 00 00 00 02 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x6a71044c
+#	  REPLY_CONTROL dst:2062897768 src:391769012 reqid:0x77d96847
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@SET_DEBUG length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 b1 47 e8 21
+	[0010] 08 00 00 00 4e 33 ea 68  d0 75 42 56 78 5b 1e 6e
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x21e847b1
+#	  REPLY_CONTROL dst:1760179022 src:1447196112 reqid:0x6e1e5b78
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_DBMAP length(56) {
+	[0000] 38 00 00 00 42 44 54 43  01 00 00 00 87 d3 c7 37
+	[0010] 08 00 00 00 7f 4f 33 47  2e 67 78 69 f8 1c 0d 42
+	[0020] 00 00 00 00 0c 00 00 00  00 00 00 00 01 00 00 00
+	[0030] 1c 64 bf 3b 31 00 00 00
+}
+#	Buffer len:56
+#	Header
+#	  length:56 magic:0x43544442 version:1 generation:0x37c7d387
+#	  REPLY_CONTROL dst:1194545023 src:1769498414 reqid:0x420d1cf8
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_NODEMAPv4 length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 d2 93 30 3b
+	[0010] 08 00 00 00 18 ea ed 2c  a4 26 e9 2e b7 14 2f 48
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 4f 56 50 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x3b3093d2
+#	  REPLY_CONTROL dst:753789464 src:787031716 reqid:0x482f14b7
+#	Data
+#	  status:-1 errmsg: OVP
+
+sample ctdb_reply_control@SET_DMASTER length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 45 59 b1 69
+	[0010] 08 00 00 00 11 7f eb 5d  02 10 c4 6b ae 20 df 41
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x69b15945
+#	  REPLY_CONTROL dst:1575714577 src:1808011266 reqid:0x41df20ae
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@UNKNOWN(12) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 2f 33 fa 11
+	[0010] 08 00 00 00 12 82 31 1e  f8 03 0b 34 98 b6 2f 50
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x11fa332f
+#	  REPLY_CONTROL dst:506561042 src:873137144 reqid:0x502fb698
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@UNKNOWN(13) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 16 bf 90 0a
+	[0010] 08 00 00 00 ab 68 0c 51  4f 1c 6a 4f 50 6b 59 7c
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 41 4f 49 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0xa90bf16
+#	  REPLY_CONTROL dst:1359767723 src:1332354127 reqid:0x7c596b50
+#	Data
+#	  status:-1 errmsg: AOI
+
+sample ctdb_reply_control@UNKNOWN(14) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 e1 cf 1e 07
+	[0010] 08 00 00 00 0f 95 a2 07  35 c3 a2 3b c8 8f be 64
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x71ecfe1
+#	  REPLY_CONTROL dst:128095503 src:1000522549 reqid:0x64be8fc8
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_RECMODE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 c1 42 af 7b
+	[0010] 08 00 00 00 c6 cc 12 17  19 b1 e8 68 ca d2 ca 5c
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 4e 5a 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x7baf42c1
+#	  REPLY_CONTROL dst:387108038 src:1760080153 reqid:0x5ccad2ca
+#	Data
+#	  status:-1 errmsg: NZ
+
+sample ctdb_reply_control@SET_RECMODE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 d3 9f 9e 64
+	[0010] 08 00 00 00 b5 41 46 3f  91 63 ee 1c 5f d3 d2 6a
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 49 4d 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x649e9fd3
+#	  REPLY_CONTROL dst:1061568949 src:485385105 reqid:0x6ad2d35f
+#	Data
+#	  status:-1 errmsg: IM
+
+sample ctdb_reply_control@STATISTICS_RESET length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a6 80 59 4f
+	[0010] 08 00 00 00 ff 03 b0 68  8e 3f 73 76 52 8a ed 3d
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4f5980a6
+#	  REPLY_CONTROL dst:1756365823 src:1987264398 reqid:0x3ded8a52
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DB_ATTACH length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 cc a8 0b 50
+	[0010] 08 00 00 00 7e 92 49 1f  ad 37 44 66 f4 df 1b 0b
+	[0020] 00 00 00 00 04 00 00 00  00 00 00 00 ff b7 37 63
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x500ba8cc
+#	  REPLY_CONTROL dst:524915326 src:1715746733 reqid:0xb1bdff4
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@SET_CALL length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 0b 0e 5f 30
+	[0010] 08 00 00 00 3f af 96 1a  6e 42 68 53 d3 f0 5a 6f
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 48 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x305f0e0b
+#	  REPLY_CONTROL dst:446082879 src:1399341678 reqid:0x6f5af0d3
+#	Data
+#	  status:-1 errmsg: H
+
+sample ctdb_reply_control@TRAVERSE_START length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 2f e6 4d 21
+	[0010] 08 00 00 00 ef a9 50 77  c2 5f ea 24 94 5a 1d 1c
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x214de62f
+#	  REPLY_CONTROL dst:2001775087 src:619339714 reqid:0x1c1d5a94
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TRAVERSE_ALL length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 cb d3 e2 61
+	[0010] 08 00 00 00 ca 7c d1 18  e1 00 7a 32 0f fa 53 26
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x61e2d3cb
+#	  REPLY_CONTROL dst:416382154 src:846856417 reqid:0x2653fa0f
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TRAVERSE_DATA length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a1 fc ae 10
+	[0010] 08 00 00 00 9d c4 ac 4b  f0 9a c2 0a c4 22 d2 12
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 46 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x10aefca1
+#	  REPLY_CONTROL dst:1269613725 src:180525808 reqid:0x12d222c4
+#	Data
+#	  status:-1 errmsg: F
+
+sample ctdb_reply_control@REGISTER_SRVID length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 b9 49 38 03
+	[0010] 08 00 00 00 53 ac f9 56  51 6f 80 1b 64 b8 8c 72
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 56 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x33849b9
+#	  REPLY_CONTROL dst:1459203155 src:461401937 reqid:0x728cb864
+#	Data
+#	  status:-1 errmsg: V
+
+sample ctdb_reply_control@DEREGISTER_SRVID length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 35 44 83 5e
+	[0010] 08 00 00 00 80 91 4a 32  08 dc d8 4a a0 1a 92 26
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5e834435
+#	  REPLY_CONTROL dst:843747712 src:1255726088 reqid:0x26921aa0
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_DBNAME length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 db 78 95 46
+	[0010] 08 00 00 00 d9 59 ae 64  c2 8e 7f 39 6c e9 77 69
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 45 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x469578db
+#	  REPLY_CONTROL dst:1689147865 src:964660930 reqid:0x6977e96c
+#	Data
+#	  status:-1 errmsg: E
+
+sample ctdb_reply_control@ENABLE_SEQNUM length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 6e 75 8b 40
+	[0010] 08 00 00 00 67 70 99 5a  cc 19 98 1f 9e 3a e0 34
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x408b756e
+#	  REPLY_CONTROL dst:1520005223 src:530061772 reqid:0x34e03a9e
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@UPDATE_SEQNUM length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a0 70 41 16
+	[0010] 08 00 00 00 db d0 7b 4c  9f f0 ff 24 27 a7 7c 31
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 41 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x164170a0
+#	  REPLY_CONTROL dst:1283182811 src:620753055 reqid:0x317ca727
+#	Data
+#	  status:-1 errmsg: A
+
+sample ctdb_reply_control@UNKNOWN(28) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 56 33 e7 22
+	[0010] 08 00 00 00 2e 7e c8 45  ab b1 c7 5e eb 60 5a 43
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 42 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x22e73356
+#	  REPLY_CONTROL dst:1170767406 src:1590145451 reqid:0x435a60eb
+#	Data
+#	  status:-1 errmsg: B
+
+sample ctdb_reply_control@DUMP_MEMORY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 9c e7 93 4c
+	[0010] 08 00 00 00 2e b3 62 15  bc d1 08 78 5d 78 1b 15
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 50 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4c93e79c
+#	  REPLY_CONTROL dst:358789934 src:2013843900 reqid:0x151b785d
+#	Data
+#	  status:-1 errmsg: P
+
+sample ctdb_reply_control@GET_PID length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 ad 77 e8 7b
+	[0010] 08 00 00 00 2f 4c f9 4e  8a 62 b0 72 b7 cc 71 0a
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 57 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x7be877ad
+#	  REPLY_CONTROL dst:1324960815 src:1924162186 reqid:0xa71ccb7
+#	Data
+#	  status:-1 errmsg: W
+
+sample ctdb_reply_control@GET_RECMASTER length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 4f fb ad 6a
+	[0010] 08 00 00 00 0f 77 40 38  c5 10 2d 2c 46 b1 5b 5f
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x6aadfb4f
+#	  REPLY_CONTROL dst:943748879 src:741150917 reqid:0x5f5bb146
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@SET_RECMASTER length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 ee d7 bb 55
+	[0010] 08 00 00 00 32 28 7e 77  98 1a d2 31 87 b6 e8 21
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x55bbd7ee
+#	  REPLY_CONTROL dst:2004756530 src:835852952 reqid:0x21e8b687
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@FREEZE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 b2 90 a8 49
+	[0010] 08 00 00 00 52 94 5b 43  68 ef 9e 75 87 a1 cf 16
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 47 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x49a890b2
+#	  REPLY_CONTROL dst:1130075218 src:1973350248 reqid:0x16cfa187
+#	Data
+#	  status:-1 errmsg: G
+
+sample ctdb_reply_control@THAW length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 00 2b d2 2a
+	[0010] 08 00 00 00 71 9a b8 55  d4 4f d7 37 e4 c4 e8 1d
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 42 4d 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2ad22b00
+#	  REPLY_CONTROL dst:1438161521 src:936857556 reqid:0x1de8c4e4
+#	Data
+#	  status:-1 errmsg: BM
+
+sample ctdb_reply_control@GET_PNN length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 05 14 c7 47
+	[0010] 08 00 00 00 7a cf 01 32  b6 60 5c 72 6f c4 40 3a
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 5a 53 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x47c71405
+#	  REPLY_CONTROL dst:838979450 src:1918656694 reqid:0x3a40c46f
+#	Data
+#	  status:-1 errmsg: ZS
+
+sample ctdb_reply_control@SHUTDOWN length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 35 93 fa 08
+	[0010] 08 00 00 00 37 55 35 56  65 7e fa 31 c9 1b f5 41
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x8fa9335
+#	  REPLY_CONTROL dst:1446335799 src:838499941 reqid:0x41f51bc9
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_MONMODE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 2d 91 59 28
+	[0010] 08 00 00 00 07 ed 88 28  49 85 fe 63 aa 4c b2 3b
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2859912d
+#	  REPLY_CONTROL dst:680062215 src:1677624649 reqid:0x3bb24caa
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@UNKNOWN(38) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 fb 56 8e 4d
+	[0010] 08 00 00 00 f2 f5 22 1a  12 b3 a2 7b fe 04 24 03
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 53 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4d8e56fb
+#	  REPLY_CONTROL dst:438498802 src:2074260242 reqid:0x32404fe
+#	Data
+#	  status:-1 errmsg: S
+
+sample ctdb_reply_control@UNKNOWN(39) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 7e fe 96 02
+	[0010] 08 00 00 00 e0 ba be 7d  c2 e0 23 04 f2 d5 6c 34
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 50 46 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x296fe7e
+#	  REPLY_CONTROL dst:2109651680 src:69460162 reqid:0x346cd5f2
+#	Data
+#	  status:-1 errmsg: PF
+
+sample ctdb_reply_control@UNKNOWN(40) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 03 0a c6 18
+	[0010] 08 00 00 00 fa 78 04 68  29 ea e6 2a 71 8c 27 0e
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 5a 4e 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x18c60a03
+#	  REPLY_CONTROL dst:1745123578 src:719776297 reqid:0xe278c71
+#	Data
+#	  status:-1 errmsg: ZN
+
+sample ctdb_reply_control@UNKNOWN(41) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 70 d9 95 2c
+	[0010] 08 00 00 00 3b 34 a6 4d  80 bf e9 52 8f e9 f9 0c
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2c95d970
+#	  REPLY_CONTROL dst:1302737979 src:1391050624 reqid:0xcf9e98f
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TAKEOVER_IPv4 length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 13 69 e2 29
+	[0010] 08 00 00 00 e2 0f 08 24  2a a8 88 3d c5 83 d1 3f
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x29e26913
+#	  REPLY_CONTROL dst:604508130 src:1032366122 reqid:0x3fd183c5
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@RELEASE_IPv4 length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 b6 97 3e 3c
+	[0010] 08 00 00 00 e3 31 46 21  b1 7f f7 72 14 4b e9 64
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x3c3e97b6
+#	  REPLY_CONTROL dst:558248419 src:1928822705 reqid:0x64e94b14
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TCP_CLIENT length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 8b 17 44 5e
+	[0010] 08 00 00 00 3c 6b a8 5c  d9 97 e1 72 4e a4 c5 3e
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 42 58 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5e44178b
+#	  REPLY_CONTROL dst:1554541372 src:1927387097 reqid:0x3ec5a44e
+#	Data
+#	  status:-1 errmsg: BX
+
+sample ctdb_reply_control@TCP_ADD length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 f7 70 e9 3d
+	[0010] 08 00 00 00 71 c7 23 24  e4 9c 73 02 37 1e 9a 12
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x3de970f7
+#	  REPLY_CONTROL dst:606324593 src:41131236 reqid:0x129a1e37
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TCP_REMOVE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 7c 65 1a 49
+	[0010] 08 00 00 00 76 b9 57 2b  6a 65 76 42 c9 c0 f2 2d
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x491a657c
+#	  REPLY_CONTROL dst:727169398 src:1115055466 reqid:0x2df2c0c9
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@STARTUP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 45 2f 82 48
+	[0010] 08 00 00 00 3e d8 f1 0f  89 90 2b 7d 33 1a 5b 1f
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 45 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x48822f45
+#	  REPLY_CONTROL dst:267507774 src:2100007049 reqid:0x1f5b1a33
+#	Data
+#	  status:-1 errmsg: E
+
+sample ctdb_reply_control@SET_TUNABLE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 33 aa e2 4c
+	[0010] 08 00 00 00 f5 d0 4c 79  ee 1c 5a 69 41 cc 92 65
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4ce2aa33
+#	  REPLY_CONTROL dst:2035077365 src:1767513326 reqid:0x6592cc41
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_TUNABLE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 46 09 5c 43
+	[0010] 08 00 00 00 e1 fe 9b 0d  24 62 63 6b 00 a8 f6 01
+	[0020] 00 00 00 00 04 00 00 00  00 00 00 00 a5 88 62 69
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x435c0946
+#	  REPLY_CONTROL dst:228327137 src:1801675300 reqid:0x1f6a800
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@LIST_TUNABLES length(56) {
+	[0000] 38 00 00 00 42 44 54 43  01 00 00 00 73 03 c5 5d
+	[0010] 08 00 00 00 3f b9 97 26  25 c4 f8 77 b2 56 f3 3e
+	[0020] 00 00 00 00 08 00 00 00  00 00 00 00 04 00 00 00
+	[0030] 4c 3a 56 00 00 00 00 00
+}
+#	Buffer len:56
+#	Header
+#	  length:56 magic:0x43544442 version:1 generation:0x5dc50373
+#	  REPLY_CONTROL dst:647477567 src:2012791845 reqid:0x3ef356b2
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_PUBLIC_IPSv4 length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 1e 8e 5d 32
+	[0010] 08 00 00 00 ce 73 2d 15  70 c7 f4 70 7c be 1d 35
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x325d8e1e
+#	  REPLY_CONTROL dst:355300302 src:1895090032 reqid:0x351dbe7c
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@MODIFY_FLAGS length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 3e 71 44 2d
+	[0010] 08 00 00 00 ea ca 65 0c  d3 5f 29 37 de cf c4 07
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 57 57 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2d44713e
+#	  REPLY_CONTROL dst:207997674 src:925458387 reqid:0x7c4cfde
+#	Data
+#	  status:-1 errmsg: WW
+
+sample ctdb_reply_control@GET_ALL_TUNABLES length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 d7 8d 10 30
+	[0010] 08 00 00 00 b6 68 3b 4b  ac 63 13 13 61 10 69 1c
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 44 5a 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x30108dd7
+#	  REPLY_CONTROL dst:1262184630 src:320037804 reqid:0x1c691061
+#	Data
+#	  status:-1 errmsg: DZ
+
+sample ctdb_reply_control@KILL_TCP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 92 76 94 2b
+	[0010] 08 00 00 00 79 2e 1f 47  87 39 9e 14 80 6d 6d 36
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 46 46 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2b947692
+#	  REPLY_CONTROL dst:1193225849 src:345913735 reqid:0x366d6d80
+#	Data
+#	  status:-1 errmsg: FF
+
+sample ctdb_reply_control@GET_TCP_TICKLE_LIST length(80) {
+	[0000] 50 00 00 00 42 44 54 43  01 00 00 00 f0 95 fb 62
+	[0010] 08 00 00 00 be d8 5f 71  d0 dc f4 6d 7d 81 a7 56
+	[0020] 00 00 00 00 20 00 00 00  00 00 00 00 0a 00 da b8
+	[0030] 00 00 00 00 02 99 5a cc  b6 6f 97 9b 0f 3b ae c9
+	[0040] 9a 41 70 ba 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:80
+#	Header
+#	  length:80 magic:0x43544442 version:1 generation:0x62fb95f0
+#	  REPLY_CONTROL dst:1902106814 src:1844763856 reqid:0x56a7817d
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@SET_TCP_TICKLE_LIST length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 47 27 0e 09
+	[0010] 08 00 00 00 24 96 ff 52  4c 3b f9 35 a8 8f e2 02
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 5a 4d 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x90e2747
+#	  REPLY_CONTROL dst:1392481828 src:905526092 reqid:0x2e28fa8
+#	Data
+#	  status:-1 errmsg: ZM
+
+sample ctdb_reply_control@REGISTER_SERVER_ID length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 64 47 fd 13
+	[0010] 08 00 00 00 d7 6c 29 6b  4b 31 43 42 28 d0 6d 20
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 48 59 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x13fd4764
+#	  REPLY_CONTROL dst:1797876951 src:1111699787 reqid:0x206dd028
+#	Data
+#	  status:-1 errmsg: HY
+
+sample ctdb_reply_control@UNREGISTER_SERVER_ID length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 4b b3 bc 50
+	[0010] 08 00 00 00 74 b3 9d 0e  19 a6 e1 4e b3 1d 1c 16
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 4d 51 4a 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x50bcb34b
+#	  REPLY_CONTROL dst:245216116 src:1323410969 reqid:0x161c1db3
+#	Data
+#	  status:-1 errmsg: MQJ
+
+sample ctdb_reply_control@CHECK_SERVER_ID length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 3b fa 6e 13
+	[0010] 08 00 00 00 b0 7a 3c 13  82 20 86 13 49 3b d2 78
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x136efa3b
+#	  REPLY_CONTROL dst:322730672 src:327557250 reqid:0x78d23b49
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_SERVER_ID_LIST length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 55 ed e5 7c
+	[0010] 08 00 00 00 eb d9 9a 4f  9b 7b 76 13 e6 de ae 75
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x7ce5ed55
+#	  REPLY_CONTROL dst:1335548395 src:326531995 reqid:0x75aedee6
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DB_ATTACH_PERSISTENT length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 96 98 df 74
+	[0010] 08 00 00 00 fe 96 d0 45  28 cc 02 54 93 64 b2 23
+	[0020] 00 00 00 00 04 00 00 00  00 00 00 00 8a 11 08 73
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x74df9896
+#	  REPLY_CONTROL dst:1171298046 src:1409469480 reqid:0x23b26493
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@PERSISTENT_STORE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 36 72 b2 27
+	[0010] 08 00 00 00 5f 1f 2c 52  f8 a8 a0 5f 2c bf cb 7f
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x27b27236
+#	  REPLY_CONTROL dst:1378623327 src:1604364536 reqid:0x7fcbbf2c
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@UPDATE_RECORD length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 bb 41 61 7d
+	[0010] 08 00 00 00 47 9d e5 1a  3d d4 d2 5d f1 91 15 60
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x7d6141bb
+#	  REPLY_CONTROL dst:451255623 src:1574097981 reqid:0x601591f1
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@SEND_GRATUITOUS_ARP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 bc 47 ac 63
+	[0010] 08 00 00 00 e1 4c fc 31  36 9a f6 7d cf 2d 11 7d
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x63ac47bc
+#	  REPLY_CONTROL dst:838618337 src:2113313334 reqid:0x7d112dcf
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TRANSACTION_START length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 fa cb 81 38
+	[0010] 08 00 00 00 94 bd eb 64  ce 30 8f 51 1f 87 0a 6b
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x3881cbfa
+#	  REPLY_CONTROL dst:1693171092 src:1368338638 reqid:0x6b0a871f
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TRANSACTION_COMMIT length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a4 e6 dc 0e
+	[0010] 08 00 00 00 92 f4 40 25  a8 1a 1b 7d 14 9d fd 02
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 4f 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0xedce6a4
+#	  REPLY_CONTROL dst:625013906 src:2098928296 reqid:0x2fd9d14
+#	Data
+#	  status:-1 errmsg: O
+
+sample ctdb_reply_control@WIPE_DATABASE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 9a d4 51 49
+	[0010] 08 00 00 00 2d 69 28 0d  b9 8b e1 34 c9 57 cd 02
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4951d49a
+#	  REPLY_CONTROL dst:220752173 src:887196601 reqid:0x2cd57c9
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@UNKNOWN(68) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 fe d2 61 18
+	[0010] 08 00 00 00 af 8d a9 21  d6 5c fa 53 cd 46 7a 2d
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 4f 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x1861d2fe
+#	  REPLY_CONTROL dst:564759983 src:1408916694 reqid:0x2d7a46cd
+#	Data
+#	  status:-1 errmsg: O
+
+sample ctdb_reply_control@UPTIME length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 1d e8 d9 3e
+	[0010] 08 00 00 00 42 f5 14 7d  1e 72 6c 49 5b 05 ed 3d
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 47 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x3ed9e81d
+#	  REPLY_CONTROL dst:2098525506 src:1231843870 reqid:0x3ded055b
+#	Data
+#	  status:-1 errmsg: G
+
+sample ctdb_reply_control@START_RECOVERY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 69 76 90 27
+	[0010] 08 00 00 00 13 6e 95 4d  53 fb 42 3f a3 db 4d 3c
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 46 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x27907669
+#	  REPLY_CONTROL dst:1301638675 src:1061354323 reqid:0x3c4ddba3
+#	Data
+#	  status:-1 errmsg: F
+
+sample ctdb_reply_control@END_RECOVERY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 e9 ef 25 5e
+	[0010] 08 00 00 00 5f 58 c7 6b  13 da f1 7a 6e ad a9 72
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 44 47 5a 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5e25efe9
+#	  REPLY_CONTROL dst:1808226399 src:2062670355 reqid:0x72a9ad6e
+#	Data
+#	  status:-1 errmsg: DGZ
+
+sample ctdb_reply_control@RELOAD_NODES_FILE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 b4 5a ec 70
+	[0010] 08 00 00 00 8f c7 8b 5d  b7 cf d2 55 21 97 6b 6a
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x70ec5ab4
+#	  REPLY_CONTROL dst:1569441679 src:1439879095 reqid:0x6a6b9721
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@UNKNOWN(73) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a3 0a 06 6f
+	[0010] 08 00 00 00 62 b8 17 1d  db 5c ba 05 d9 8f bc 40
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 58 59 45 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x6f060aa3
+#	  REPLY_CONTROL dst:488093794 src:96099547 reqid:0x40bc8fd9
+#	Data
+#	  status:-1 errmsg: XYE
+
+sample ctdb_reply_control@TRY_DELETE_RECORDS length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 e2 a2 37 4d
+	[0010] 08 00 00 00 ad 01 34 36  60 3c da 3e 07 5a ac 46
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 43 41 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4d37a2e2
+#	  REPLY_CONTROL dst:909377965 src:1054489696 reqid:0x46ac5a07
+#	Data
+#	  status:-1 errmsg: CA
+
+sample ctdb_reply_control@ENABLE_MONITOR length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 d5 b1 0d 7f
+	[0010] 08 00 00 00 ae 1f 2c 08  b5 70 56 56 1e 01 a0 0c
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 54 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x7f0db1d5
+#	  REPLY_CONTROL dst:137109422 src:1448505525 reqid:0xca0011e
+#	Data
+#	  status:-1 errmsg: T
+
+sample ctdb_reply_control@DISABLE_MONITOR length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a0 e8 06 1e
+	[0010] 08 00 00 00 d3 db c6 20  f8 b6 15 08 8d a0 8d 72
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x1e06e8a0
+#	  REPLY_CONTROL dst:549903315 src:135640824 reqid:0x728da08d
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@ADD_PUBLIC_IP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 0a f4 a9 46
+	[0010] 08 00 00 00 d3 60 13 68  53 e0 83 36 d4 d7 44 2c
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 50 50 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x46a9f40a
+#	  REPLY_CONTROL dst:1746100435 src:914612307 reqid:0x2c44d7d4
+#	Data
+#	  status:-1 errmsg: PP
+
+sample ctdb_reply_control@DEL_PUBLIC_IP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 fb 8b f6 76
+	[0010] 08 00 00 00 6f f2 a9 63  54 0a 6b 29 7d 52 cf 23
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x76f68bfb
+#	  REPLY_CONTROL dst:1672082031 src:694880852 reqid:0x23cf527d
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@RUN_EVENTSCRIPTS length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 b2 6d c1 07
+	[0010] 08 00 00 00 e8 23 f5 70  df ef f3 5d 74 9f ee 16
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 47 4e 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x7c16db2
+#	  REPLY_CONTROL dst:1895113704 src:1576267743 reqid:0x16ee9f74
+#	Data
+#	  status:-1 errmsg: GN
+
+sample ctdb_reply_control@GET_CAPABILITIES length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 15 5f a4 26
+	[0010] 08 00 00 00 7a c7 43 77  10 12 1c 0b cd c4 ef 22
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 59 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x26a45f15
+#	  REPLY_CONTROL dst:2000930682 src:186389008 reqid:0x22efc4cd
+#	Data
+#	  status:-1 errmsg: Y
+
+sample ctdb_reply_control@START_PERSISTENT_UPDATE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 be 44 5e 76
+	[0010] 08 00 00 00 3c 9d a9 27  e1 bd e3 1d 6f 6e 5a 62
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 48 49 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x765e44be
+#	  REPLY_CONTROL dst:665427260 src:501464545 reqid:0x625a6e6f
+#	Data
+#	  status:-1 errmsg: HI
+
+sample ctdb_reply_control@CANCEL_PERSISTENT_UPDATE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 af 59 6e 78
+	[0010] 08 00 00 00 65 fc 68 1d  6d 81 ad 0c 3a 8e dd 4c
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x786e59af
+#	  REPLY_CONTROL dst:493419621 src:212697453 reqid:0x4cdd8e3a
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TRANS2_COMMIT length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 6c bf 2b 59
+	[0010] 08 00 00 00 b4 11 21 6a  47 51 3c 2c 1c 72 b7 66
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x592bbf6c
+#	  REPLY_CONTROL dst:1780552116 src:742150471 reqid:0x66b7721c
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TRANS2_FINISHED length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 79 34 64 50
+	[0010] 08 00 00 00 b4 b8 03 1f  a2 1b a4 46 6b 4f b7 45
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 42 51 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x50643479
+#	  REPLY_CONTROL dst:520337588 src:1185160098 reqid:0x45b74f6b
+#	Data
+#	  status:-1 errmsg: BQ
+
+sample ctdb_reply_control@TRANS2_ERROR length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 1a c4 5e 0b
+	[0010] 08 00 00 00 d2 b6 ec 11  d9 71 51 4b e7 e2 39 44
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 54 44 4c 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0xb5ec41a
+#	  REPLY_CONTROL dst:300725970 src:1263628761 reqid:0x4439e2e7
+#	Data
+#	  status:-1 errmsg: TDL
+
+sample ctdb_reply_control@TRANS2_COMMIT_RETRY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 b5 05 01 1c
+	[0010] 08 00 00 00 45 dc 2e 2c  14 6d a6 17 96 b9 9a 0a
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x1c0105b5
+#	  REPLY_CONTROL dst:741268549 src:396782868 reqid:0xa9ab996
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@RECD_PING length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 3b a9 65 3f
+	[0010] 08 00 00 00 10 8a e4 44  46 d1 e4 42 44 65 7d 0e
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x3f65a93b
+#	  REPLY_CONTROL dst:1155828240 src:1122292038 reqid:0xe7d6544
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@RELEASE_IP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 24 c4 9f 1d
+	[0010] 08 00 00 00 2b e4 5f 51  f6 5f 30 37 e7 f5 f9 46
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 44 4a 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x1d9fc424
+#	  REPLY_CONTROL dst:1365238827 src:925917174 reqid:0x46f9f5e7
+#	Data
+#	  status:-1 errmsg: DJ
+
+sample ctdb_reply_control@TAKEOVER_IP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 02 16 23 68
+	[0010] 08 00 00 00 40 6f f7 6f  79 20 d8 33 7d 27 bc 4f
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 42 55 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x68231602
+#	  REPLY_CONTROL dst:1878486848 src:869802105 reqid:0x4fbc277d
+#	Data
+#	  status:-1 errmsg: BU
+
+sample ctdb_reply_control@GET_PUBLIC_IPS length(80) {
+	[0000] 50 00 00 00 42 44 54 43  01 00 00 00 f7 d9 91 4e
+	[0010] 08 00 00 00 d5 13 0a 6f  53 84 dc 2f 9e 7d 5c 6e
+	[0020] 00 00 00 00 24 00 00 00  00 00 00 00 01 00 00 00
+	[0030] 2d 20 80 79 0a 00 f2 74  00 00 00 00 7f 22 f6 55
+	[0040] 9f c1 00 c6 0c c3 29 b2  b1 48 72 43 00 00 00 00
+}
+#	Buffer len:80
+#	Header
+#	  length:80 magic:0x43544442 version:1 generation:0x4e91d9f7
+#	  REPLY_CONTROL dst:1862931413 src:802980947 reqid:0x6e5c7d9e
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_NODEMAP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 53 70 39 41
+	[0010] 08 00 00 00 55 a2 cd 52  c2 5f b4 2d 02 b1 3a 5c
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 57 5a 49 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x41397053
+#	  REPLY_CONTROL dst:1389208149 src:766795714 reqid:0x5c3ab102
+#	Data
+#	  status:-1 errmsg: WZI
+
+sample ctdb_reply_control@UNKNOWN(92) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 63 3c 4c 68
+	[0010] 08 00 00 00 b5 4d 17 20  0d 51 81 52 2e a1 b5 15
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 41 44 48 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x684c3c63
+#	  REPLY_CONTROL dst:538398133 src:1384206605 reqid:0x15b5a12e
+#	Data
+#	  status:-1 errmsg: ADH
+
+sample ctdb_reply_control@UNKNOWN(93) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 6b be 7a 38
+	[0010] 08 00 00 00 0f 3b 53 35  34 ec 51 59 91 33 7a 10
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x387abe6b
+#	  REPLY_CONTROL dst:894647055 src:1498541108 reqid:0x107a3391
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@UNKNOWN(94) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 19 75 f9 53
+	[0010] 08 00 00 00 b7 26 ab 54  a6 60 23 6b 25 15 bc 6a
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 46 55 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x53f97519
+#	  REPLY_CONTROL dst:1420502711 src:1797480614 reqid:0x6abc1525
+#	Data
+#	  status:-1 errmsg: FU
+
+sample ctdb_reply_control@UNKNOWN(95) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 83 a2 8a 37
+	[0010] 08 00 00 00 06 f2 c1 62  b8 b2 c8 08 53 ab 44 4c
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 56 55 55 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x378aa283
+#	  REPLY_CONTROL dst:1656877574 src:147370680 reqid:0x4c44ab53
+#	Data
+#	  status:-1 errmsg: VUU
+
+sample ctdb_reply_control@GET_EVENT_SCRIPT_STATUS length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 26 24 f4 41
+	[0010] 08 00 00 00 15 70 ec 14  2a f8 d3 63 bf 07 a1 4f
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 49 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x41f42426
+#	  REPLY_CONTROL dst:351039509 src:1674836010 reqid:0x4fa107bf
+#	Data
+#	  status:-1 errmsg: I
+
+sample ctdb_reply_control@TRAVERSE_KILL length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 c5 b7 b4 09
+	[0010] 08 00 00 00 18 b0 ec 3d  ca a4 a1 7a b3 5b 54 24
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 41 55 43 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x9b4b7c5
+#	  REPLY_CONTROL dst:1038921752 src:2057413834 reqid:0x24545bb3
+#	Data
+#	  status:-1 errmsg: AUC
+
+sample ctdb_reply_control@RECD_RECLOCK_LATENCY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 43 c4 b9 4b
+	[0010] 08 00 00 00 74 3d 90 01  a9 0f d7 7d f3 dc ec 35
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4bb9c443
+#	  REPLY_CONTROL dst:26230132 src:2111246249 reqid:0x35ecdcf3
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_RECLOCK_FILE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 08 5e 48 24
+	[0010] 08 00 00 00 a5 aa 53 57  2c 09 39 75 95 1a ca 0d
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 4a 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x24485e08
+#	  REPLY_CONTROL dst:1465100965 src:1966672172 reqid:0xdca1a95
+#	Data
+#	  status:-1 errmsg: J
+
+sample ctdb_reply_control@UNKNOWN(100) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 7f 11 0c 5b
+	[0010] 08 00 00 00 fb a9 fc 36  ce 73 b9 46 c3 0d 5d 32
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5b0c117f
+#	  REPLY_CONTROL dst:922528251 src:1186558926 reqid:0x325d0dc3
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@STOP_NODE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 bf c6 23 6f
+	[0010] 08 00 00 00 72 35 ea 00  d9 3a d2 12 55 31 57 02
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 4b 57 53 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x6f23c6bf
+#	  REPLY_CONTROL dst:15349106 src:315767513 reqid:0x2573155
+#	Data
+#	  status:-1 errmsg: KWS
+
+sample ctdb_reply_control@CONTINUE_NODE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 f5 40 a8 5a
+	[0010] 08 00 00 00 c7 50 3c 76  c0 a9 1c 33 f3 e5 b4 25
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 4f 4c 49 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5aa840f5
+#	  REPLY_CONTROL dst:1983664327 src:857516480 reqid:0x25b4e5f3
+#	Data
+#	  status:-1 errmsg: OLI
+
+sample ctdb_reply_control@SET_NATGWSTATE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 e6 fd 87 68
+	[0010] 08 00 00 00 1b df 4f 1d  b4 6e 39 6a 28 32 3e 71
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 54 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x6887fde6
+#	  REPLY_CONTROL dst:491773723 src:1782148788 reqid:0x713e3228
+#	Data
+#	  status:-1 errmsg: T
+
+sample ctdb_reply_control@SET_LMASTERROLE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 ad f4 b1 1e
+	[0010] 08 00 00 00 73 d1 17 09  00 85 90 7f d5 9c 59 2f
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 47 59 49 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x1eb1f4ad
+#	  REPLY_CONTROL dst:152555891 src:2140177664 reqid:0x2f599cd5
+#	Data
+#	  status:-1 errmsg: GYI
+
+sample ctdb_reply_control@SET_RECMASTERROLE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 7d b6 5d 5c
+	[0010] 08 00 00 00 d9 3a dc 5d  79 98 05 7f f1 ab bd 24
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5c5db67d
+#	  REPLY_CONTROL dst:1574714073 src:2131073145 reqid:0x24bdabf1
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@UNKNOWN(106) length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 70 4d 79 5a
+	[0010] 08 00 00 00 4a 57 95 23  af 4b 17 28 c4 89 1e 61
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5a794d70
+#	  REPLY_CONTROL dst:596989770 src:672615343 reqid:0x611e89c4
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@ENABLE_SCRIPT length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 2e fc 81 22
+	[0010] 08 00 00 00 71 27 6f 5b  d1 46 f3 64 6e 29 19 76
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2281fc2e
+#	  REPLY_CONTROL dst:1534011249 src:1693664977 reqid:0x7619296e
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DISABLE_SCRIPT length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 01 3d c2 65
+	[0010] 08 00 00 00 3a d4 64 06  2e 55 0c 62 8d a4 15 5f
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 52 55 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x65c23d01
+#	  REPLY_CONTROL dst:107271226 src:1644975406 reqid:0x5f15a48d
+#	Data
+#	  status:-1 errmsg: RU
+
+sample ctdb_reply_control@SET_BAN_STATE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a9 ed 4b 2c
+	[0010] 08 00 00 00 c3 87 6f 41  73 d8 a3 2a b2 fa 09 63
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2c4beda9
+#	  REPLY_CONTROL dst:1097828291 src:715380851 reqid:0x6309fab2
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_BAN_STATE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 da 85 ab 41
+	[0010] 08 00 00 00 3f 2e c6 71  03 55 76 7f 97 90 c9 78
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 47 43 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x41ab85da
+#	  REPLY_CONTROL dst:1908813375 src:2138461443 reqid:0x78c99097
+#	Data
+#	  status:-1 errmsg: GC
+
+sample ctdb_reply_control@SET_DB_PRIORITY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 18 f4 be 4b
+	[0010] 08 00 00 00 81 42 27 4e  e3 43 f7 2a 22 31 ef 32
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 41 49 47 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4bbef418
+#	  REPLY_CONTROL dst:1311195777 src:720847843 reqid:0x32ef3122
+#	Data
+#	  status:-1 errmsg: AIG
+
+sample ctdb_reply_control@GET_DB_PRIORITY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 3d f2 bd 78
+	[0010] 08 00 00 00 9c d2 ab 7c  49 5a e6 5c c5 96 33 30
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x78bdf23d
+#	  REPLY_CONTROL dst:2091635356 src:1558600265 reqid:0x303396c5
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TRANSACTION_CANCEL length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 cf 24 be 12
+	[0010] 08 00 00 00 52 e9 61 67  44 62 8b 67 95 1d 32 3b
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x12be24cf
+#	  REPLY_CONTROL dst:1734469970 src:1737187908 reqid:0x3b321d95
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@REGISTER_NOTIFY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 89 8f b7 2b
+	[0010] 08 00 00 00 f2 51 16 2b  60 31 14 46 b6 ac 8c 32
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2bb78f89
+#	  REPLY_CONTROL dst:722883058 src:1175728480 reqid:0x328cacb6
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DEREGISTER_NOTIFY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a5 40 9c 57
+	[0010] 08 00 00 00 9b 59 f7 4c  80 4b 78 72 ab 22 22 19
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x579c40a5
+#	  REPLY_CONTROL dst:1291278747 src:1920486272 reqid:0x192222ab
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TRANS2_ACTIVE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 38 9d c0 2e
+	[0010] 08 00 00 00 a4 58 bc 41  44 7a 4d 05 eb d8 7a 50
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2ec09d38
+#	  REPLY_CONTROL dst:1102862500 src:88963652 reqid:0x507ad8eb
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_LOG length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 11 9d 78 6c
+	[0010] 08 00 00 00 07 08 28 3a  5c b3 96 5c 65 25 be 56
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x6c789d11
+#	  REPLY_CONTROL dst:975702023 src:1553380188 reqid:0x56be2565
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@CLEAR_LOG length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 ec 13 87 78
+	[0010] 08 00 00 00 13 cf fb 2c  13 75 8b 77 18 dc 0e 45
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x788713ec
+#	  REPLY_CONTROL dst:754700051 src:2005628179 reqid:0x450edc18
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TRANS3_COMMIT length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 13 6d 21 73
+	[0010] 08 00 00 00 38 f6 5a 18  01 09 89 40 bc c4 21 53
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 46 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x73216d13
+#	  REPLY_CONTROL dst:408614456 src:1082722561 reqid:0x5321c4bc
+#	Data
+#	  status:-1 errmsg: F
+
+sample ctdb_reply_control@GET_DB_SEQNUM length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 f1 e7 6b 4d
+	[0010] 08 00 00 00 7d 63 77 34  b4 3e d2 6a f2 c6 3a 67
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 56 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4d6be7f1
+#	  REPLY_CONTROL dst:880239485 src:1792163508 reqid:0x673ac6f2
+#	Data
+#	  status:-1 errmsg: V
+
+sample ctdb_reply_control@DB_SET_HEALTHY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 35 63 5b 0f
+	[0010] 08 00 00 00 ca 89 5e 4c  7b 9d 2a 06 9b 44 b2 40
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0xf5b6335
+#	  REPLY_CONTROL dst:1281264074 src:103456123 reqid:0x40b2449b
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DB_GET_HEALTH length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 92 8d c3 25
+	[0010] 08 00 00 00 53 f4 f8 5b  cf 36 92 5d 01 43 9a 4c
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 51 54 54 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x25c38d92
+#	  REPLY_CONTROL dst:1543042131 src:1569863375 reqid:0x4c9a4301
+#	Data
+#	  status:-1 errmsg: QTT
+
+sample ctdb_reply_control@GET_PUBLIC_IP_INFO length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 b4 30 cf 2b
+	[0010] 08 00 00 00 7e 6c 0e 77  19 9b 1a 3f 2b 3c 33 4f
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 4f 42 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2bcf30b4
+#	  REPLY_CONTROL dst:1997433982 src:1058708249 reqid:0x4f333c2b
+#	Data
+#	  status:-1 errmsg: OB
+
+sample ctdb_reply_control@GET_IFACES length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 0c 05 26 27
+	[0010] 08 00 00 00 9a b0 2f 46  40 3d b6 2e 49 ce 54 73
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 59 4f 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2726050c
+#	  REPLY_CONTROL dst:1177530522 src:783695168 reqid:0x7354ce49
+#	Data
+#	  status:-1 errmsg: YO
+
+sample ctdb_reply_control@SET_IFACE_LINK_STATE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 e3 af 7e 07
+	[0010] 08 00 00 00 3e aa 7b 2e  a4 c3 8f 6d 58 3f a7 5e
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x77eafe3
+#	  REPLY_CONTROL dst:779856446 src:1838138276 reqid:0x5ea73f58
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TCP_ADD_DELAYED_UPDATE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 d9 e5 8a 07
+	[0010] 08 00 00 00 a7 4d 1b 65  3e 6d 0d 0d a9 8c 12 25
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x78ae5d9
+#	  REPLY_CONTROL dst:1696288167 src:218983742 reqid:0x25128ca9
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_STAT_HISTORY length(544) {
+	[0000] 20 02 00 00 42 44 54 43  01 00 00 00 73 10 a3 1e
+	[0010] 08 00 00 00 7c f5 af 4e  c9 a6 7e 79 0d f9 cc 42
+	[0020] 00 00 00 00 f0 01 00 00  00 00 00 00 01 00 00 00
+	[0030] 00 00 00 00 f7 72 0b 2d  4b 1c e7 2e 4a 0d 60 6d
+	[0040] 4b f0 eb 48 ab 65 46 41  09 2d 08 48 e8 b0 c9 1e
+	[0050] 67 6e 3d 26 ad e5 7c 1c  ef 81 3d 67 1f b8 ac 3f
+	[0060] d7 f2 ab 65 78 ea 2c 67  53 cd a6 57 13 48 8f 04
+	[0070] 67 c0 15 07 58 19 c0 63  00 00 00 00 5a 35 55 33
+	[0080] c8 e9 d8 7e 54 73 b8 07  00 00 00 00 ac f5 0f 75
+	[0090] e4 ff be 40 63 85 b3 1a  00 00 00 00 f9 14 9f 94
+	[00a0] 00 00 00 00 c9 17 86 ec  22 e2 22 3c 37 c9 d9 2a
+	[00b0] b0 22 21 3c 24 c6 0a 20  28 57 04 3c fc 0c a3 be
+	[00c0] 00 00 00 00 f0 5b a9 8e  3f 77 54 3c 6c a9 8b 19
+	[00d0] 86 6e 00 3c 8b dd ab a4  08 03 1d 3c e9 14 41 7c
+	[00e0] 85 a4 3f 3a 0e 85 7e 69  71 85 42 60 83 f3 16 bd
+	[00f0] 00 00 00 00 83 58 32 0a  09 7a 15 3c 7d 16 f8 02
+	[0100] e0 14 56 3c 0e 9f 43 12  e5 72 25 3c 9c 2f 9c 1a
+	[0110] 4d 25 96 3f ab b9 d1 50  0f 49 39 0c 82 b7 c6 48
+	[0120] 74 cb f9 64 0f c0 df 51  21 98 d6 61 30 e0 89 53
+	[0130] 48 05 70 02 2b 0b ed 34  bd 8c f2 78 94 cb 95 2d
+	[0140] ee c1 2b 77 cb cf 03 21  47 2c a2 39 07 e5 e5 16
+	[0150] 50 c9 14 6b 1b 96 82 21  0f 78 d7 78 4a 29 65 7c
+	[0160] 7a e6 1e 4b 0e b3 0d 0b  2b e0 57 03 38 ac cd 75
+	[0170] c6 28 8e 20 a8 54 4d 1d  f2 f6 9d 2c 06 43 11 3b
+	[0180] 06 05 47 7c 81 dd 17 0d  3f 52 6a 54 13 1b b9 60
+	[0190] 30 c5 dd 30 73 4c ae 2f  c3 3c 68 1d bd 6d 26 5c
+	[01a0] 08 63 ea 0a a1 19 bf 29  00 00 00 00 ce d3 f4 bb
+	[01b0] 00 00 00 00 0f fe b6 50  cd 65 00 3c 1f 2c af dc
+	[01c0] 31 a6 16 3c ec 6e 88 9b  f6 f8 06 3c f5 50 2a c3
+	[01d0] 00 00 00 00 b6 81 03 13  03 84 1f 3c b2 f2 1b 97
+	[01e0] c6 a5 08 3c f8 2b 66 a8  2a a0 03 3c c1 bb 6f 16
+	[01f0] 00 00 00 00 4c 43 84 6f  00 00 00 00 5b e5 01 00
+	[0200] 00 00 00 00 26 9a 83 1f  00 00 00 00 07 3a 0b 00
+	[0210] 00 00 00 00 c5 64 45 3f  a7 87 7b 0f 00 00 00 00
+}
+#	Buffer len:544
+#	Header
+#	  length:544 magic:0x43544442 version:1 generation:0x1ea31073
+#	  REPLY_CONTROL dst:1320154492 src:2038343369 reqid:0x42ccf90d
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@SCHEDULE_FOR_DELETION length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 15 39 53 0f
+	[0010] 08 00 00 00 22 11 e6 09  0c 9e d9 68 5c c4 6e 13
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0xf533915
+#	  REPLY_CONTROL dst:166072610 src:1759092236 reqid:0x136ec45c
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@SET_DB_READONLY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 aa 72 bc 66
+	[0010] 08 00 00 00 32 31 84 7a  b8 5b 11 1f a0 ee 6b 59
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 53 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x66bc72aa
+#	  REPLY_CONTROL dst:2055483698 src:521231288 reqid:0x596beea0
+#	Data
+#	  status:-1 errmsg: S
+
+sample ctdb_reply_control@CHECK_SRVIDS length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 65 49 ed 34
+	[0010] 08 00 00 00 0d bb d3 09  2e cd 36 3c d9 97 9a 73
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 45 4b 4a 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x34ed4965
+#	  REPLY_CONTROL dst:164870925 src:1010224430 reqid:0x739a97d9
+#	Data
+#	  status:-1 errmsg: EKJ
+
+sample ctdb_reply_control@TRAVERSE_START_EXT length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a4 ab f0 4a
+	[0010] 08 00 00 00 07 b1 ae 4e  70 63 5f 64 09 de 37 5f
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4af0aba4
+#	  REPLY_CONTROL dst:1320071431 src:1683972976 reqid:0x5f37de09
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_DB_STATISTICS length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 de 2a 12 4f
+	[0010] 08 00 00 00 0c 65 92 29  e5 3c 45 6f 01 2d 30 39
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 42 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4f122ade
+#	  REPLY_CONTROL dst:697459980 src:1866808549 reqid:0x39302d01
+#	Data
+#	  status:-1 errmsg: B
+
+sample ctdb_reply_control@SET_DB_STICKY length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 7f 03 b6 45
+	[0010] 08 00 00 00 1d ab db 60  4b 4b 2f 76 bb 93 fc 7a
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x45b6037f
+#	  REPLY_CONTROL dst:1625008925 src:1982810955 reqid:0x7afc93bb
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@RELOAD_PUBLIC_IPS length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 2f 0e 08 73
+	[0010] 08 00 00 00 d0 7c 95 63  7a 76 30 17 77 af 1f 45
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x73080e2f
+#	  REPLY_CONTROL dst:1670741200 src:389052026 reqid:0x451faf77
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TRAVERSE_ALL_EXT length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 b0 23 3f 39
+	[0010] 08 00 00 00 5a 07 e2 64  09 07 83 24 30 36 1d 66
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 4a 4e 49 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x393f23b0
+#	  REPLY_CONTROL dst:1692534618 src:612566793 reqid:0x661d3630
+#	Data
+#	  status:-1 errmsg: JNI
+
+sample ctdb_reply_control@RECEIVE_RECORDS length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 2a bb 28 1c
+	[0010] 08 00 00 00 80 f2 0c 4d  cf 0e de 37 98 42 4c 76
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x1c28bb2a
+#	  REPLY_CONTROL dst:1292694144 src:937299663 reqid:0x764c4298
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@IPREALLOCATED length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 2d 75 8f 66
+	[0010] 08 00 00 00 04 b0 03 4c  17 22 a6 03 2d 71 ce 12
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 50 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x668f752d
+#	  REPLY_CONTROL dst:1275310084 src:61219351 reqid:0x12ce712d
+#	Data
+#	  status:-1 errmsg: P
+
+sample ctdb_reply_control@GET_RUNSTATE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 78 19 41 39
+	[0010] 08 00 00 00 8a b0 05 1c  8f 4e 4d 23 24 c3 a7 46
+	[0020] 00 00 00 00 04 00 00 00  00 00 00 00 cf 48 30 4c
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x39411978
+#	  REPLY_CONTROL dst:470134922 src:592268943 reqid:0x46a7c324
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DB_DETACH length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 81 bb e6 16
+	[0010] 08 00 00 00 57 56 73 6f  32 96 05 65 b1 0f 0f 5c
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x16e6bb81
+#	  REPLY_CONTROL dst:1869829719 src:1694864946 reqid:0x5c0f0fb1
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@GET_NODES_FILE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 50 68 3b 22
+	[0010] 08 00 00 00 c8 e0 73 03  25 41 73 36 b0 78 9c 01
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 4c 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x223b6850
+#	  REPLY_CONTROL dst:57925832 src:913522981 reqid:0x19c78b0
+#	Data
+#	  status:-1 errmsg: L
+
+sample ctdb_reply_control@DB_FREEZE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a2 f3 3c 29
+	[0010] 08 00 00 00 fc 7e 54 79  12 fa 3c 19 79 de cc 50
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x293cf3a2
+#	  REPLY_CONTROL dst:2035580668 src:423426578 reqid:0x50ccde79
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DB_THAW length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 da ed 2e 10
+	[0010] 08 00 00 00 f6 35 eb 76  d1 06 c1 7d cb aa 7a 65
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 45 52 4f 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x102eedda
+#	  REPLY_CONTROL dst:1995126262 src:2109802193 reqid:0x657aaacb
+#	Data
+#	  status:-1 errmsg: ERO
+
+sample ctdb_reply_control@DB_TRANSACTION_START length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 44 a0 f7 22
+	[0010] 08 00 00 00 2b d7 0e 33  aa d5 ce 3a 73 38 dc 3c
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 4b 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x22f7a044
+#	  REPLY_CONTROL dst:856610603 src:986633642 reqid:0x3cdc3873
+#	Data
+#	  status:-1 errmsg: K
+
+sample ctdb_reply_control@DB_TRANSACTION_COMMIT length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 47 6c 6e 04
+	[0010] 08 00 00 00 3a ad 3a 7b  e0 6c 9d 4a 9f 19 8a 29
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x46e6c47
+#	  REPLY_CONTROL dst:2067443002 src:1251831008 reqid:0x298a199f
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DB_TRANSACTION_CANCEL length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 b5 a8 70 0d
+	[0010] 08 00 00 00 f3 97 82 70  14 20 02 2b 8d e4 fa 44
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 5a 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0xd70a8b5
+#	  REPLY_CONTROL dst:1887606771 src:721559572 reqid:0x44fae48d
+#	Data
+#	  status:-1 errmsg: Z
+
+sample ctdb_reply_control@DB_PULL length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 80 71 96 5b
+	[0010] 08 00 00 00 47 bf 3b 76  0a ed 55 6d 65 d0 d5 01
+	[0020] 00 00 00 00 04 00 00 00  00 00 00 00 d5 0c a2 22
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5b967180
+#	  REPLY_CONTROL dst:1983627079 src:1834347786 reqid:0x1d5d065
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DB_PUSH_START length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 69 81 e4 5a
+	[0010] 08 00 00 00 ea 10 6a 6d  cb 6f 8b 13 09 b6 62 39
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 4a 46 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5ae48169
+#	  REPLY_CONTROL dst:1835667690 src:327905227 reqid:0x3962b609
+#	Data
+#	  status:-1 errmsg: JF
+
+sample ctdb_reply_control@DB_PUSH_CONFIRM length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 7f 2b dd 54
+	[0010] 08 00 00 00 05 f2 0d 6c  4b 25 a6 29 81 70 3a 1d
+	[0020] 00 00 00 00 04 00 00 00  00 00 00 00 22 8e fe 56
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x54dd2b7f
+#	  REPLY_CONTROL dst:1812853253 src:698754379 reqid:0x1d3a7081
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DB_OPEN_FLAGS length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 fa f8 82 23
+	[0010] 08 00 00 00 cc 60 85 43  93 9a 11 54 8d 39 c4 46
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 5a 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2382f8fa
+#	  REPLY_CONTROL dst:1132814540 src:1410439827 reqid:0x46c4398d
+#	Data
+#	  status:-1 errmsg: Z
+
+sample ctdb_reply_control@DB_ATTACH_REPLICATED length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 3e c6 6a 2f
+	[0010] 08 00 00 00 ef 1b cd 22  55 6f d8 1b d0 00 1c 41
+	[0020] 00 00 00 00 04 00 00 00  00 00 00 00 d9 14 9d 11
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2f6ac63e
+#	  REPLY_CONTROL dst:583867375 src:467169109 reqid:0x411c00d0
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@CHECK_PID_SRVID length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 bc 6e ff 02
+	[0010] 08 00 00 00 fb 96 16 21  5b 72 fb 68 b8 b1 bb 51
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2ff6ebc
+#	  REPLY_CONTROL dst:555128571 src:1761309275 reqid:0x51bbb1b8
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TUNNEL_REGISTER length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 93 f0 2e 0c
+	[0010] 08 00 00 00 e1 d8 7f 22  5e 3b 15 3c 03 54 56 62
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0xc2ef093
+#	  REPLY_CONTROL dst:578803937 src:1008024414 reqid:0x62565403
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TUNNEL_DEREGISTER length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 15 72 2d 7e
+	[0010] 08 00 00 00 e1 52 6d 60  ee 6d 01 68 cb a4 43 24
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 45 4b 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x7e2d7215
+#	  REPLY_CONTROL dst:1617777377 src:1744924142 reqid:0x2443a4cb
+#	Data
+#	  status:-1 errmsg: EK
+
+sample ctdb_reply_control@VACUUM_FETCH length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 7a d8 2f 50
+	[0010] 08 00 00 00 95 e1 3a 0f  e9 43 01 42 f2 fa 99 7f
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x502fd87a
+#	  REPLY_CONTROL dst:255517077 src:1107379177 reqid:0x7f99faf2
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DB_VACUUM length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 08 0e 4e 02
+	[0010] 08 00 00 00 91 82 67 1f  b2 a3 70 04 48 c5 b7 37
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 4b 4e 50 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x24e0e08
+#	  REPLY_CONTROL dst:526877329 src:74490802 reqid:0x37b7c548
+#	Data
+#	  status:-1 errmsg: KNP
+
+sample ctdb_reply_control@ECHO_DATA length(56) {
+	[0000] 38 00 00 00 42 44 54 43  01 00 00 00 01 2e f5 30
+	[0010] 08 00 00 00 ce 2c 21 60  30 7c ef 6c 68 ac c5 48
+	[0020] 00 00 00 00 0a 00 00 00  00 00 00 00 ee b2 aa 57
+	[0030] 02 00 00 00 04 e5 00 00
+}
+#	Buffer len:56
+#	Header
+#	  length:56 magic:0x43544442 version:1 generation:0x30f52e01
+#	  REPLY_CONTROL dst:1612786894 src:1827634224 reqid:0x48c5ac68
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@DISABLE_NODE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 be 48 a6 28
+	[0010] 08 00 00 00 07 57 18 57  e4 40 a5 28 57 c2 80 1a
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x28a648be
+#	  REPLY_CONTROL dst:1461212935 src:681918692 reqid:0x1a80c257
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@ENABLE_NODE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 31 bf cc 39
+	[0010] 08 00 00 00 8c 41 f4 3c  eb 70 e3 6c 84 76 59 17
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 4a 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x39ccbf31
+#	  REPLY_CONTROL dst:1022640524 src:1826844907 reqid:0x17597684
+#	Data
+#	  status:-1 errmsg: J
+
+sample ctdb_reply_control@TCP_CLIENT_DISCONNECTED length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 8a 70 98 4c
+	[0010] 08 00 00 00 18 df 59 34  7f 26 94 5c f2 6f b9 0a
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4c98708a
+#	  REPLY_CONTROL dst:878305048 src:1553213055 reqid:0xab96ff2
+#	Data
+#	  status:0
+
+sample ctdb_reply_control@TCP_CLIENT_PASSED length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 09 85 5b 17
+	[0010] 08 00 00 00 a1 92 b4 0d  81 ca 81 2f 1f c9 b6 12
+	[0020] ff ff ff ff 00 00 00 00  03 00 00 00 44 4e 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x175b8509
+#	  REPLY_CONTROL dst:229937825 src:797035137 reqid:0x12b6c91f
+#	Data
+#	  status:-1 errmsg: DN
+
+sample ctdb_reply_control@START_IPREALLOCATE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 4e c3 13 6f
+	[0010] 08 00 00 00 37 4d 9c 52  b7 cb f3 6b f8 20 de 69
+	[0020] ff ff ff ff 00 00 00 00  04 00 00 00 4c 48 56 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x6f13c34e
+#	  REPLY_CONTROL dst:1385975095 src:1811139511 reqid:0x69de20f8
+#	Data
+#	  status:-1 errmsg: LHV
+
+sample ctdb_reply_control@PUSH_RECORD length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a4 16 4c 05
+	[0010] 08 00 00 00 7a 4f c1 48  cf 15 25 21 e9 57 40 12
+	[0020] ff ff ff ff 00 00 00 00  02 00 00 00 44 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x54c16a4
+#	  REPLY_CONTROL dst:1220628346 src:556078543 reqid:0x124057e9
+#	Data
+#	  status:-1 errmsg: D
+
+sample ctdb_reply_control@PUSH_RECORD_STORE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 c4 a6 4d 43
+	[0010] 08 00 00 00 26 30 64 10  28 94 9f 25 f8 c7 49 24
+	[0020] 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x434da6c4
+#	  REPLY_CONTROL dst:275001382 src:631215144 reqid:0x2449c7f8
+#	Data
+#	  status:0
+
+sample ctdb_req_message@BANNING length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 8b c3 60 14
+	[0010] 05 00 00 00 38 8c 39 19  90 7d e2 2f 4b 48 e0 23
+	[0020] 00 00 00 00 00 00 02 f0  04 00 00 00 d9 19 a9 47
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x1460c38b
+#	  REQ_MESSAGE dst:423201848 src:803372432 reqid:0x23e0484b
+#	Data
+#	  srvid:BANNING
+#	  data:\D9\19\A9G
+
+sample ctdb_req_message@ELECTION length(80) {
+	[0000] 50 00 00 00 42 44 54 43  01 00 00 00 37 68 6d 0a
+	[0010] 05 00 00 00 1a ac cd 3c  ae d0 a7 7e 58 dc 5e 2f
+	[0020] 00 00 00 00 00 00 00 f1  20 00 00 00 1f 00 00 00
+	[0030] 00 00 00 00 04 76 33 3a  00 00 00 00 d4 52 03 00
+	[0040] 00 00 00 00 1c 00 00 00  f6 9d 33 0a 00 00 00 00
+}
+#	Buffer len:80
+#	Header
+#	  length:80 magic:0x43544442 version:1 generation:0xa6d6837
+#	  REQ_MESSAGE dst:1020111898 src:2124927150 reqid:0x2f5edc58
+#	Data
+#	  srvid:ELECTION
+#	  data:\1F\00\00\00\00\00\00\00\04v3:\00\00\00\00\D4R\03\00\00\00\00\00\1C\00\00\00\F6\9D3\0A
+
+sample ctdb_req_message@LEADER length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 3e 62 dd 4e
+	[0010] 05 00 00 00 48 99 70 6d  da 12 d5 11 fc ec a9 76
+	[0020] 00 00 00 00 00 00 01 f1  04 00 00 00 8f 32 58 4a
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x4edd623e
+#	  REQ_MESSAGE dst:1836095816 src:299176666 reqid:0x76a9ecfc
+#	Data
+#	  srvid:0xf101000000000000
+#	  data:\8F2XJ
+
+sample ctdb_req_message@RECONFIGURE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 06 2a 1e 2a
+	[0010] 05 00 00 00 07 9f 19 68  55 5c 3e 33 94 1e 86 10
+	[0020] 00 00 00 00 00 00 00 f2  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x2a1e2a06
+#	  REQ_MESSAGE dst:1746509575 src:859724885 reqid:0x10861e94
+#	Data
+#	  srvid:RECONFIGURE
+#	  data:
+
+sample ctdb_req_message@RELEASE_IP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 de da e1 62
+	[0010] 05 00 00 00 b2 d6 74 3f  c5 25 e5 11 6d c2 fe 42
+	[0020] 00 00 00 00 00 00 00 f3  03 00 00 00 49 51 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x62e1dade
+#	  REQ_MESSAGE dst:1064621746 src:300230085 reqid:0x42fec26d
+#	Data
+#	  srvid:RELEASE_IP
+#	  data:IQ\00
+
+sample ctdb_req_message@TAKE_IP length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 7e e4 bd 08
+	[0010] 05 00 00 00 30 89 11 33  d8 d8 34 4c 31 ca 3d 11
+	[0020] 00 00 00 00 00 00 01 f3  03 00 00 00 54 59 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x8bde47e
+#	  REQ_MESSAGE dst:856787248 src:1278531800 reqid:0x113dca31
+#	Data
+#	  srvid:TAKE_IP
+#	  data:TY\00
+
+sample ctdb_req_message@SET_NODE_FLAGS length(56) {
+	[0000] 38 00 00 00 42 44 54 43  01 00 00 00 5b 0f 97 4f
+	[0010] 05 00 00 00 5b 06 cd 38  0f 0b 1e 4a 35 db 2e 3e
+	[0020] 00 00 00 00 00 00 00 f4  0c 00 00 00 22 19 97 66
+	[0030] ac 86 a7 34 6c fe f5 0f
+}
+#	Buffer len:56
+#	Header
+#	  length:56 magic:0x43544442 version:1 generation:0x4f970f5b
+#	  REQ_MESSAGE dst:952960603 src:1243482895 reqid:0x3e2edb35
+#	Data
+#	  srvid:SET_NODE_FLAGS
+#	  data:\22\19\97f\AC\86\A74l\FE\F5\0F
+
+sample ctdb_req_message@RECD_UPDATE_IP length(80) {
+	[0000] 50 00 00 00 42 44 54 43  01 00 00 00 f9 1f e0 69
+	[0010] 05 00 00 00 51 a5 f6 29  90 9c bf 12 d8 86 36 35
+	[0020] 00 00 00 00 00 00 00 f5  20 00 00 00 d2 e1 e6 10
+	[0030] 0a 00 eb fe 00 00 00 00  34 b8 2b cc ba 84 0e d8
+	[0040] 1f f0 41 44 a5 12 d0 f4  00 00 00 00 00 00 00 00
+}
+#	Buffer len:80
+#	Header
+#	  length:80 magic:0x43544442 version:1 generation:0x69e01ff9
+#	  REQ_MESSAGE dst:704030033 src:314547344 reqid:0x353686d8
+#	Data
+#	  srvid:RECD_UPDATE_IP
+#	  data:\D2\E1\E6\10\0A\00\EB\FE\00\00\00\004\B8+\CC\BA\84\0E\D8\1F\F0AD\A5\12\D0\F4\00\00\00\00
+
+sample ctdb_req_message@VACUUM_FETCH length(96) {
+	[0000] 60 00 00 00 42 44 54 43  01 00 00 00 8c 0f e0 45
+	[0010] 05 00 00 00 2a ce 07 66  26 08 b2 68 a3 30 33 7d
+	[0020] 00 00 00 00 00 00 00 f7  2f 00 00 00 1d c2 91 29
+	[0030] 02 00 00 00 13 00 00 00  a9 21 e6 55 02 00 00 00
+	[0040] 01 00 00 00 1c 59 0a 14  00 00 00 4a e6 73 0c 01
+	[0050] 00 00 00 03 00 00 00 d6  45 60 48 00 00 00 00 00
+}
+#	Buffer len:96
+#	Header
+#	  length:96 magic:0x43544442 version:1 generation:0x45e00f8c
+#	  REQ_MESSAGE dst:1711787562 src:1756497958 reqid:0x7d3330a3
+#	Data
+#	  srvid:VACUUM_FETCH
+#	  data:\1D\C2\91)\02\00\00\00\13\00\00\00\A9!\E6U\02\00\00\00\01\00\00\00\1CY\0A\14\00\00\00J\E6s\0C\01\00\00\00\03\00\00\00\D6E`H
+
+sample ctdb_req_message@DETACH_DATABASE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 a9 b5 cd 1a
+	[0010] 05 00 00 00 d2 91 17 3e  54 3c b0 3f d7 8e e3 5c
+	[0020] 00 00 00 00 00 00 01 f7  04 00 00 00 dc 2d d9 7c
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x1acdb5a9
+#	  REQ_MESSAGE dst:1041732050 src:1068514388 reqid:0x5ce38ed7
+#	Data
+#	  srvid:DETACH_DATABASE
+#	  data:\DC-\D9|
+
+sample ctdb_req_message@MEM_DUMP length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 8b d4 54 5e
+	[0010] 05 00 00 00 52 cb cb 21  60 6d 97 7c 09 78 b2 48
+	[0020] 00 00 00 00 00 00 00 f8  10 00 00 00 05 00 00 00
+	[0030] 00 00 00 00 5e 90 47 21  6a 5f 8c 23 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x5e54d48b
+#	  REQ_MESSAGE dst:567003986 src:2090298720 reqid:0x48b27809
+#	Data
+#	  srvid:MEM_DUMP
+#	  data:\05\00\00\00\00\00\00\00^\90G!j_\8C#
+
+sample ctdb_req_message@GETLOG length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 12 b9 77 62
+	[0010] 05 00 00 00 c3 fd e1 6c  c2 75 fd 1c 3d 2b 74 32
+	[0020] 00 00 00 00 00 00 01 f8  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x6277b912
+#	  REQ_MESSAGE dst:1826749891 src:486372802 reqid:0x32742b3d
+#	Data
+#	  srvid:GETLOG
+#	  data:
+
+sample ctdb_req_message@CLEARLOG length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 3e d2 36 72
+	[0010] 05 00 00 00 ff f7 6f 71  e0 ea 84 34 f0 2f 5d 3c
+	[0020] 00 00 00 00 00 00 02 f8  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x7236d23e
+#	  REQ_MESSAGE dst:1903163391 src:881126112 reqid:0x3c5d2ff0
+#	Data
+#	  srvid:CLEARLOG
+#	  data:
+
+sample ctdb_req_message@PUSH_NODE_FLAGS length(56) {
+	[0000] 38 00 00 00 42 44 54 43  01 00 00 00 04 b9 3a 03
+	[0010] 05 00 00 00 62 ab 55 4f  0a d1 5d 6f 93 b0 c5 48
+	[0020] 00 00 00 00 00 00 00 f9  0c 00 00 00 a0 c0 00 76
+	[0030] 60 9d ad 72 f6 d5 d8 66
+}
+#	Buffer len:56
+#	Header
+#	  length:56 magic:0x43544442 version:1 generation:0x33ab904
+#	  REQ_MESSAGE dst:1331014498 src:1868419338 reqid:0x48c5b093
+#	Data
+#	  srvid:PUSH_NODE_FLAGS
+#	  data:\A0\C0\00v`\9D\ADr\F6\D5\D8f
+
+sample ctdb_req_message@RELOAD_NODES length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 7b d6 ff 68
+	[0010] 05 00 00 00 a4 f5 0b 76  d6 ee 0f 20 77 33 c5 65
+	[0020] 00 00 00 00 00 00 00 fa  00 00 00 00 00 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x68ffd67b
+#	  REQ_MESSAGE dst:1980495268 src:537915094 reqid:0x65c53377
+#	Data
+#	  srvid:RELOAD_NODES
+#	  data:
+
+sample ctdb_req_message@TAKEOVER_RUN length(64) {
+	[0000] 40 00 00 00 42 44 54 43  01 00 00 00 ab af 39 62
+	[0010] 05 00 00 00 5f 3a 2e 09  c3 a0 44 58 84 b8 f4 09
+	[0020] 00 00 00 00 00 00 00 fb  10 00 00 00 1e 00 00 00
+	[0030] 00 00 00 00 7f 06 88 6e  dc e2 ff 70 00 00 00 00
+}
+#	Buffer len:64
+#	Header
+#	  length:64 magic:0x43544442 version:1 generation:0x6239afab
+#	  REQ_MESSAGE dst:154024543 src:1480892611 reqid:0x9f4b884
+#	Data
+#	  srvid:TAKEOVER_RUN
+#	  data:\1E\00\00\00\00\00\00\00\7F\06\88n\DC\E2\FFp
+
+sample ctdb_req_message@REBALANCE_NODE length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 24 64 69 30
+	[0010] 05 00 00 00 98 d0 5f 7e  51 2a b8 45 a8 c6 8d 5f
+	[0020] 00 00 00 00 00 00 01 fb  04 00 00 00 71 2d 61 71
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x30696424
+#	  REQ_MESSAGE dst:2120208536 src:1169697361 reqid:0x5f8dc6a8
+#	Data
+#	  srvid:REBALANCE_NODE
+#	  data:q-aq
+
+sample ctdb_req_message@DISABLE_TAKEOVER_RUNS length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 49 83 47 4a
+	[0010] 05 00 00 00 1f 3b 8c 77  30 23 19 4b b0 cc 51 0b
+	[0020] 00 00 00 00 00 00 03 fb  18 00 00 00 14 00 00 00
+	[0030] 00 00 00 00 9a da b7 50  0b 06 8e 2c 1b 7f 3c 77
+	[0040] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x4a478349
+#	  REQ_MESSAGE dst:2005678879 src:1259938608 reqid:0xb51ccb0
+#	Data
+#	  srvid:DISABLE_TAKEOVER_RUNS
+#	  data:\14\00\00\00\00\00\00\00\9A\DA\B7P\0B\06\8E,\1B\7F<w\00\00\00\00
+
+sample ctdb_req_message@DISABLE_RECOVERIES length(72) {
+	[0000] 48 00 00 00 42 44 54 43  01 00 00 00 2c 3d 12 4d
+	[0010] 05 00 00 00 ca e4 e6 4d  d5 65 0f 71 2e 8c 2f 47
+	[0020] 00 00 00 00 00 00 04 fb  18 00 00 00 1d 00 00 00
+	[0030] 00 00 00 00 f5 76 f9 47  4f b3 02 01 e5 08 26 14
+	[0040] 00 00 00 00 00 00 00 00
+}
+#	Buffer len:72
+#	Header
+#	  length:72 magic:0x43544442 version:1 generation:0x4d123d2c
+#	  REQ_MESSAGE dst:1306977482 src:1896834517 reqid:0x472f8c2e
+#	Data
+#	  srvid:DISABLE_RECOVERIES
+#	  data:\1D\00\00\00\00\00\00\00\F5v\F9GO\B3\02\01\E5\08&\14\00\00\00\00
+
+sample ctdb_req_message@DISABLE_IP_CHECK length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 17 9b 4d 5c
+	[0010] 05 00 00 00 d6 5f 51 1e  15 54 66 0e ea 80 db 14
+	[0020] 00 00 00 00 00 00 00 fc  04 00 00 00 c5 a4 de 1c
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x5c4d9b17
+#	  REQ_MESSAGE dst:508649430 src:241587221 reqid:0x14db80ea
+#	Data
+#	  srvid:DISABLE_IP_CHECK
+#	  data:\C5\A4\DE\1C
+
+sample ctdb_req_message_data length(48) {
+	[0000] 30 00 00 00 42 44 54 43  01 00 00 00 3a ac eb 50
+	[0010] 05 00 00 00 7a 87 2d 4b  a2 10 51 56 58 84 6c 16
+	[0020] 57 42 b9 41 d4 43 a8 13  01 00 00 00 35 00 00 00
+}
+#	Buffer len:48
+#	Header
+#	  length:48 magic:0x43544442 version:1 generation:0x50ebac3a
+#	  REQ_MESSAGE dst:1261275002 src:1448153250 reqid:0x166c8458
+#	Data
+#	  srvid:0x13a843d441b94257
+#	  data:5
+
+sample ctdb_req_keepalive length(40) {
+	[0000] 28 00 00 00 42 44 54 43  01 00 00 00 41 f0 b8 5f
+	[0010] 09 00 00 00 fe ef 7c 4c  0c 7e ef 52 9b 94 d3 1e
+	[0020] bc d1 63 7a e0 25 fa 24
+}
+#	Buffer len:40
+#	Header
+#	  length:40 magic:0x43544442 version:1 generation:0x5fb8f041
+#	  REQ_KEEPALIVE dst:1283256318 src:1391427084 reqid:0x1ed3949b
+#	Data
+#	  version:0x7a63d1bc  uptime:620373472
+
+sample ctdb_req_tunnel length(56) {
+	[0000] 38 00 00 00 42 44 54 43  01 00 00 00 b4 8f 94 53
+	[0010] 0a 00 00 00 58 0c 23 4f  1f 8e c9 1e 8c b0 f9 7c
+	[0020] b2 83 a8 23 8b f7 f9 46  c8 57 65 72 02 00 00 00
+	[0030] 79 c0 00 00 00 00 00 00
+}
+#	Buffer len:56
+#	Header
+#	  length:56 magic:0x43544442 version:1 generation:0x53948fb4
+#	  UNKNOWN(10) dst:1327696984 src:516525599 reqid:0x7cf9b08c
+#	Data
+#	  tunnel_id:0x46f9f78b23a883b2y\C0
+
