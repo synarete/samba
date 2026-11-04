@@ -282,6 +282,26 @@ def ndr_abi_check(self):
         tsk.inputs.append(node)
 
 
+def SAMBA_NDR_ABI_CHECK(bld, binname, abi_file):
+    '''check the output of the binary binname against abi_file
+    (relative to the current directory), the output needs to
+    use the same format as the ndr_abi_<idl> binaries,
+    see librpc/ndr/ndr_abi.h'''
+
+    if not bld.env.ABI_CHECK or bld.env.CROSS_COMPILE:
+        return
+
+    try:
+        t = bld.get_tgen_by_name(binname)
+    except Errors.WafError:
+        # e.g. disabled in fuzzing builds
+        return
+
+    t.features = Utils.to_list(t.features) + ['ndr_abi_check']
+    t.ndr_abi_file = os.path.join(bld.path.abspath(), abi_file)
+Build.BuildContext.SAMBA_NDR_ABI_CHECK = SAMBA_NDR_ABI_CHECK
+
+
 def SAMBA_NDR_ABI(bld, name, deps='', abi_directory='ABI',
                   output_dir='gen_ndr'):
     '''build ndr_abi_<name> from the output of pidl --ndr-abi
@@ -293,17 +313,7 @@ def SAMBA_NDR_ABI(bld, name, deps='', abi_directory='ABI',
                      deps='NDR_ABI ndr talloc %s' % deps,
                      install=False)
 
-    if not bld.env.ABI_CHECK or bld.env.CROSS_COMPILE:
-        return
-
-    try:
-        t = bld.get_tgen_by_name(binname)
-    except Errors.WafError:
-        # e.g. disabled in fuzzing builds
-        return
-
-    abi_file = os.path.join(bld.path.abspath(), abi_directory,
-                            '%s.ndrabi' % name)
-    t.features = Utils.to_list(t.features) + ['ndr_abi_check']
-    t.ndr_abi_file = abi_file
+    bld.SAMBA_NDR_ABI_CHECK(binname,
+                            os.path.join(abi_directory,
+                                         '%s.ndrabi' % name))
 Build.BuildContext.SAMBA_NDR_ABI = SAMBA_NDR_ABI
