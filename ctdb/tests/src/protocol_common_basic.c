@@ -30,11 +30,45 @@ uint8_t BUFFER[1024*1024];
 
 /*
  * Functions to generation random data
+ *
+ * Use our own pseudo random number generator (xorshift64*)
+ * instead of random(), so the generated data only depends
+ * on the seed and not on the libc implementation.
  */
+
+static uint64_t protocol_test_rand_state = 1;
+
+void protocol_test_srandom(uint64_t seed)
+{
+	/* splitmix64, so similar seeds give unrelated states */
+	uint64_t z = seed + 0x9e3779b97f4a7c15ULL;
+
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+	z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+	z = z ^ (z >> 31);
+
+	if (z == 0) {
+		z = 1;
+	}
+	protocol_test_rand_state = z;
+}
+
+/* Like random(), returns a value between 0 and 2^31-1 */
+static long protocol_test_random(void)
+{
+	uint64_t x = protocol_test_rand_state;
+
+	x ^= x >> 12;
+	x ^= x << 25;
+	x ^= x >> 27;
+	protocol_test_rand_state = x;
+
+	return (x * 0x2545f4914f6cdd1dULL) >> 33;
+}
 
 int rand_int(int max)
 {
-	return random() % max;
+	return protocol_test_random() % max;
 }
 
 uint8_t rand8(void)
@@ -51,18 +85,18 @@ uint16_t rand16(void)
 
 int32_t rand32i(void)
 {
-	return INT_MIN + random();
+	return INT_MIN + protocol_test_random();
 }
 
 uint32_t rand32(void)
 {
-	return random();
+	return protocol_test_random();
 }
 
 uint64_t rand64(void)
 {
-	uint64_t t = random();
-	t = (t << 32) | random();
+	uint64_t t = protocol_test_random();
+	t = (t << 32) | protocol_test_random();
 	return t;
 }
 
@@ -298,7 +332,7 @@ void protocol_test_iterate(int argc,
        sigaction(SIGABRT, &act, NULL);
 
        for (seed = min; seed <= max ; seed++) {
-	       srandom(seed);
+	       protocol_test_srandom(seed);
 
 	       test_func();
        }

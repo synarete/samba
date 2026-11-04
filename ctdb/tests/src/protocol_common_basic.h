@@ -118,6 +118,7 @@ static void TEST_FUNC(NAME)(void) \
 
 extern uint8_t BUFFER[1024*1024];
 
+void protocol_test_srandom(uint64_t seed);
 int rand_int(int max);
 uint8_t rand8(void);
 uint16_t rand16(void);
