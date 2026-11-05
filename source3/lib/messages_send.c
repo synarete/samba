@@ -28,11 +28,11 @@
  * Send a message to a single destination, or to all processes when
  * the destination pid is zero.
  */
-static NTSTATUS messaging_send_one_or_all(struct messaging_context *msg_ctx,
-					  struct server_id dst,
-					  uint32_t msg_type,
-					  const uint8_t *buf,
-					  size_t len)
+NTSTATUS messaging_send_one_or_all(struct messaging_context *msg_ctx,
+				   struct server_id dst,
+				   uint32_t msg_type,
+				   const uint8_t *buf,
+				   size_t len)
 {
 	if (procid_to_pid(&dst) != 0) {
 		return messaging_send_buf(msg_ctx, dst, msg_type, buf, len);
