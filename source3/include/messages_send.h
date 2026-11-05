@@ -31,6 +31,16 @@
 
 bool messaging_use_ndr_v1(void);
 
+/*
+ * The caller passes the already chosen msg_type and payload, no format
+ * is selected here. A dst with pid 0 means "send to all".
+ */
+NTSTATUS messaging_send_one_or_all(struct messaging_context *msg_ctx,
+				   struct server_id dst,
+				   uint32_t msg_type,
+				   const uint8_t *buf,
+				   size_t len);
+
 NTSTATUS messaging_send_debug(struct messaging_context *msg_ctx,
 			      struct server_id dst,
 			      const char *debug_string);
