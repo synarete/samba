@@ -570,12 +570,13 @@ sub setup_clusteredmember
 {
 	my ($self, $prefix, $dcvars) = @_;
 
-	return setup_clustered_samba($self, $prefix, $dcvars, undef, 0);
+	return setup_clustered_samba($self, $prefix, $dcvars, undef, 0,
+				     "CLUSTEREDMEMBER");
 }
 
 sub setup_clustered_samba
 {
-	my ($self, $prefix, $dcvars, $mixed, $node_base) = @_;
+	my ($self, $prefix, $dcvars, $mixed, $node_base, $netbios_name) = @_;
 	my $count = 0;
 	my $rc;
 	my @retvals = ();
@@ -593,7 +594,7 @@ sub setup_clustered_samba
 		return "UNKNOWN";
 	}
 
-	print "PROVISIONING CLUSTEREDMEMBER...\n";
+	print "PROVISIONING $netbios_name...\n";
 
 	# Environment changes below are for this cluster's daemons only, not
 	# for selftest.pl and the environments set up after this one.
@@ -686,7 +687,7 @@ sub setup_clustered_samba
 		    domain => $dcvars->{DOMAIN},
 		    server => "$server_name",
 		    password => "clustermember8pass",
-		    netbios_name => "CLUSTEREDMEMBER",
+		    netbios_name => $netbios_name,
 		    share_dir => "${prefix}/shared",
 		    extra_options => $member_options,
 		    no_delete_prefix => 1);
