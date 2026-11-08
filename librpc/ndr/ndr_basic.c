@@ -229,7 +229,7 @@ _PUBLIC_ enum ndr_err_code ndr_pull_float(struct ndr_pull *ndr, ndr_flags_type n
 {
 	uint32_t bits;
 
-	static_assert(sizeof(*v) == sizeof(bits), "float is not 32-bit");
+	BUILD_ASSERT(sizeof(*v) == sizeof(bits));
 
 	NDR_PULL_CHECK_FLAGS(ndr, ndr_flags);
 	NDR_CHECK(ndr_pull_uint32(ndr, NDR_SCALARS, &bits));
@@ -245,7 +245,7 @@ _PUBLIC_ enum ndr_err_code ndr_pull_double(struct ndr_pull *ndr, ndr_flags_type 
 {
 	uint64_t bits;
 
-	static_assert(sizeof(*v) == sizeof(bits), "double is not 64-bit");
+	BUILD_ASSERT(sizeof(*v) == sizeof(bits));
 
 	NDR_PULL_CHECK_FLAGS(ndr, ndr_flags);
 	NDR_CHECK(ndr_pull_hyper(ndr, NDR_SCALARS, &bits));
@@ -708,7 +708,7 @@ _PUBLIC_ enum ndr_err_code ndr_push_float(struct ndr_push *ndr, ndr_flags_type n
 {
 	uint32_t bits;
 
-	static_assert(sizeof(v) == sizeof(bits), "float is not 32-bit");
+	BUILD_ASSERT(sizeof(v) == sizeof(bits));
 
 	NDR_PUSH_CHECK_FLAGS(ndr, ndr_flags);
 	memcpy(&bits, &v, sizeof(bits));
@@ -723,7 +723,7 @@ _PUBLIC_ enum ndr_err_code ndr_push_double(struct ndr_push *ndr, ndr_flags_type 
 {
 	uint64_t bits;
 
-	static_assert(sizeof(v) == sizeof(bits), "double is not 64-bit");
+	BUILD_ASSERT(sizeof(v) == sizeof(bits));
 
 	NDR_PUSH_CHECK_FLAGS(ndr, ndr_flags);
 	memcpy(&bits, &v, sizeof(bits));
