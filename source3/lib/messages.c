@@ -536,10 +536,10 @@ static void messaging_recv_cb(struct tevent_context *ev,
 	}
 
 	messaging_validate_payload(rec.msg_type,
-				   &(struct iovec) {
+				   (&(struct iovec) {
 					.iov_base = rec.buf.data,
 					.iov_len = rec.buf.length,
-				   },
+				   }),
 				   1,
 				   false);
 
@@ -1195,10 +1195,10 @@ void messaging_send_all(struct messaging_context *msg_ctx,
 	int ret;
 
 	messaging_validate_payload(msg_type,
-				   &(struct iovec) {
+				   (&(struct iovec) {
 					.iov_base = discard_const_p(void, buf),
 					.iov_len = len,
-				   },
+				   }),
 				   1,
 				   true);
 
