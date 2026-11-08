@@ -1065,6 +1065,7 @@ bool run_printer_list_wire_format(int dummy)
 	const char *name = "WireFormatPrinter";
 	const char *keystr = "PRINTERLIST/PRN/WIREFORMATPRINTER";
 	time_t last_refresh = (time_t)0x0000000102030405;
+	uint32_t expected_high = (uint32_t)(((uint64_t)last_refresh) >> 32);
 	time_t mono_refresh = 0;
 	struct db_context *db = NULL;
 	char *db_path = NULL;
@@ -1124,7 +1125,7 @@ bool run_printer_list_wire_format(int dummy)
 	if (!ok) {
 		goto fail;
 	}
-	if ((printer.refresh_high != 0x00000001) ||
+	if ((printer.refresh_high != expected_high) ||
 	    (printer.refresh_low != 0x02030405) ||
 	    (strcmp(printer.name, name) != 0) ||
 	    (strcmp(printer.comment, "comment") != 0) ||
