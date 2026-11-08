@@ -870,7 +870,9 @@ static void test_messaging_hdr(void **state)
 	ndr_err = ndr_pull_struct_blob_all_noalloc(&blob, &hdr2,
 			(ndr_pull_flags_fn_t)ndr_pull_messaging_hdr);
 	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
-	assert_memory_equal(&hdr, &hdr2, sizeof(hdr));
+	assert_int_equal(hdr2.msg_type, hdr.msg_type);
+	assert_true(server_id_equal(&hdr2.src, &hdr.src));
+	assert_true(server_id_equal(&hdr2.dest, &hdr.dest));
 }
 
 /*
