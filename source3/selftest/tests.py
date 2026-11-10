@@ -95,6 +95,7 @@ with_pthreadpool = ("WITH_PTHREADPOOL" in config_hash)
 
 have_cluster_support = "CLUSTER_SUPPORT" in config_hash
 have_jansson = "HAVE_JANSSON" in config_hash
+have_mixed_cluster_support = bool(os.environ.get("SELFTEST_LATEST_STABLE_BINDIR"))
 
 quic_ko_wrapper = ("QUIC_KO_WRAPPER" in config_hash)
 ngtcp2_environ = {'SOCKET_WRAPPER_ALLOW_DGRAM_SEQPACKET_FALLBACK': '1'}
@@ -2106,6 +2107,18 @@ if have_cluster_support:
                       "script/tests/test_dbwrap_ctdb_parse_record_send.sh"),
          "$CTDB_PREFIX",
          dbwrap_tool])
+
+#
+# The rolling upgrade tests, planned in cfl_upgrade against the selftest
+# cluster.
+#
+cfl_tests = ["cluster_rolling_upgrade"]
+
+for t in cfl_tests:
+    if have_cluster_support and have_mixed_cluster_support:
+        planpythontestsuite("cfl_upgrade",
+                            "samba.tests.blackbox.%s" % t,
+                            name="samba3.blackbox.%s" % t)
 
 planpythontestsuite("fileserver_smb1", "samba.tests.smb3unix")
 planpythontestsuite("fileserver_smb1", "samba.tests.reparsepoints")
