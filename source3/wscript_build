@@ -761,6 +761,7 @@ bld.SAMBA3_LIBRARY('smbd_base',
                         LIBADS_SERVER
                         LIBAFS
                         NDR_SMBXSRV
+                        NDR_PRINTER_LIST
                         notifyd_msg
                         LEASES_DB
                         LEASES_UTIL
