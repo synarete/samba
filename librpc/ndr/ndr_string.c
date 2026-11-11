@@ -40,6 +40,34 @@ _PUBLIC_ enum ndr_err_code ndr_pull_string(struct ndr_pull *ndr, ndr_flags_type 
 		return NDR_ERR_SUCCESS;
 	}
 
+	if (flags & LIBNDR_FLAG_STR_SIZE4_NULL) {
+		uint32_t save_offset = ndr->offset;
+		uint32_t size = 0;
+
+		if ((flags & (LIBNDR_FLAG_STR_SIZE4|LIBNDR_FLAG_STR_LEN4)) !=
+		    LIBNDR_FLAG_STR_SIZE4)
+		{
+			return ndr_pull_error(ndr, NDR_ERR_STRING,
+				"LIBNDR_FLAG_STR_SIZE4_NULL requires "
+				"LIBNDR_FLAG_STR_SIZE4 without "
+				"LIBNDR_FLAG_STR_LEN4, flags 0x%"PRI_LIBNDR_FLAGS,
+				ndr->flags & LIBNDR_STRING_FLAGS);
+		}
+
+		/*
+		 * A size of 0 means NULL, otherwise
+		 * it's a normal LIBNDR_FLAG_STR_SIZE4
+		 * string.
+		 */
+		NDR_CHECK(ndr_pull_uint32(ndr, NDR_SCALARS, &size));
+		if (size == 0) {
+			*s = NULL;
+			return NDR_ERR_SUCCESS;
+		}
+		ndr->offset = save_offset;
+		flags &= ~LIBNDR_FLAG_STR_SIZE4_NULL;
+	}
+
 	if (NDR_BE(ndr)) {
 		chset = CH_UTF16BE;
 	}
@@ -262,6 +290,40 @@ _PUBLIC_ enum ndr_err_code ndr_push_string(struct ndr_push *ndr, ndr_flags_type 
 
 	if (!(ndr_flags & NDR_SCALARS)) {
 		return NDR_ERR_SUCCESS;
+	}
+
+	if (flags & LIBNDR_FLAG_STR_SIZE4_NULL) {
+		if ((flags & (LIBNDR_FLAG_STR_SIZE4|LIBNDR_FLAG_STR_LEN4)) !=
+		    LIBNDR_FLAG_STR_SIZE4)
+		{
+			return ndr_push_error(ndr, NDR_ERR_STRING,
+				"LIBNDR_FLAG_STR_SIZE4_NULL requires "
+				"LIBNDR_FLAG_STR_SIZE4 without "
+				"LIBNDR_FLAG_STR_LEN4, flags 0x%"PRI_LIBNDR_FLAGS,
+				ndr->flags & LIBNDR_STRING_FLAGS);
+		}
+
+		/*
+		 * A NULL string has a size of 0,
+		 * otherwise it's a normal
+		 * LIBNDR_FLAG_STR_SIZE4 string.
+		 */
+		if (s == NULL) {
+			return ndr_push_uint32(ndr, NDR_SCALARS, 0);
+		}
+
+		/*
+		 * Without the terminating nul byte an empty
+		 * string would also have a size of 0.
+		 */
+		if ((flags & LIBNDR_FLAG_STR_NOTERM) && (s[0] == '\0')) {
+			return ndr_push_error(ndr, NDR_ERR_STRING,
+				"An empty string can't be pushed with "
+				"LIBNDR_FLAG_STR_SIZE4_NULL and "
+				"LIBNDR_FLAG_STR_NOTERM");
+		}
+
+		flags &= ~LIBNDR_FLAG_STR_SIZE4_NULL;
 	}
 
 	if (NDR_BE(ndr)) {
