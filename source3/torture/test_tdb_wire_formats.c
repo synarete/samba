@@ -2858,6 +2858,207 @@ fail:
 }
 
 /*
+ * The tdb_pack() based marshalling of printer_list.tdb as used
+ * by older Samba versions.
+ *
+ * This is a frozen copy of the code in printer_list.c,
+ * it represents the format written by older versions
+ * (e.g. other nodes in a cluster) and must never be changed.
+ */
+static bool legacy_printer_list_pack(TALLOC_CTX *mem_ctx,
+				     uint64_t refresh,
+				     const char *name,
+				     const char *comment,
+				     const char *location,
+				     DATA_BLOB *blob)
+{
+	uint32_t time_l = refresh & 0xFFFFFFFFL;
+	uint32_t time_h = refresh >> 32;
+	size_t len;
+	size_t len2;
+
+	len = tdb_pack(NULL, 0, "ddPPP",
+		       time_h, time_l, name, comment, location);
+
+	*blob = data_blob_talloc(mem_ctx, NULL, len);
+	if (blob->data == NULL) {
+		return false;
+	}
+
+	len2 = tdb_pack(blob->data, blob->length, "ddPPP",
+			time_h, time_l, name, comment, location);
+	return (len2 == len);
+}
+
+static bool legacy_printer_list_pack_refresh(TALLOC_CTX *mem_ctx,
+					     uint64_t refresh,
+					     DATA_BLOB *blob)
+{
+	uint32_t time_l = refresh & 0xFFFFFFFFL;
+	uint32_t time_h = refresh >> 32;
+	size_t len;
+	size_t len2;
+
+	len = tdb_pack(NULL, 0, "dd", time_h, time_l);
+
+	*blob = data_blob_talloc(mem_ctx, NULL, len);
+	if (blob->data == NULL) {
+		return false;
+	}
+
+	len2 = tdb_pack(blob->data, blob->length, "dd", time_h, time_l);
+	return (len2 == len);
+}
+
+struct printer_list_wire_format_run_state {
+	const char *name;
+	const char *comment;
+	const char *location;
+	bool found;
+};
+
+static void printer_list_wire_format_run_fn(const char *name,
+					    const char *comment,
+					    const char *location,
+					    void *private_data)
+{
+	struct printer_list_wire_format_run_state *state = private_data;
+
+	if ((strcmp(name, state->name) == 0) &&
+	    (strcmp(comment, state->comment) == 0) &&
+	    (strcmp(location, state->location) == 0))
+	{
+		state->found = true;
+	}
+}
+
+/*
+ * Old writer -> new reader: records written by the frozen
+ * tdb_pack() based marshalling can be read by the printer
+ * list code.
+ */
+static bool printer_list_wire_format_old_writer(TALLOC_CTX *mem_ctx,
+						struct db_context *db)
+{
+	const char *name = "WireFormatLegacy";
+	const char *keystr = "PRINTERLIST/PRN/WIREFORMATLEGACY";
+	/* "P" has no length limit */
+	const char *comment = regdb_test_name(mem_ctx, 'c', 300);
+	const char *location = "loc\xc3\xa4tion";
+	struct printer_list_wire_format_run_state state = {
+		.name = name,
+		.comment = comment,
+		.location = location,
+	};
+	const char *c = NULL;
+	const char *l = NULL;
+	time_t refresh = 0;
+	DATA_BLOB blob;
+	DATA_BLOB tmp;
+	NTSTATUS status;
+	bool ret = false;
+	bool ok;
+	size_t i;
+
+	if (comment == NULL) {
+		return false;
+	}
+
+	ok = legacy_printer_list_pack(mem_ctx, 0x02030406, name,
+				      comment, location, &blob);
+	if (!ok) {
+		return false;
+	}
+
+	/*
+	 * Additional bytes after the record are ignored
+	 */
+	for (i = 0; i < 2; i++) {
+		tmp = data_blob_talloc(mem_ctx, NULL, blob.length + i * 3);
+		if (tmp.data == NULL) {
+			goto fail;
+		}
+		memcpy(tmp.data, blob.data, blob.length);
+		memset(tmp.data + blob.length, 'X', i * 3);
+
+		ok = regdb_raw_store(db, keystr, &tmp);
+		if (!ok) {
+			goto fail;
+		}
+
+		status = printer_list_get_printer(mem_ctx, name, &c, &l,
+						  &refresh);
+		if (!NT_STATUS_IS_OK(status)) {
+			fprintf(stderr, "printer_list_get_printer failed: %s "
+				"(%zu additional bytes)\n",
+				nt_errstr(status), i * 3);
+			goto fail;
+		}
+		if ((refresh != 0x02030406) ||
+		    (strcmp(c, comment) != 0) ||
+		    (strcmp(l, location) != 0))
+		{
+			fprintf(stderr, "%s: content mismatch "
+				"(%zu additional bytes)\n", keystr, i * 3);
+			goto fail;
+		}
+
+		state.found = false;
+		status = printer_list_read_run_fn(
+			printer_list_wire_format_run_fn, &state);
+		if (!NT_STATUS_IS_OK(status) || !state.found) {
+			fprintf(stderr, "printer_list_read_run_fn: %s, "
+				"found=%d (%zu additional bytes)\n",
+				nt_errstr(status), state.found, i * 3);
+			goto fail;
+		}
+	}
+
+	/*
+	 * Empty strings
+	 */
+	ok = legacy_printer_list_pack(mem_ctx, 0, name, "", "", &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_raw_store(db, keystr, &blob);
+	if (!ok) {
+		goto fail;
+	}
+	status = printer_list_get_printer(mem_ctx, name, &c, &l, &refresh);
+	if (!NT_STATUS_IS_OK(status) ||
+	    (refresh != 0) || (c[0] != '\0') || (l[0] != '\0'))
+	{
+		fprintf(stderr, "%s: empty strings: %s\n",
+			keystr, nt_errstr(status));
+		goto fail;
+	}
+
+	/*
+	 * The time of the last refresh
+	 */
+	ok = legacy_printer_list_pack_refresh(mem_ctx, 0x02030407, &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_raw_store(db, "PRINTERLIST/GLOBAL/LAST_REFRESH", &blob);
+	if (!ok) {
+		goto fail;
+	}
+	status = printer_list_get_last_refresh(&refresh);
+	if (!NT_STATUS_IS_OK(status) || (refresh != 0x02030407)) {
+		fprintf(stderr, "printer_list_get_last_refresh: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+
+	ret = true;
+fail:
+	dbwrap_delete_bystring(db, keystr);
+	return ret;
+}
+
+/*
  * printer_list.tdb, see source3/librpc/idl/printer_list.idl
  */
 bool run_printer_list_wire_format(int dummy)
@@ -2873,9 +3074,29 @@ bool run_printer_list_wire_format(int dummy)
 	struct printer_list_printer_rec printer = { .refresh_high = 0, };
 	struct printer_list_last_refresh_rec refresh = { .refresh_high = 0, };
 	bool printer_added = false;
+	/*
+	 * The expected record, independent of the code
+	 * writing and reading it. The high word of the
+	 * time is patched in below, it depends on the
+	 * size of time_t.
+	 */
+	uint8_t golden_printer[] = {
+		0x00, 0x00, 0x00, 0x00,	/* refresh_high */
+		0x05, 0x04, 0x03, 0x02,	/* refresh_low */
+		'W', 'i', 'r', 'e', 'F', 'o', 'r', 'm', 'a', 't',
+		'P', 'r', 'i', 'n', 't', 'e', 'r', 0x00,
+		'c', 'o', 'm', 'm', 'e', 'n', 't', 0x00,
+		'l', 'o', 'c', 'a', 't', 'i', 'o', 'n', 0x00,
+	};
+	const DATA_BLOB golden_printer_blob =
+		data_blob_const(golden_printer, sizeof(golden_printer));
+	DATA_BLOB blob;
+	DATA_BLOB expected;
 	NTSTATUS status;
 	bool ret = false;
 	bool ok;
+
+	SIVAL(golden_printer, 0, expected_high);
 
 	status = printer_list_set_printer(frame,
 					  name,
@@ -2947,6 +3168,49 @@ bool run_printer_list_wire_format(int dummy)
 	    (uint64_t)mono_refresh)
 	{
 		fprintf(stderr, "last refresh mismatch\n");
+		goto fail;
+	}
+
+	/*
+	 * New writer -> old reader: the records are exactly the
+	 * expected bytes, which are also produced by the frozen
+	 * tdb_pack() based marshalling.
+	 */
+	ok = regdb_raw_fetch(db, frame, keystr, &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal(keystr, &blob, &golden_printer_blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = legacy_printer_list_pack(frame, (uint64_t)last_refresh, name,
+				      "comment", "location", &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal("legacy printer", &blob, &golden_printer_blob);
+	if (!ok) {
+		goto fail;
+	}
+
+	ok = regdb_raw_fetch(db, frame, "PRINTERLIST/GLOBAL/LAST_REFRESH",
+			     &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = legacy_printer_list_pack_refresh(frame, (uint64_t)mono_refresh,
+					      &expected);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal("last refresh", &blob, &expected);
+	if (!ok) {
+		goto fail;
+	}
+
+	ok = printer_list_wire_format_old_writer(frame, db);
+	if (!ok) {
 		goto fail;
 	}
 
