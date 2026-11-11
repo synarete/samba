@@ -927,7 +927,7 @@ static bool registry_wire_format_name_limits(TALLOC_CTX *mem_ctx,
 	const char *name255 = regdb_test_name(mem_ctx, 'c', 255);
 	const char *name256 = regdb_test_name(mem_ctx, 'd', 256);
 	const char *subkeys[2];
-	struct legacy_regdb_value values[1];
+	struct legacy_regdb_value values[2];
 	struct registry_value v = {
 		.type = REG_DWORD,
 		.data = data_blob_const("\x04\x03\x02\x01", 4),
@@ -1102,6 +1102,64 @@ static bool registry_wire_format_name_limits(TALLOC_CTX *mem_ctx,
 	if (num_vals != 0) {
 		fprintf(stderr, "%s: 256 bytes value name: %"PRIu32" values, "
 			"expected 0\n", path, num_vals);
+		return false;
+	}
+
+	/*
+	 * The values before an invalid one are kept
+	 */
+	values[0].name = name255;
+	values[1] = values[0];
+	values[1].name = name256;
+	ok = legacy_regdb_pack_values(mem_ctx, values, 2, &blob);
+	if (!ok) {
+		return false;
+	}
+	ok = regdb_raw_store(db, keystr, &blob);
+	if (!ok) {
+		return false;
+	}
+	werr = regdb_test_read_key(mem_ctx, parent, name,
+				   &names, &num_names, &vals, &num_vals);
+	if (!W_ERROR_IS_OK(werr)) {
+		fprintf(stderr, "%s: valid value before 256 bytes value name: "
+			"reading failed: %s\n", path, win_errstr(werr));
+		return false;
+	}
+	ok = regdb_values_equal(keystr, vals, num_vals, values, 1);
+	if (!ok) {
+		return false;
+	}
+
+	/*
+	 * The same for a truncated record
+	 */
+	ok = legacy_regdb_pack_values(mem_ctx, values, 1, &expected);
+	if (!ok) {
+		return false;
+	}
+	blob = data_blob_talloc(mem_ctx, NULL, expected.length + 2);
+	if (blob.data == NULL) {
+		return false;
+	}
+	memcpy(blob.data, expected.data, expected.length);
+	/* 2 values, but the 2nd one is just "x" without the nul byte */
+	SIVAL(blob.data, 0, 2);
+	blob.data[expected.length] = 'x';
+	blob.data[expected.length + 1] = 'x';
+	ok = regdb_raw_store(db, keystr, &blob);
+	if (!ok) {
+		return false;
+	}
+	werr = regdb_test_read_key(mem_ctx, parent, name,
+				   &names, &num_names, &vals, &num_vals);
+	if (!W_ERROR_IS_OK(werr)) {
+		fprintf(stderr, "%s: truncated record: reading failed: %s\n",
+			path, win_errstr(werr));
+		return false;
+	}
+	ok = regdb_values_equal(keystr, vals, num_vals, values, 1);
+	if (!ok) {
 		return false;
 	}
 
