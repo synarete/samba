@@ -30,6 +30,7 @@
 #include "../libcli/security/security.h"
 #include "groupdb/mapping_tdb.h"
 #include "lib/util/smb_strtox.h"
+#include "librpc/gen_ndr/ndr_group_mapping.h"
 
 static struct db_context *db; /* used for driver files */
 
@@ -144,12 +145,19 @@ static char *group_mapping_key(TALLOC_CTX *mem_ctx, const struct dom_sid *sid)
 ****************************************************************************/
 static bool add_mapping_entry(GROUP_MAP *map, int flag)
 {
-	char *key, *buf;
-	int len;
+	char *key;
+	struct group_mapping_rec r = {
+		.gid = map->gid,
+		.sid_name_use = map->sid_name_use,
+		.nt_name = map->nt_name,
+		.comment = map->comment,
+	};
+	DATA_BLOB blob = { .length = 0, };
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
 
 	/*
-	 * The readers use tdb_unpack() with "f" for the name
+	 * Older versions use tdb_unpack() with "f" for the name
 	 * and comment, which only supports up to 255 bytes plus
 	 * the terminating nul byte (fstring). Longer strings
 	 * would make the mapping unreadable.
@@ -175,20 +183,18 @@ static bool add_mapping_entry(GROUP_MAP *map, int flag)
 	 * change as group_mapping.tdb is shared by all
 	 * nodes in a cluster.
 	 */
-	len = tdb_pack(NULL, 0, "ddff",
-		map->gid, map->sid_name_use, map->nt_name, map->comment);
-
-	buf = talloc_array(key, char, len);
-	if (!buf) {
+	ndr_err = ndr_push_struct_blob(&blob, key, &r,
+			(ndr_push_flags_fn_t)ndr_push_group_mapping_rec);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("ndr_push_group_mapping_rec failed: %s\n",
+			ndr_errstr(ndr_err));
 		TALLOC_FREE(key);
 		return false;
 	}
-	len = tdb_pack((uint8_t *)buf, len, "ddff", map->gid,
-		       map->sid_name_use, map->nt_name, map->comment);
 
 	status = dbwrap_trans_store(
 		db, string_term_tdb_data(key),
-		make_tdb_data((uint8_t *)buf, len), DBWRAP_REPLACE);
+		make_tdb_data(blob.data, blob.length), DBWRAP_REPLACE);
 
 	TALLOC_FREE(key);
 
@@ -200,14 +206,65 @@ static bool add_mapping_entry(GROUP_MAP *map, int flag)
  Return the sid and the type of the unix group.
 ****************************************************************************/
 
+/*
+ * The format is group_mapping_rec, see
+ * source3/librpc/idl/group_mapping.idl.
+ *
+ * Like tdb_unpack() with "ddff" in older versions
+ * additional bytes are ignored and strings longer
+ * than 255 bytes (fstring) are invalid.
+ */
+static bool group_mapping_parse(TDB_DATA value, GROUP_MAP *map)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	DATA_BLOB blob = data_blob_const(value.dptr, value.dsize);
+	struct group_mapping_rec r = { .gid = 0, };
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(&blob, frame, &r,
+			(ndr_pull_flags_fn_t)ndr_pull_group_mapping_rec);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_INFO("ndr_pull_group_mapping_rec failed: %s\n",
+			 ndr_errstr(ndr_err));
+		TALLOC_FREE(frame);
+		return false;
+	}
+
+	if ((strlen(r.nt_name) >= sizeof(fstring)) ||
+	    (strlen(r.comment) >= sizeof(fstring)))
+	{
+		DBG_INFO("nt_name (%zu bytes) or comment (%zu bytes) "
+			 "too long\n",
+			 strlen(r.nt_name),
+			 strlen(r.comment));
+		TALLOC_FREE(frame);
+		return false;
+	}
+
+	map->gid = r.gid;
+	map->sid_name_use = r.sid_name_use;
+
+	map->nt_name = talloc_strdup(map, r.nt_name);
+	if (!map->nt_name) {
+		TALLOC_FREE(frame);
+		return false;
+	}
+	map->comment = talloc_strdup(map, r.comment);
+	if (!map->comment) {
+		TALLOC_FREE(frame);
+		return false;
+	}
+
+	TALLOC_FREE(frame);
+	return true;
+}
+
 static bool get_group_map_from_sid(struct dom_sid sid, GROUP_MAP *map)
 {
 	TDB_DATA dbuf;
 	char *key;
-	int ret = 0;
+	bool ok;
 	NTSTATUS status;
-	fstring nt_name;
-	fstring comment;
 
 	/* the key is the SID, retrieving is direct */
 
@@ -222,27 +279,16 @@ static bool get_group_map_from_sid(struct dom_sid sid, GROUP_MAP *map)
 		return false;
 	}
 
-	ret = tdb_unpack(dbuf.dptr, dbuf.dsize, "ddff",
-			&map->gid, &map->sid_name_use,
-			&nt_name, &comment);
+	ok = group_mapping_parse(dbuf, map);
 
 	TALLOC_FREE(key);
 
-	if ( ret == -1 ) {
-		DEBUG(3,("get_group_map_from_sid: tdb_unpack failure\n"));
+	if (!ok) {
+		DEBUG(3,("get_group_map_from_sid: parsing failed\n"));
 		return false;
 	}
 
 	sid_copy(&map->sid, &sid);
-
-	map->nt_name = talloc_strdup(map, nt_name);
-	if (!map->nt_name) {
-		return false;
-	}
-	map->comment = talloc_strdup(map, comment);
-	if (!map->comment) {
-		return false;
-	}
 
 	return true;
 }
@@ -251,9 +297,7 @@ static bool dbrec2map(const struct db_record *rec, GROUP_MAP *map)
 {
 	TDB_DATA key = dbwrap_record_get_key(rec);
 	TDB_DATA value = dbwrap_record_get_value(rec);
-	int ret = 0;
-	fstring nt_name;
-	fstring comment;
+	bool ok;
 
 	if ((key.dsize < strlen(GROUP_PREFIX))
 	    || (strncmp((char *)key.dptr, GROUP_PREFIX,
@@ -266,21 +310,9 @@ static bool dbrec2map(const struct db_record *rec, GROUP_MAP *map)
 		return False;
 	}
 
-	ret = tdb_unpack(value.dptr, value.dsize, "ddff",
-			  &map->gid, &map->sid_name_use,
-			  &nt_name, &comment);
-
-	if (ret == -1) {
-		DEBUG(3, ("dbrec2map: tdb_unpack failure\n"));
-		return false;
-	}
-
-	map->nt_name = talloc_strdup(map, nt_name);
-	if (!map->nt_name) {
-		return false;
-	}
-	map->comment = talloc_strdup(map, comment);
-	if (!map->comment) {
+	ok = group_mapping_parse(value, map);
+	if (!ok) {
+		DEBUG(3, ("dbrec2map: parsing failed\n"));
 		return false;
 	}
 
