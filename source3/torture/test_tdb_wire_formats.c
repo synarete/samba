@@ -2005,6 +2005,274 @@ fail:
 }
 
 /*
+ * The tdb_pack() based marshalling of the UNIXGROUP/ records
+ * in group_mapping.tdb as used by older Samba versions.
+ *
+ * This is a frozen copy of the code in mapping_tdb.c,
+ * it represents the format written by older versions
+ * (e.g. other nodes in a cluster) and must never be changed.
+ */
+static bool legacy_group_mapping_pack(TALLOC_CTX *mem_ctx,
+				      uint32_t gid,
+				      uint32_t sid_name_use,
+				      const char *nt_name,
+				      const char *comment,
+				      DATA_BLOB *blob)
+{
+	size_t len;
+	size_t len2;
+
+	len = tdb_pack(NULL, 0, "ddff", gid, sid_name_use, nt_name, comment);
+
+	*blob = data_blob_talloc(mem_ctx, NULL, len);
+	if (blob->data == NULL) {
+		return false;
+	}
+
+	len2 = tdb_pack(blob->data, blob->length, "ddff",
+			gid, sid_name_use, nt_name, comment);
+	return (len2 == len);
+}
+
+/*
+ * Old writer -> new reader: records written by the frozen
+ * tdb_pack() based marshalling can be read by the group
+ * mapping code.
+ */
+static bool group_mapping_wire_format_old_writer(TALLOC_CTX *mem_ctx,
+						 struct db_context *db)
+{
+	const char *sid_str = "S-1-5-21-1-2-3-4570";
+	const char *name255 = regdb_test_name(mem_ctx, 'n', 255);
+	const char *name256 = regdb_test_name(mem_ctx, 'm', 256);
+	const char *comment255 = regdb_test_name(mem_ctx, 'c', 255);
+	struct dom_sid sid;
+	char *keystr = NULL;
+	GROUP_MAP *map = NULL;
+	DATA_BLOB blob;
+	DATA_BLOB tmp;
+	bool ret = false;
+	bool ok;
+
+	if ((name255 == NULL) || (name256 == NULL) || (comment255 == NULL)) {
+		return false;
+	}
+
+	ok = string_to_sid(&sid, sid_str);
+	if (!ok) {
+		return false;
+	}
+
+	keystr = talloc_asprintf(mem_ctx, "%s%s", GROUP_PREFIX, sid_str);
+	if (keystr == NULL) {
+		return false;
+	}
+
+	/*
+	 * The longest possible names, additional bytes
+	 * after the record are ignored.
+	 */
+	ok = legacy_group_mapping_pack(mem_ctx, 0x01020306, SID_NAME_ALIAS,
+				       name255, comment255, &blob);
+	if (!ok) {
+		goto fail;
+	}
+	tmp = data_blob_talloc(mem_ctx, NULL, blob.length + 3);
+	if (tmp.data == NULL) {
+		goto fail;
+	}
+	memcpy(tmp.data, blob.data, blob.length);
+	memcpy(tmp.data + blob.length, "XYZ", 3);
+
+	ok = regdb_raw_store(db, keystr, &blob);
+	if (!ok) {
+		goto fail;
+	}
+	map = talloc_zero(mem_ctx, GROUP_MAP);
+	if (map == NULL) {
+		goto fail;
+	}
+	ok = pdb_getgrsid(map, sid);
+	if (!ok) {
+		fprintf(stderr, "pdb_getgrsid(%s) failed\n", sid_str);
+		goto fail;
+	}
+	if ((map->gid != 0x01020306) ||
+	    (map->sid_name_use != SID_NAME_ALIAS) ||
+	    (strcmp(map->nt_name, name255) != 0) ||
+	    (strcmp(map->comment, comment255) != 0))
+	{
+		fprintf(stderr, "%s: content mismatch\n", keystr);
+		goto fail;
+	}
+	TALLOC_FREE(map);
+
+	ok = regdb_raw_store(db, keystr, &tmp);
+	if (!ok) {
+		goto fail;
+	}
+	map = talloc_zero(mem_ctx, GROUP_MAP);
+	if (map == NULL) {
+		goto fail;
+	}
+	ok = pdb_getgrsid(map, sid);
+	if (!ok) {
+		fprintf(stderr, "pdb_getgrsid(%s) with additional bytes "
+			"failed\n", sid_str);
+		goto fail;
+	}
+	if ((map->gid != 0x01020306) ||
+	    (strcmp(map->nt_name, name255) != 0) ||
+	    (strcmp(map->comment, comment255) != 0))
+	{
+		fprintf(stderr, "%s: content mismatch "
+			"with additional bytes\n", keystr);
+		goto fail;
+	}
+	TALLOC_FREE(map);
+
+	/*
+	 * Names with 256 bytes can't be read
+	 */
+	ok = legacy_group_mapping_pack(mem_ctx, 0x01020306, SID_NAME_ALIAS,
+				       name256, "", &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_raw_store(db, keystr, &blob);
+	if (!ok) {
+		goto fail;
+	}
+	map = talloc_zero(mem_ctx, GROUP_MAP);
+	if (map == NULL) {
+		goto fail;
+	}
+	ok = pdb_getgrsid(map, sid);
+	if (ok) {
+		fprintf(stderr, "pdb_getgrsid(%s) with a 256 bytes name "
+			"unexpectedly worked\n", sid_str);
+		goto fail;
+	}
+	TALLOC_FREE(map);
+
+	ret = true;
+fail:
+	dbwrap_delete_bystring(db, keystr);
+	return ret;
+}
+
+/*
+ * The name and comment are limited to 255 bytes plus the
+ * terminating nul byte (fstring), see tdb_unpack() with "f".
+ */
+static bool group_mapping_wire_format_name_limits(TALLOC_CTX *mem_ctx,
+						  struct db_context *db)
+{
+	const char *sid_str = "S-1-5-21-1-2-3-4571";
+	GROUP_MAP map = {
+		.gid = 0x01020307,
+		.sid_name_use = SID_NAME_ALIAS,
+		.nt_name = regdb_test_name(mem_ctx, 'n', 255),
+		.comment = regdb_test_name(mem_ctx, 'c', 255),
+	};
+	char *keystr = NULL;
+	DATA_BLOB blob;
+	DATA_BLOB expected;
+	NTSTATUS status;
+	bool added = false;
+	bool ret = false;
+	bool ok;
+
+	if ((map.nt_name == NULL) || (map.comment == NULL)) {
+		return false;
+	}
+
+	ok = string_to_sid(&map.sid, sid_str);
+	if (!ok) {
+		return false;
+	}
+
+	keystr = talloc_asprintf(mem_ctx, "%s%s", GROUP_PREFIX, sid_str);
+	if (keystr == NULL) {
+		return false;
+	}
+
+	/*
+	 * 255 bytes work
+	 */
+	status = pdb_add_group_mapping_entry(&map);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "pdb_add_group_mapping_entry(255 bytes) "
+			"failed: %s\n", nt_errstr(status));
+		goto fail;
+	}
+	added = true;
+
+	ok = regdb_raw_fetch(db, mem_ctx, keystr, &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = legacy_group_mapping_pack(mem_ctx, map.gid, map.sid_name_use,
+				       map.nt_name, map.comment, &expected);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal(keystr, &blob, &expected);
+	if (!ok) {
+		goto fail;
+	}
+
+	status = pdb_delete_group_mapping_entry(map.sid);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "pdb_delete_group_mapping_entry failed: %s\n",
+			nt_errstr(status));
+		goto fail;
+	}
+	added = false;
+
+	/*
+	 * 256 bytes for the name or the comment are rejected
+	 */
+	map.nt_name = regdb_test_name(mem_ctx, 'm', 256);
+	if (map.nt_name == NULL) {
+		goto fail;
+	}
+	status = pdb_add_group_mapping_entry(&map);
+	if (NT_STATUS_IS_OK(status)) {
+		added = true;
+		fprintf(stderr, "pdb_add_group_mapping_entry(256 bytes name) "
+			"unexpectedly worked\n");
+		goto fail;
+	}
+
+	map.nt_name = discard_const_p(char, "name");
+	map.comment = regdb_test_name(mem_ctx, 'd', 256);
+	if (map.comment == NULL) {
+		goto fail;
+	}
+	status = pdb_add_group_mapping_entry(&map);
+	if (NT_STATUS_IS_OK(status)) {
+		added = true;
+		fprintf(stderr, "pdb_add_group_mapping_entry(256 bytes "
+			"comment) unexpectedly worked\n");
+		goto fail;
+	}
+
+	ok = regdb_raw_fetch(db, mem_ctx, keystr, &blob);
+	if (ok) {
+		fprintf(stderr, "%s: unexpectedly stored\n", keystr);
+		goto fail;
+	}
+
+	ret = true;
+fail:
+	if (added) {
+		pdb_delete_group_mapping_entry(map.sid);
+	}
+	return ret;
+}
+
+/*
  * group_mapping.tdb, see source3/librpc/idl/group_mapping.idl
  */
 bool run_group_mapping_wire_format(int dummy)
@@ -2033,6 +2301,30 @@ bool run_group_mapping_wire_format(int dummy)
 	char *keystr = NULL;
 	struct group_mapping_rec rec = { .gid = 0, };
 	struct group_mapping_memberof_rec memberof = { .aliases = NULL, };
+	/*
+	 * The expected records, independent of the code
+	 * writing and reading them.
+	 */
+	const uint8_t golden_group[] = {
+		0x04, 0x03, 0x02, 0x01,	/* gid */
+		0x02, 0x00, 0x00, 0x00,	/* SID_NAME_DOM_GRP */
+		'w', 'i', 'r', 'e', ' ', 'f', 'o', 'r', 'm', 'a', 't',
+		' ', 'g', 'r', 'o', 'u', 'p', 0x00,
+		'g', 'r', 'o', 'u', 'p', ' ',
+		'c', 'o', 'm', 'm', 'e', 'n', 't', 0x00,
+	};
+	const uint8_t golden_alias[] = {
+		0x05, 0x03, 0x02, 0x01,	/* gid */
+		0x04, 0x00, 0x00, 0x00,	/* SID_NAME_ALIAS */
+		'w', 'i', 'r', 'e', ' ', 'f', 'o', 'r', 'm', 'a', 't',
+		' ', 'a', 'l', 'i', 'a', 's', 0x00,
+		0x00,			/* empty comment */
+	};
+	const DATA_BLOB golden_group_blob =
+		data_blob_const(golden_group, sizeof(golden_group));
+	const DATA_BLOB golden_alias_blob =
+		data_blob_const(golden_alias, sizeof(golden_alias));
+	DATA_BLOB blob;
 	bool group_added = false;
 	bool alias_added = false;
 	bool member_added = false;
@@ -2083,7 +2375,7 @@ bool run_group_mapping_wire_format(int dummy)
 		goto fail;
 	}
 	db = db_open(frame, db_path, 0,
-		     TDB_DEFAULT, O_RDONLY, 0600,
+		     TDB_DEFAULT, O_RDWR, 0600,
 		     DBWRAP_LOCK_ORDER_1, DBWRAP_FLAG_NONE);
 	if (db == NULL) {
 		fprintf(stderr, "db_open(%s) failed\n", db_path);
@@ -2108,6 +2400,33 @@ bool run_group_mapping_wire_format(int dummy)
 		goto fail;
 	}
 
+	/*
+	 * New writer -> old reader: the record is exactly the
+	 * expected bytes, which are also produced by the frozen
+	 * tdb_pack() based marshalling.
+	 */
+	ok = regdb_raw_fetch(db, frame, keystr, &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal(keystr, &blob, &golden_group_blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = legacy_group_mapping_pack(frame,
+				       group_map.gid,
+				       group_map.sid_name_use,
+				       group_map.nt_name,
+				       group_map.comment,
+				       &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal("legacy group", &blob, &golden_group_blob);
+	if (!ok) {
+		goto fail;
+	}
+
 	keystr = talloc_asprintf(frame, "%s%s", GROUP_PREFIX, alias_sid_str);
 	if (keystr == NULL) {
 		fprintf(stderr, "talloc_asprintf failed\n");
@@ -2123,6 +2442,28 @@ bool run_group_mapping_wire_format(int dummy)
 	    (strcmp(rec.comment, alias_map.comment) != 0))
 	{
 		fprintf(stderr, "%s: content mismatch\n", keystr);
+		goto fail;
+	}
+
+	ok = regdb_raw_fetch(db, frame, keystr, &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal(keystr, &blob, &golden_alias_blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = legacy_group_mapping_pack(frame,
+				       alias_map.gid,
+				       alias_map.sid_name_use,
+				       alias_map.nt_name,
+				       alias_map.comment,
+				       &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal("legacy alias", &blob, &golden_alias_blob);
+	if (!ok) {
 		goto fail;
 	}
 
@@ -2146,6 +2487,16 @@ bool run_group_mapping_wire_format(int dummy)
 			keystr,
 			memberof.aliases,
 			alias_sid_str);
+		goto fail;
+	}
+
+	ok = group_mapping_wire_format_old_writer(frame, db);
+	if (!ok) {
+		goto fail;
+	}
+
+	ok = group_mapping_wire_format_name_limits(frame, db);
+	if (!ok) {
 		goto fail;
 	}
 
