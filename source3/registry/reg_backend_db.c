@@ -31,6 +31,7 @@
 #include "reg_objects.h"
 #include "nt_printing.h"
 #include "util_tdb.h"
+#include "librpc/gen_ndr/ndr_regdb.h"
 #include "dbwrap/dbwrap.h"
 #include "dbwrap/dbwrap_open.h"
 #include "../libcli/security/secdesc.h"
@@ -1142,8 +1143,6 @@ done:
 
 /***********************************************************************
  Add subkey strings to the registry tdb under a defined key
- fmt is the same format as tdb_pack except this function only supports
- fstrings
  ***********************************************************************/
 
 static WERROR regdb_store_keys_internal2(struct db_context *db,
@@ -1151,12 +1150,15 @@ static WERROR regdb_store_keys_internal2(struct db_context *db,
 					 struct regsubkey_ctr *ctr)
 {
 	TDB_DATA dbuf;
-	uint8_t *buffer = NULL;
 	uint32_t i = 0;
-	uint32_t len, buflen;
 	uint32_t num_subkeys = regsubkey_ctr_numkeys(ctr);
 	char *keyname = NULL;
 	TALLOC_CTX *ctx = talloc_stackframe();
+	struct regdb_subkey_list list = {
+		.num_subkeys = num_subkeys,
+	};
+	DATA_BLOB blob = { .length = 0, };
+	enum ndr_err_code ndr_err;
 	WERROR werr;
 
 	if (!key) {
@@ -1176,39 +1178,20 @@ static WERROR regdb_store_keys_internal2(struct db_context *db,
 		goto done;
 	}
 
-	/* allocate some initial memory */
-
-	buffer = (uint8_t *)SMB_MALLOC(1024);
-	if (buffer == NULL) {
+	list.subkeys = talloc_zero_array(ctx, struct regdb_subkey, num_subkeys);
+	if (list.subkeys == NULL) {
 		werr = WERR_NOT_ENOUGH_MEMORY;
 		goto done;
 	}
-	buflen = 1024;
-	len = 0;
-
-	/*
-	 * store the number of subkeys
-	 *
-	 * The format is regdb_subkey_list, see
-	 * source3/librpc/idl/regdb.idl, it must not
-	 * change as registry.tdb is shared by all
-	 * nodes in a cluster.
-	 */
-
-	len += tdb_pack(buffer+len, buflen-len, "d", num_subkeys);
-
-	/* pack all the strings */
 
 	for (i=0; i<num_subkeys; i++) {
 		const char *subkey = regsubkey_ctr_specific_key(ctr, i);
-		size_t thistime;
 
 		/*
-		 * The readers use tdb_unpack() with "f", which
-		 * only supports up to 255 bytes plus the
-		 * terminating nul byte (fstring). A longer name
-		 * would make the subkey list of the parent
-		 * unreadable.
+		 * The readers only support up to 255 bytes plus
+		 * the terminating nul byte (fstring), older versions
+		 * use tdb_unpack() with "f". A longer name would make
+		 * the subkey list of the parent unreadable.
 		 */
 		if (strlen(subkey) >= sizeof(fstring)) {
 			DBG_WARNING("subkey name of key [%s] too long "
@@ -1218,44 +1201,32 @@ static WERROR regdb_store_keys_internal2(struct db_context *db,
 			goto done;
 		}
 
-		thistime = tdb_pack(buffer+len, buflen-len, "f", subkey);
-		if (len+thistime > buflen) {
-			size_t thistime2;
-			/*
-			 * tdb_pack hasn't done anything because of the short
-			 * buffer, allocate extra space.
-			 */
-			buffer = SMB_REALLOC_ARRAY(buffer, uint8_t,
-						   (len+thistime)*2);
-			if(buffer == NULL) {
-				DEBUG(0, ("regdb_store_keys: Failed to realloc "
-					  "memory of size [%u]\n",
-					  (unsigned int)(len+thistime)*2));
-				werr = WERR_NOT_ENOUGH_MEMORY;
-				goto done;
-			}
-			buflen = (len+thistime)*2;
-			thistime2 = tdb_pack(buffer+len, buflen-len, "f",
-					     subkey);
-			if (thistime2 != thistime) {
-				DEBUG(0, ("tdb_pack failed\n"));
-				werr = WERR_CAN_NOT_COMPLETE;
-				goto done;
-			}
-		}
-		len += thistime;
+		list.subkeys[i].name = subkey;
+	}
+
+	/*
+	 * The format is regdb_subkey_list, see
+	 * source3/librpc/idl/regdb.idl, it must not
+	 * change as registry.tdb is shared by all
+	 * nodes in a cluster.
+	 */
+	ndr_err = ndr_push_struct_blob(&blob, ctx, &list,
+			(ndr_push_flags_fn_t)ndr_push_regdb_subkey_list);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("ndr_push_regdb_subkey_list(%s) failed: %s\n",
+			keyname, ndr_errstr(ndr_err));
+		werr = WERR_CAN_NOT_COMPLETE;
+		goto done;
 	}
 
 	/* finally write out the data */
 
-	dbuf.dptr = buffer;
-	dbuf.dsize = len;
+	dbuf = make_tdb_data(blob.data, blob.length);
 	werr = ntstatus_to_werror(dbwrap_store_bystring(db, keyname, dbuf,
 							DBWRAP_REPLACE));
 
 done:
 	TALLOC_FREE(ctx);
-	SAFE_FREE(buffer);
 	return werr;
 }
 
@@ -1768,10 +1739,9 @@ static bool regdb_key_exists(struct db_context *db, const char *key)
 	TDB_DATA value;
 	bool ret = false;
 	char *path;
-	uint32_t buflen;
-	const char *buf;
-	uint32_t num_items, i;
-	int32_t len;
+	DATA_BLOB blob;
+	struct regdb_subkey_list list = { .num_subkeys = 0, };
+	enum ndr_err_code ndr_err;
 
 	if (key == NULL) {
 		goto done;
@@ -1800,51 +1770,18 @@ static bool regdb_key_exists(struct db_context *db, const char *key)
 		goto done;
 	}
 
-	len = tdb_unpack(value.dptr, value.dsize, "d", &num_items);
-	if (len == (int32_t)-1) {
-		DEBUG(1, ("regdb_key_exists: ERROR: subkeylist-record for key "
-			  "[%s] is invalid: Could not parse initial 4-byte "
-			  "counter. record data length is %u.\n",
-			  path, (unsigned int)value.dsize));
-		goto done;
-	}
-
 	/*
-	 * Note: the tdb_unpack check above implies that len <= value.dsize
+	 * The whole record needs to be a valid
+	 * regdb_subkey_list without additional bytes.
 	 */
-	buflen = value.dsize - len;
-	buf = (const char *)value.dptr + len;
-
-	for (i = 0; i < num_items; i++) {
-		if (buflen == 0) {
-			break;
-		}
-		len = strnlen(buf, buflen) + 1;
-		if (buflen < len) {
-			DEBUG(1, ("regdb_key_exists: ERROR: subkeylist-record "
-				  "for key [%s] is corrupt: %u items expected, "
-				  "item number %u is not zero terminated.\n",
-				  path, num_items, i+1));
-			goto done;
-		}
-
-		buf += len;
-		buflen -= len;
-	}
-
-	if (buflen > 0) {
+	blob = data_blob_const(value.dptr, value.dsize);
+	ndr_err = ndr_pull_struct_blob_all(&blob, mem_ctx, &list,
+			(ndr_pull_flags_fn_t)ndr_pull_regdb_subkey_list);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DEBUG(1, ("regdb_key_exists: ERROR: subkeylist-record for key "
-			  "[%s] is corrupt: %u items expected and found, but "
-			  "the record contains additional %u bytes\n",
-			  path, num_items, buflen));
-		goto done;
-	}
-
-	if (i < num_items) {
-		DEBUG(1, ("regdb_key_exists: ERROR: subkeylist-record for key "
-			  "[%s] is corrupt: %u items expected, but only %u "
-			  "items found.\n",
-			  path, num_items, i+1));
+			  "[%s] is corrupt: %s, record data length is %u.\n",
+			  path, ndr_errstr(ndr_err),
+			  (unsigned int)value.dsize));
 		goto done;
 	}
 
@@ -1866,13 +1803,13 @@ static WERROR regdb_fetch_keys_internal(struct db_context *db, const char *key,
 {
 	WERROR werr;
 	uint32_t num_items;
-	uint8_t *buf;
-	uint32_t buflen, len;
 	uint32_t i;
-	fstring subkeyname;
 	TALLOC_CTX *frame = talloc_stackframe();
 	TDB_DATA value;
 	int seqnum[2], count;
+	DATA_BLOB blob;
+	struct ndr_pull *ndr = NULL;
+	enum ndr_err_code ndr_err;
 
 	DEBUG(11,("regdb_fetch_keys: Enter key => [%s]\n", key ? key : "NULL"));
 
@@ -1914,33 +1851,51 @@ static WERROR regdb_fetch_keys_internal(struct db_context *db, const char *key,
 		goto done;
 	}
 
-	buf = value.dptr;
-	buflen = value.dsize;
-	len = tdb_unpack( buf, buflen, "d", &num_items);
-	if (len == (uint32_t)-1) {
+	/*
+	 * The format is regdb_subkey_list, see
+	 * source3/librpc/idl/regdb.idl. The subkeys
+	 * are pulled one by one, like the tdb_unpack()
+	 * based code in older versions did.
+	 */
+	blob = data_blob_const(value.dptr, value.dsize);
+	ndr = ndr_pull_init_blob(&blob, frame);
+	if (ndr == NULL) {
+		werr = WERR_NOT_ENOUGH_MEMORY;
+		goto done;
+	}
+
+	ndr_err = ndr_pull_uint32(ndr, NDR_SCALARS, &num_items);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		werr = WERR_NOT_FOUND;
 		goto done;
 	}
 
 	for (i=0; i<num_items; i++) {
-		int this_len;
+		struct regdb_subkey subkey = { .name = NULL, };
 
-		this_len = tdb_unpack(buf+len, buflen-len, "f", subkeyname);
-		if (this_len == -1) {
+		ndr_err = ndr_pull_regdb_subkey(ndr, NDR_SCALARS|NDR_BUFFERS,
+						&subkey);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 			DBG_WARNING("Invalid registry data, "
-				    "tdb_unpack failed\n");
-			werr = WERR_INTERNAL_DB_CORRUPTION;
-			goto done;
-		}
-		len += this_len;
-		if (len < this_len) {
-			DBG_WARNING("Invalid registry data, "
-				    "integer overflow\n");
+				    "ndr_pull_regdb_subkey failed: %s\n",
+				    ndr_errstr(ndr_err));
 			werr = WERR_INTERNAL_DB_CORRUPTION;
 			goto done;
 		}
 
-		werr = regsubkey_ctr_addkey(ctr, subkeyname);
+		/*
+		 * Older versions only support up to 255 bytes plus
+		 * the terminating nul byte (fstring).
+		 */
+		if (strlen(subkey.name) >= sizeof(fstring)) {
+			DBG_WARNING("Invalid registry data, "
+				    "subkey name too long (%zu bytes)\n",
+				    strlen(subkey.name));
+			werr = WERR_INTERNAL_DB_CORRUPTION;
+			goto done;
+		}
+
+		werr = regsubkey_ctr_addkey(ctr, subkey.name);
 		if (!W_ERROR_IS_OK(werr)) {
 			DEBUG(5, ("regdb_fetch_keys: regsubkey_ctr_addkey "
 				  "failed: %s\n", win_errstr(werr)));
@@ -1976,99 +1931,116 @@ static int regdb_unpack_values(struct regval_ctr *values,
 			       uint8_t *buf,
 			       size_t buflen)
 {
-	int this_len;
-	size_t 		len = 0;
-	uint32_t	type;
-	fstring valuename;
-	uint32_t	size;
-	uint8_t		*data_p;
-	uint32_t 	num_values = 0;
-	uint32_t	i;
+	TALLOC_CTX *frame = talloc_stackframe();
+	DATA_BLOB blob = data_blob_const(buf, buflen);
+	struct ndr_pull *ndr = NULL;
+	enum ndr_err_code ndr_err;
+	uint32_t num_values = 0;
+	uint32_t i;
+	int ret = -1;
 
-	/* loop and unpack the rest of the registry values */
-
-	this_len = tdb_unpack(buf, buflen, "d", &num_values);
-	if (this_len == -1) {
-		DBG_WARNING("Invalid registry data, "
-			    "tdb_unpack failed\n");
-		return -1;
+	/*
+	 * The format is regdb_value_list, see
+	 * source3/librpc/idl/regdb.idl. The values
+	 * are pulled one by one, like the tdb_unpack()
+	 * based code in older versions did, so the
+	 * values before an invalid one are kept and
+	 * additional bytes are ignored.
+	 */
+	ndr = ndr_pull_init_blob(&blob, frame);
+	if (ndr == NULL) {
+		goto done;
 	}
-	len = this_len;
+
+	ndr_err = ndr_pull_uint32(ndr, NDR_SCALARS, &num_values);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("Invalid registry data, "
+			    "ndr_pull_uint32 failed: %s\n",
+			    ndr_errstr(ndr_err));
+		goto done;
+	}
 
 	for ( i=0; i<num_values; i++ ) {
-		/* unpack the next regval */
+		struct regdb_value v = { .name = NULL, };
 
-		type = REG_NONE;
-		size = 0;
-		data_p = NULL;
-		valuename[0] = '\0';
-		this_len = tdb_unpack(buf+len, buflen-len, "fdB",
-				      valuename,
-				      &type,
-				      &size,
-				      &data_p);
-		if (this_len == -1) {
+		ndr_err = ndr_pull_regdb_value(ndr, NDR_SCALARS|NDR_BUFFERS,
+					       &v);
+		if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 			DBG_WARNING("Invalid registry data, "
-				    "tdb_unpack failed\n");
-			return -1;
-		}
-		len += this_len;
-		if (len < (size_t)this_len) {
-			DBG_WARNING("Invalid registry data, "
-				    "integer overflow\n");
-			return -1;
+				    "ndr_pull_regdb_value failed: %s\n",
+				    ndr_errstr(ndr_err));
+			goto done;
 		}
 
-		regval_ctr_addvalue(values, valuename, type,
-				(uint8_t *)data_p, size);
-		SAFE_FREE(data_p); /* 'B' option to tdb_unpack does a malloc() */
+		/*
+		 * Older versions only support up to 255 bytes plus
+		 * the terminating nul byte (fstring).
+		 */
+		if (strlen(v.name) >= sizeof(fstring)) {
+			DBG_WARNING("Invalid registry data, "
+				    "value name too long (%zu bytes)\n",
+				    strlen(v.name));
+			goto done;
+		}
+
+		regval_ctr_addvalue(values, v.name, v.type, v.data, v.size);
 
 		DEBUG(10, ("regdb_unpack_values: value[%d]: name[%s] len[%d]\n",
-			   i, valuename, size));
+			   i, v.name, v.size));
 	}
 
-	return len;
+	ret = ndr->offset;
+done:
+	TALLOC_FREE(frame);
+	return ret;
 }
 
 /****************************************************************************
- Pack all values in all printer keys
+ Pack all values of a key
  ***************************************************************************/
 
-static int regdb_pack_values(struct regval_ctr *values, uint8_t *buf, int buflen)
+static NTSTATUS regdb_push_values(TALLOC_CTX *mem_ctx,
+				  struct regval_ctr *values,
+				  DATA_BLOB *blob)
 {
-	int 		len = 0;
-	int 		i;
-	struct regval_blob	*val;
-	int		num_values;
+	struct regdb_value_list list = {
+		.num_values = regval_ctr_numvals(values),
+	};
+	enum ndr_err_code ndr_err;
+	uint32_t i;
 
-	if ( !values )
-		return 0;
+	list.values = talloc_zero_array(mem_ctx,
+					struct regdb_value,
+					list.num_values);
+	if (list.values == NULL) {
+		return NT_STATUS_NO_MEMORY;
+	}
 
-	num_values = regval_ctr_numvals( values );
+	for (i = 0; i < list.num_values; i++) {
+		struct regval_blob *val = regval_ctr_specific_value(values, i);
+
+		list.values[i] = (struct regdb_value) {
+			.name = regval_name(val),
+			.type = regval_type(val),
+			.size = regval_size(val),
+			.data = regval_data_p(val),
+		};
+	}
 
 	/*
-	 * pack the number of values first
-	 *
 	 * The format is regdb_value_list, see
 	 * source3/librpc/idl/regdb.idl, it must not
 	 * change as registry.tdb is shared by all
 	 * nodes in a cluster.
 	 */
-
-	len += tdb_pack( buf+len, buflen-len, "d", num_values );
-
-	/* loop over all values */
-
-	for ( i=0; i<num_values; i++ ) {
-		val = regval_ctr_specific_value( values, i );
-		len += tdb_pack(buf+len, buflen-len, "fdB",
-				regval_name(val),
-				regval_type(val),
-				regval_size(val),
-				regval_data_p(val) );
+	ndr_err = ndr_push_struct_blob(blob, mem_ctx, &list,
+			(ndr_push_flags_fn_t)ndr_push_regdb_value_list);
+	TALLOC_FREE(list.values);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		return ndr_map_error2ntstatus(ndr_err);
 	}
 
-	return len;
+	return NT_STATUS_OK;
 }
 
 /***********************************************************************
@@ -2151,7 +2123,7 @@ static NTSTATUS regdb_store_values_internal(struct db_context *db,
 	TDB_DATA old_data, data;
 	char *keystr = NULL;
 	TALLOC_CTX *ctx = talloc_stackframe();
-	int len;
+	DATA_BLOB blob = { .length = 0, };
 	NTSTATUS status;
 	WERROR werr;
 
@@ -2178,21 +2150,13 @@ static NTSTATUS regdb_store_values_internal(struct db_context *db,
 		goto done;
 	}
 
-	ZERO_STRUCT(data);
-
-	len = regdb_pack_values(values, data.dptr, data.dsize);
-	if (len <= 0) {
-		DEBUG(0,("regdb_store_values: unable to pack values. len <= 0\n"));
-		status = NT_STATUS_UNSUCCESSFUL;
+	status = regdb_push_values(ctx, values, &blob);
+	if (!NT_STATUS_IS_OK(status)) {
+		DEBUG(0,("regdb_store_values: unable to pack values: %s\n",
+			 nt_errstr(status)));
 		goto done;
 	}
-
-	data.dptr = talloc_array(ctx, uint8_t, len);
-	data.dsize = len;
-
-	len = regdb_pack_values(values, data.dptr, data.dsize);
-
-	SMB_ASSERT( len == data.dsize );
+	data = make_tdb_data(blob.data, blob.length);
 
 	keystr = talloc_asprintf(ctx, "%s\\%s", REG_VALUE_PREFIX, key );
 	if (!keystr) {
