@@ -511,6 +511,87 @@ static void test_pull_string_utf8_NDR_REMAINING_STR_NULLTERM_STR_NO_EMBEDDED_NUL
 
 }
 
+/*
+ * LIBNDR_FLAG_STR_SIZE4_NULL: NULL has a size of 0,
+ * an empty string a size of 1, like tdb_pack() with "B"
+ */
+static void test_string_size4_null(void **state)
+{
+	TALLOC_CTX *mem_ctx = talloc_new(NULL);
+	libndr_flags flags = LIBNDR_FLAG_STR_RAW8 |
+			     LIBNDR_FLAG_STR_SIZE4 |
+			     LIBNDR_FLAG_STR_SIZE4_NULL |
+			     LIBNDR_FLAG_NOALIGN;
+	const char *strings[] = { NULL, "", "abc" };
+	const uint8_t expected[] = {
+		0x00, 0x00, 0x00, 0x00,
+		0x01, 0x00, 0x00, 0x00, 0x00,
+		0x04, 0x00, 0x00, 0x00, 'a', 'b', 'c', 0x00,
+	};
+	struct ndr_push *push = NULL;
+	struct ndr_pull pull = { .flags = flags, };
+	enum ndr_err_code err;
+	size_t i;
+
+	push = ndr_push_init_ctx(mem_ctx);
+	assert_non_null(push);
+	push->flags = flags;
+
+	for (i = 0; i < ARRAY_SIZE(strings); i++) {
+		err = ndr_push_string(push, NDR_SCALARS, strings[i]);
+		assert_int_equal(err, NDR_ERR_SUCCESS);
+	}
+	assert_int_equal(push->offset, sizeof(expected));
+	assert_memory_equal(push->data, expected, sizeof(expected));
+
+	pull.data = discard_const_p(uint8_t, expected);
+	pull.data_size = sizeof(expected);
+	pull.current_mem_ctx = mem_ctx;
+
+	for (i = 0; i < ARRAY_SIZE(strings); i++) {
+		const char *s = "invalid";
+
+		err = ndr_pull_string(&pull, NDR_SCALARS, &s);
+		assert_int_equal(err, NDR_ERR_SUCCESS);
+		if (strings[i] == NULL) {
+			assert_null(s);
+		} else {
+			assert_string_equal(s, strings[i]);
+		}
+	}
+	assert_int_equal(pull.offset, sizeof(expected));
+
+	/* A string without the terminating nul byte is also accepted */
+	{
+		const uint8_t noterm[] = { 0x03, 0x00, 0x00, 0x00, 'x', 'y', 'z' };
+		struct ndr_pull pull2 = {
+			.flags = flags,
+			.data = discard_const_p(uint8_t, noterm),
+			.data_size = sizeof(noterm),
+			.current_mem_ctx = mem_ctx,
+		};
+		const char *s = NULL;
+
+		err = ndr_pull_string(&pull2, NDR_SCALARS, &s);
+		assert_int_equal(err, NDR_ERR_SUCCESS);
+		assert_string_equal(s, "xyz");
+	}
+
+	/* Only valid with LIBNDR_FLAG_STR_SIZE4 */
+	push->flags = LIBNDR_FLAG_STR_RAW8 |
+		      LIBNDR_FLAG_STR_NULLTERM |
+		      LIBNDR_FLAG_STR_SIZE4_NULL;
+	err = ndr_push_string(push, NDR_SCALARS, "abc");
+	assert_int_equal(err, NDR_ERR_STRING);
+
+	/* An empty string can't be pushed with LIBNDR_FLAG_STR_NOTERM */
+	push->flags = flags | LIBNDR_FLAG_STR_NOTERM;
+	err = ndr_push_string(push, NDR_SCALARS, "");
+	assert_int_equal(err, NDR_ERR_STRING);
+
+	TALLOC_FREE(mem_ctx);
+}
+
 int main(int argc, const char **argv)
 {
 	const struct CMUnitTest tests[] = {
@@ -534,7 +615,8 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_pull_string_nul_term_utf8_NOTERM_NDR_REMAINING_STR_NO_EMBEDDED_NUL),
 		cmocka_unit_test(test_pull_string_utf8_NOTERM_NDR_REMAINING_STR_NO_EMBEDDED_NUL),
 		cmocka_unit_test(test_pull_string_nul_term_utf8_STR_NULLTERM_NDR_REMAINING_STR_NO_EMBEDDED_NUL),
-		cmocka_unit_test(test_pull_string_utf8_NDR_REMAINING_STR_NULLTERM_STR_NO_EMBEDDED_NUL)
+		cmocka_unit_test(test_pull_string_utf8_NDR_REMAINING_STR_NULLTERM_STR_NO_EMBEDDED_NUL),
+		cmocka_unit_test(test_string_size4_null),
 	};
 
 	cmocka_set_message_output(CM_OUTPUT_SUBUNIT);
