@@ -25,6 +25,7 @@
 #include "system/filesys.h"
 #include "lib/dbwrap/dbwrap.h"
 #include "lib/dbwrap/dbwrap_open.h"
+#include "util_tdb.h"
 #include "registry.h"
 #include "registry/reg_api.h"
 #include "registry/reg_api_util.h"
@@ -134,6 +135,980 @@ fail:
 			      (ndr_push_flags_fn_t)ndr_push_##type)
 
 /*
+ * The tdb_pack() based marshalling of registry.tdb as used by
+ * older Samba versions.
+ *
+ * This is a frozen copy of the code in reg_backend_db.c,
+ * it represents the format written and read by older versions
+ * (e.g. other nodes in a cluster) and must never be changed.
+ *
+ * The subkey list of a key is "d" (number of subkeys) followed
+ * by "f" for each subkey name, the values of a key are "d"
+ * (number of values) followed by "fdB" (name, type, data) for
+ * each value.
+ */
+
+struct legacy_regdb_value {
+	const char *name;
+	uint32_t type;
+	DATA_BLOB data;
+};
+
+static bool legacy_regdb_pack_subkeys(TALLOC_CTX *mem_ctx,
+				      const char * const *names,
+				      uint32_t num_names,
+				      DATA_BLOB *blob)
+{
+	size_t len;
+	size_t ofs;
+	uint32_t i;
+
+	len = tdb_pack(NULL, 0, "d", num_names);
+	for (i = 0; i < num_names; i++) {
+		len += tdb_pack(NULL, 0, "f", names[i]);
+	}
+
+	*blob = data_blob_talloc(mem_ctx, NULL, len);
+	if (blob->data == NULL) {
+		return false;
+	}
+
+	ofs = tdb_pack(blob->data, blob->length, "d", num_names);
+	for (i = 0; i < num_names; i++) {
+		ofs += tdb_pack(blob->data + ofs, blob->length - ofs,
+				"f", names[i]);
+	}
+
+	return (ofs == len);
+}
+
+/*
+ * This is stricter than the old readers, the whole record
+ * needs to be consumed, so it also detects additional bytes.
+ */
+static bool legacy_regdb_unpack_subkeys(TALLOC_CTX *mem_ctx,
+					const DATA_BLOB *blob,
+					char ***_names,
+					uint32_t *_num_names)
+{
+	char **names = NULL;
+	uint32_t num_names = 0;
+	size_t ofs;
+	int len;
+	uint32_t i;
+
+	len = tdb_unpack(blob->data, blob->length, "d", &num_names);
+	if (len == -1) {
+		return false;
+	}
+	ofs = len;
+
+	names = talloc_zero_array(mem_ctx, char *, num_names);
+	if ((num_names > 0) && (names == NULL)) {
+		return false;
+	}
+
+	for (i = 0; i < num_names; i++) {
+		fstring name;
+
+		len = tdb_unpack(blob->data + ofs, blob->length - ofs,
+				 "f", name);
+		if (len == -1) {
+			TALLOC_FREE(names);
+			return false;
+		}
+		ofs += len;
+
+		names[i] = talloc_strdup(names, name);
+		if (names[i] == NULL) {
+			TALLOC_FREE(names);
+			return false;
+		}
+	}
+
+	if (ofs != blob->length) {
+		TALLOC_FREE(names);
+		return false;
+	}
+
+	*_names = names;
+	*_num_names = num_names;
+	return true;
+}
+
+static bool legacy_regdb_pack_values(TALLOC_CTX *mem_ctx,
+				     const struct legacy_regdb_value *values,
+				     uint32_t num_values,
+				     DATA_BLOB *blob)
+{
+	size_t len;
+	size_t ofs;
+	uint32_t i;
+
+	len = tdb_pack(NULL, 0, "d", num_values);
+	for (i = 0; i < num_values; i++) {
+		len += tdb_pack(NULL, 0, "fdB",
+				values[i].name,
+				values[i].type,
+				(int)values[i].data.length,
+				values[i].data.data);
+	}
+
+	*blob = data_blob_talloc(mem_ctx, NULL, len);
+	if (blob->data == NULL) {
+		return false;
+	}
+
+	ofs = tdb_pack(blob->data, blob->length, "d", num_values);
+	for (i = 0; i < num_values; i++) {
+		ofs += tdb_pack(blob->data + ofs, blob->length - ofs, "fdB",
+				values[i].name,
+				values[i].type,
+				(int)values[i].data.length,
+				values[i].data.data);
+	}
+
+	return (ofs == len);
+}
+
+/*
+ * This is stricter than the old readers, the whole record
+ * needs to be consumed, so it also detects additional bytes.
+ */
+static bool legacy_regdb_unpack_values(TALLOC_CTX *mem_ctx,
+				       const DATA_BLOB *blob,
+				       struct legacy_regdb_value **_values,
+				       uint32_t *_num_values)
+{
+	struct legacy_regdb_value *values = NULL;
+	uint32_t num_values = 0;
+	size_t ofs;
+	int len;
+	uint32_t i;
+
+	len = tdb_unpack(blob->data, blob->length, "d", &num_values);
+	if (len == -1) {
+		return false;
+	}
+	ofs = len;
+
+	values = talloc_zero_array(mem_ctx,
+				   struct legacy_regdb_value,
+				   num_values);
+	if ((num_values > 0) && (values == NULL)) {
+		return false;
+	}
+
+	for (i = 0; i < num_values; i++) {
+		fstring name;
+		uint32_t type = 0;
+		uint32_t size = 0;
+		char *data = NULL;
+
+		len = tdb_unpack(blob->data + ofs, blob->length - ofs,
+				 "fdB", name, &type, &size, &data);
+		if (len == -1) {
+			TALLOC_FREE(values);
+			return false;
+		}
+		ofs += len;
+
+		values[i].name = talloc_strdup(values, name);
+		values[i].type = type;
+		values[i].data = data_blob_talloc(values, data, size);
+		SAFE_FREE(data);
+		if ((values[i].name == NULL) ||
+		    ((size > 0) && (values[i].data.data == NULL)))
+		{
+			TALLOC_FREE(values);
+			return false;
+		}
+	}
+
+	if (ofs != blob->length) {
+		TALLOC_FREE(values);
+		return false;
+	}
+
+	*_values = values;
+	*_num_values = num_values;
+	return true;
+}
+
+static bool regdb_raw_fetch(struct db_context *db,
+			    TALLOC_CTX *mem_ctx,
+			    const char *keystr,
+			    DATA_BLOB *blob)
+{
+	TDB_DATA value = { .dsize = 0, };
+	NTSTATUS status;
+
+	status = dbwrap_fetch_bystring(db, mem_ctx, keystr, &value);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "dbwrap_fetch_bystring(%s) failed: %s\n",
+			keystr, nt_errstr(status));
+		return false;
+	}
+
+	*blob = data_blob_const(value.dptr, value.dsize);
+	return true;
+}
+
+static bool regdb_raw_store(struct db_context *db,
+			    const char *keystr,
+			    const DATA_BLOB *blob)
+{
+	NTSTATUS status;
+
+	status = dbwrap_store_bystring(db,
+				       keystr,
+				       make_tdb_data(blob->data, blob->length),
+				       0);
+	if (!NT_STATUS_IS_OK(status)) {
+		fprintf(stderr, "dbwrap_store_bystring(%s) failed: %s\n",
+			keystr, nt_errstr(status));
+		return false;
+	}
+
+	return true;
+}
+
+static bool regdb_blob_equal(const char *what,
+			     const DATA_BLOB *blob,
+			     const DATA_BLOB *expected)
+{
+	if ((blob->length == expected->length) &&
+	    ((blob->length == 0) ||
+	     (memcmp(blob->data, expected->data, blob->length) == 0)))
+	{
+		return true;
+	}
+
+	fprintf(stderr, "%s: record differs from the expected bytes\n", what);
+	dump_data(0, blob->data, blob->length);
+	dump_data(0, expected->data, expected->length);
+	return false;
+}
+
+static bool regdb_subkeys_equal(const char *what,
+				char * const *names,
+				uint32_t num_names,
+				const char * const *expected,
+				uint32_t num_expected)
+{
+	uint32_t i;
+
+	if (num_names != num_expected) {
+		fprintf(stderr, "%s: %"PRIu32" subkeys, expected %"PRIu32"\n",
+			what, num_names, num_expected);
+		return false;
+	}
+
+	for (i = 0; i < num_names; i++) {
+		if (strcmp(names[i], expected[i]) != 0) {
+			fprintf(stderr, "%s: subkey[%"PRIu32"] %s expected %s\n",
+				what, i, names[i], expected[i]);
+			return false;
+		}
+	}
+
+	return true;
+}
+
+static bool regdb_values_equal(const char *what,
+			       const struct legacy_regdb_value *values,
+			       uint32_t num_values,
+			       const struct legacy_regdb_value *expected,
+			       uint32_t num_expected)
+{
+	uint32_t i;
+
+	if (num_values != num_expected) {
+		fprintf(stderr, "%s: %"PRIu32" values, expected %"PRIu32"\n",
+			what, num_values, num_expected);
+		return false;
+	}
+
+	for (i = 0; i < num_values; i++) {
+		const struct legacy_regdb_value *v = &values[i];
+		const struct legacy_regdb_value *e = &expected[i];
+
+		if ((strcmp(v->name, e->name) != 0) ||
+		    (v->type != e->type) ||
+		    (v->data.length != e->data.length) ||
+		    ((v->data.length > 0) &&
+		     (memcmp(v->data.data, e->data.data, v->data.length) != 0)))
+		{
+			fprintf(stderr, "%s: value[%"PRIu32"] %s mismatch\n",
+				what, i, e->name);
+			return false;
+		}
+	}
+
+	return true;
+}
+
+static char *regdb_test_name(TALLOC_CTX *mem_ctx, char c, size_t len)
+{
+	char *name = talloc_array(mem_ctx, char, len + 1);
+
+	if (name == NULL) {
+		return NULL;
+	}
+	memset(name, c, len);
+	name[len] = '\0';
+	return name;
+}
+
+static struct registry_key *regdb_test_create(TALLOC_CTX *mem_ctx,
+					      struct registry_key *parent,
+					      const char *name)
+{
+	struct registry_key *key = NULL;
+	WERROR werr;
+
+	werr = reg_deletekey_recursive(parent, name);
+	if (!W_ERROR_IS_OK(werr) && !W_ERROR_EQUAL(werr, WERR_FILE_NOT_FOUND)) {
+		fprintf(stderr, "reg_deletekey_recursive(%s) failed: %s\n",
+			name, win_errstr(werr));
+		return NULL;
+	}
+
+	werr = reg_createkey(mem_ctx, parent, name, REG_KEY_ALL, &key, NULL);
+	if (!W_ERROR_IS_OK(werr)) {
+		fprintf(stderr, "reg_createkey(%s) failed: %s\n",
+			name, win_errstr(werr));
+		return NULL;
+	}
+
+	return key;
+}
+
+/*
+ * Read the subkeys and values of a key with the registry API.
+ */
+static WERROR regdb_test_read_key(TALLOC_CTX *mem_ctx,
+				  struct registry_key *parent,
+				  const char *name,
+				  char ***_names,
+				  uint32_t *_num_names,
+				  struct legacy_regdb_value **_values,
+				  uint32_t *_num_values)
+{
+	struct registry_key *key = NULL;
+	char **names = NULL;
+	uint32_t num_names = 0;
+	struct legacy_regdb_value *values = NULL;
+	uint32_t num_values = 0;
+	WERROR werr;
+
+	werr = reg_openkey(mem_ctx, parent, name, REG_KEY_READ, &key);
+	if (!W_ERROR_IS_OK(werr)) {
+		return werr;
+	}
+
+	while (true) {
+		char *subkey = NULL;
+
+		werr = reg_enumkey(mem_ctx, key, num_names, &subkey, NULL);
+		if (W_ERROR_EQUAL(werr, WERR_NO_MORE_ITEMS)) {
+			break;
+		}
+		if (!W_ERROR_IS_OK(werr)) {
+			return werr;
+		}
+		names = talloc_realloc(mem_ctx, names, char *, num_names + 1);
+		if (names == NULL) {
+			return WERR_NOT_ENOUGH_MEMORY;
+		}
+		names[num_names++] = subkey;
+	}
+
+	while (true) {
+		char *vname = NULL;
+		struct registry_value *val = NULL;
+
+		werr = reg_enumvalue(mem_ctx, key, num_values, &vname, &val);
+		if (W_ERROR_EQUAL(werr, WERR_NO_MORE_ITEMS)) {
+			break;
+		}
+		if (!W_ERROR_IS_OK(werr)) {
+			return werr;
+		}
+		values = talloc_realloc(mem_ctx,
+					values,
+					struct legacy_regdb_value,
+					num_values + 1);
+		if (values == NULL) {
+			return WERR_NOT_ENOUGH_MEMORY;
+		}
+		values[num_values++] = (struct legacy_regdb_value) {
+			.name = vname,
+			.type = val->type,
+			.data = val->data,
+		};
+	}
+
+	*_names = names;
+	*_num_names = num_names;
+	*_values = values;
+	*_num_values = num_values;
+	return WERR_OK;
+}
+
+/*
+ * New writer -> old reader: the records written by the
+ * registry code need to be byte identical to the frozen
+ * tdb_pack() based marshalling.
+ */
+static bool registry_wire_format_new_writer(TALLOC_CTX *mem_ctx,
+					    struct registry_key *parent,
+					    struct db_context *db)
+{
+	const char *name = "WireFormatNew";
+	const char *path = "HKLM\\SOFTWARE\\WIREFORMATNEW";
+	const uint8_t sz_data[] = { 'a', 0, 'b', 0, 0, 0 };
+	const uint8_t bin_data[] = { 0x00, 0xff, 0x00, 0x80 };
+	const char *subkeys[103];
+	struct legacy_regdb_value values[63];
+	uint32_t num_subkeys = 0;
+	uint32_t num_values = 0;
+	struct registry_key *key = NULL;
+	char *keystr = NULL;
+	DATA_BLOB blob;
+	DATA_BLOB expected;
+	char **names = NULL;
+	uint32_t num_names = 0;
+	struct legacy_regdb_value *vals = NULL;
+	uint32_t num_vals = 0;
+	WERROR werr;
+	bool ok;
+	uint32_t i;
+
+	/*
+	 * More than fits into the initial buffer
+	 * of regdb_store_keys_internal2()
+	 */
+	for (i = 0; i < 100; i++) {
+		subkeys[num_subkeys++] = talloc_asprintf(mem_ctx, "Sub%03u", i);
+	}
+	/* the longest possible name */
+	subkeys[num_subkeys++] = regdb_test_name(mem_ctx, 'a', 255);
+	/* non ascii (utf8) */
+	subkeys[num_subkeys++] = "Sub\xc3\xa4";
+	/* a single character */
+	subkeys[num_subkeys++] = "x";
+	SMB_ASSERT(num_subkeys == ARRAY_SIZE(subkeys));
+
+	for (i = 0; i < 60; i++) {
+		uint8_t *d = talloc_array(mem_ctx, uint8_t, 4);
+
+		if (d == NULL) {
+			return false;
+		}
+		SIVAL(d, 0, 0x01020300 + i);
+		values[num_values++] = (struct legacy_regdb_value) {
+			.name = talloc_asprintf(mem_ctx, "val%02u", i),
+			.type = REG_DWORD,
+			.data = data_blob_const(d, 4),
+		};
+	}
+	/* the longest possible name with embedded nul bytes in the data */
+	values[num_values++] = (struct legacy_regdb_value) {
+		.name = regdb_test_name(mem_ctx, 'v', 255),
+		.type = REG_SZ,
+		.data = data_blob_const(sz_data, sizeof(sz_data)),
+	};
+	/* no data and non ascii (utf8) name */
+	values[num_values++] = (struct legacy_regdb_value) {
+		.name = "empty\xc3\xa4",
+		.type = REG_BINARY,
+		.data = data_blob_null,
+	};
+	/* the default value */
+	values[num_values++] = (struct legacy_regdb_value) {
+		.name = "",
+		.type = REG_BINARY,
+		.data = data_blob_const(bin_data, sizeof(bin_data)),
+	};
+	SMB_ASSERT(num_values == ARRAY_SIZE(values));
+
+	key = regdb_test_create(mem_ctx, parent, name);
+	if (key == NULL) {
+		return false;
+	}
+
+	for (i = 0; i < num_subkeys; i++) {
+		struct registry_key *subkey = NULL;
+
+		werr = reg_createkey(mem_ctx, key, subkeys[i], REG_KEY_ALL,
+				     &subkey, NULL);
+		if (!W_ERROR_IS_OK(werr)) {
+			fprintf(stderr, "reg_createkey(%s) failed: %s\n",
+				subkeys[i], win_errstr(werr));
+			return false;
+		}
+	}
+
+	for (i = 0; i < num_values; i++) {
+		struct registry_value v = {
+			.type = values[i].type,
+			.data = values[i].data,
+		};
+
+		werr = reg_setvalue(key, values[i].name, &v);
+		if (!W_ERROR_IS_OK(werr)) {
+			fprintf(stderr, "reg_setvalue(%s) failed: %s\n",
+				values[i].name, win_errstr(werr));
+			return false;
+		}
+	}
+
+	ok = regdb_raw_fetch(db, mem_ctx, path, &blob);
+	if (!ok) {
+		return false;
+	}
+	ok = legacy_regdb_pack_subkeys(mem_ctx, subkeys, num_subkeys,
+				       &expected);
+	if (!ok) {
+		return false;
+	}
+	ok = regdb_blob_equal(path, &blob, &expected);
+	if (!ok) {
+		return false;
+	}
+	ok = legacy_regdb_unpack_subkeys(mem_ctx, &blob, &names, &num_names);
+	if (!ok) {
+		fprintf(stderr, "%s: legacy unpack failed\n", path);
+		return false;
+	}
+	ok = regdb_subkeys_equal(path, names, num_names, subkeys, num_subkeys);
+	if (!ok) {
+		return false;
+	}
+
+	keystr = talloc_asprintf(mem_ctx, "%s\\%s", REG_VALUE_PREFIX, path);
+	if (keystr == NULL) {
+		return false;
+	}
+	ok = regdb_raw_fetch(db, mem_ctx, keystr, &blob);
+	if (!ok) {
+		return false;
+	}
+	ok = legacy_regdb_pack_values(mem_ctx, values, num_values, &expected);
+	if (!ok) {
+		return false;
+	}
+	ok = regdb_blob_equal(keystr, &blob, &expected);
+	if (!ok) {
+		return false;
+	}
+	ok = legacy_regdb_unpack_values(mem_ctx, &blob, &vals, &num_vals);
+	if (!ok) {
+		fprintf(stderr, "%s: legacy unpack failed\n", keystr);
+		return false;
+	}
+	ok = regdb_values_equal(keystr, vals, num_vals, values, num_values);
+	if (!ok) {
+		return false;
+	}
+
+	return true;
+}
+
+/*
+ * Old writer -> new reader: records written by the frozen
+ * tdb_pack() based marshalling need to be readable by the
+ * registry code.
+ */
+static bool registry_wire_format_old_writer(TALLOC_CTX *mem_ctx,
+					    struct registry_key *parent,
+					    struct db_context *db)
+{
+	const char *name = "WireFormatOld";
+	const char *path = "HKLM\\SOFTWARE\\WIREFORMATOLD";
+	const uint8_t sz_data[] = { 'a', 0, 'b', 0, 0, 0 };
+	const uint8_t bin_data[] = { 0x00, 0xff, 0x00, 0x80 };
+	const char *created[3];
+	const char *subkeys[3];
+	struct legacy_regdb_value values[4];
+	struct registry_key *key = NULL;
+	char *keystr = NULL;
+	DATA_BLOB subkeys_blob;
+	DATA_BLOB values_blob;
+	DATA_BLOB blob;
+	char **names = NULL;
+	uint32_t num_names = 0;
+	struct legacy_regdb_value *vals = NULL;
+	uint32_t num_vals = 0;
+	WERROR werr;
+	bool ok;
+	uint32_t i;
+
+	created[0] = "L1";
+	created[1] = "L2";
+	created[2] = regdb_test_name(mem_ctx, 'b', 255);
+
+	/* a different order than created by the registry code */
+	subkeys[0] = created[2];
+	subkeys[1] = created[0];
+	subkeys[2] = created[1];
+
+	values[0] = (struct legacy_regdb_value) {
+		.name = "dword",
+		.type = REG_DWORD,
+		.data = data_blob_const("\x04\x03\x02\x01", 4),
+	};
+	values[1] = (struct legacy_regdb_value) {
+		.name = "",
+		.type = REG_NONE,
+		.data = data_blob_null,
+	};
+	values[2] = (struct legacy_regdb_value) {
+		.name = "binary",
+		.type = REG_BINARY,
+		.data = data_blob_const(bin_data, sizeof(bin_data)),
+	};
+	values[3] = (struct legacy_regdb_value) {
+		.name = regdb_test_name(mem_ctx, 'w', 255),
+		.type = REG_SZ,
+		.data = data_blob_const(sz_data, sizeof(sz_data)),
+	};
+
+	key = regdb_test_create(mem_ctx, parent, name);
+	if (key == NULL) {
+		return false;
+	}
+
+	/*
+	 * Let the registry code create the records
+	 * of the subkeys themselves.
+	 */
+	for (i = 0; i < ARRAY_SIZE(created); i++) {
+		struct registry_key *subkey = NULL;
+
+		werr = reg_createkey(mem_ctx, key, created[i], REG_KEY_ALL,
+				     &subkey, NULL);
+		if (!W_ERROR_IS_OK(werr)) {
+			fprintf(stderr, "reg_createkey(%s) failed: %s\n",
+				created[i], win_errstr(werr));
+			return false;
+		}
+	}
+
+	ok = legacy_regdb_pack_subkeys(mem_ctx, subkeys, ARRAY_SIZE(subkeys),
+				       &subkeys_blob);
+	if (!ok) {
+		return false;
+	}
+	ok = regdb_raw_store(db, path, &subkeys_blob);
+	if (!ok) {
+		return false;
+	}
+
+	keystr = talloc_asprintf(mem_ctx, "%s\\%s", REG_VALUE_PREFIX, path);
+	if (keystr == NULL) {
+		return false;
+	}
+	ok = legacy_regdb_pack_values(mem_ctx, values, ARRAY_SIZE(values),
+				      &values_blob);
+	if (!ok) {
+		return false;
+	}
+	ok = regdb_raw_store(db, keystr, &values_blob);
+	if (!ok) {
+		return false;
+	}
+
+	werr = regdb_test_read_key(mem_ctx, parent, name,
+				   &names, &num_names, &vals, &num_vals);
+	if (!W_ERROR_IS_OK(werr)) {
+		fprintf(stderr, "%s: reading failed: %s\n",
+			path, win_errstr(werr));
+		return false;
+	}
+	ok = regdb_subkeys_equal(path, names, num_names,
+				 subkeys, ARRAY_SIZE(subkeys));
+	if (!ok) {
+		return false;
+	}
+	ok = regdb_values_equal(keystr, vals, num_vals,
+				values, ARRAY_SIZE(values));
+	if (!ok) {
+		return false;
+	}
+
+	/*
+	 * Additional bytes after the values are ignored
+	 */
+	blob = data_blob_talloc(mem_ctx, NULL, values_blob.length + 3);
+	if (blob.data == NULL) {
+		return false;
+	}
+	memcpy(blob.data, values_blob.data, values_blob.length);
+	memcpy(blob.data + values_blob.length, "\x01\x02\x03", 3);
+	ok = regdb_raw_store(db, keystr, &blob);
+	if (!ok) {
+		return false;
+	}
+	werr = regdb_test_read_key(mem_ctx, parent, name,
+				   &names, &num_names, &vals, &num_vals);
+	if (!W_ERROR_IS_OK(werr)) {
+		fprintf(stderr, "%s: reading with additional bytes "
+			"after the values failed: %s\n",
+			path, win_errstr(werr));
+		return false;
+	}
+	ok = regdb_values_equal(keystr, vals, num_vals,
+				values, ARRAY_SIZE(values));
+	if (!ok) {
+		return false;
+	}
+
+	/*
+	 * Additional bytes after the subkeys make the key invalid,
+	 * see regdb_key_exists()
+	 */
+	blob = data_blob_talloc(mem_ctx, NULL, subkeys_blob.length + 1);
+	if (blob.data == NULL) {
+		return false;
+	}
+	memcpy(blob.data, subkeys_blob.data, subkeys_blob.length);
+	blob.data[subkeys_blob.length] = 'X';
+	ok = regdb_raw_store(db, path, &blob);
+	if (!ok) {
+		return false;
+	}
+	werr = regdb_test_read_key(mem_ctx, parent, name,
+				   &names, &num_names, &vals, &num_vals);
+	if (!W_ERROR_EQUAL(werr, WERR_FILE_NOT_FOUND)) {
+		fprintf(stderr, "%s: additional bytes after the subkeys: "
+			"%s, expected WERR_FILE_NOT_FOUND\n",
+			path, win_errstr(werr));
+		return false;
+	}
+
+	/*
+	 * Less subkeys than announced also make the key invalid,
+	 * see regdb_key_exists()
+	 */
+	blob = data_blob_dup_talloc(mem_ctx, subkeys_blob);
+	if (blob.data == NULL) {
+		return false;
+	}
+	SIVAL(blob.data, 0, ARRAY_SIZE(subkeys) + 1);
+	ok = regdb_raw_store(db, path, &blob);
+	if (!ok) {
+		return false;
+	}
+	werr = regdb_test_read_key(mem_ctx, parent, name,
+				   &names, &num_names, &vals, &num_vals);
+	if (!W_ERROR_EQUAL(werr, WERR_FILE_NOT_FOUND)) {
+		fprintf(stderr, "%s: less subkeys than announced: "
+			"%s, expected WERR_FILE_NOT_FOUND\n",
+			path, win_errstr(werr));
+		return false;
+	}
+
+	/* restore a valid record for the cleanup */
+	return regdb_raw_store(db, path, &subkeys_blob);
+}
+
+/*
+ * The names are limited to 255 bytes plus the terminating nul byte
+ * (fstring), see tdb_unpack() with "f".
+ */
+static bool registry_wire_format_name_limits(TALLOC_CTX *mem_ctx,
+					     struct registry_key *parent,
+					     struct db_context *db)
+{
+	const char *name = "WireFormatLimits";
+	const char *path = "HKLM\\SOFTWARE\\WIREFORMATLIMITS";
+	const char *name255 = regdb_test_name(mem_ctx, 'c', 255);
+	const char *name256 = regdb_test_name(mem_ctx, 'd', 256);
+	const char *subkeys[2];
+	struct legacy_regdb_value values[1];
+	struct registry_value v = {
+		.type = REG_DWORD,
+		.data = data_blob_const("\x04\x03\x02\x01", 4),
+	};
+	struct registry_key *key = NULL;
+	struct registry_key *subkey = NULL;
+	char *keystr = NULL;
+	DATA_BLOB subkeys_blob;
+	DATA_BLOB blob;
+	DATA_BLOB expected;
+	char **names = NULL;
+	uint32_t num_names = 0;
+	struct legacy_regdb_value *vals = NULL;
+	uint32_t num_vals = 0;
+	WERROR werr;
+	bool ok;
+
+	if ((name255 == NULL) || (name256 == NULL)) {
+		return false;
+	}
+
+	key = regdb_test_create(mem_ctx, parent, name);
+	if (key == NULL) {
+		return false;
+	}
+
+	keystr = talloc_asprintf(mem_ctx, "%s\\%s", REG_VALUE_PREFIX, path);
+	if (keystr == NULL) {
+		return false;
+	}
+
+	/*
+	 * 255 bytes work, 256 bytes are rejected
+	 * and the key stays intact.
+	 */
+	werr = reg_createkey(mem_ctx, key, name255, REG_KEY_ALL, &subkey, NULL);
+	if (!W_ERROR_IS_OK(werr)) {
+		fprintf(stderr, "reg_createkey(255 bytes) failed: %s\n",
+			win_errstr(werr));
+		return false;
+	}
+	werr = reg_createkey(mem_ctx, key, name256, REG_KEY_ALL, &subkey, NULL);
+	if (!W_ERROR_EQUAL(werr, WERR_INVALID_PARAMETER)) {
+		fprintf(stderr, "reg_createkey(256 bytes) returned %s, "
+			"expected WERR_INVALID_PARAMETER\n",
+			win_errstr(werr));
+		return false;
+	}
+
+	werr = reg_setvalue(key, name255, &v);
+	if (!W_ERROR_IS_OK(werr)) {
+		fprintf(stderr, "reg_setvalue(255 bytes) failed: %s\n",
+			win_errstr(werr));
+		return false;
+	}
+	werr = reg_setvalue(key, name256, &v);
+	if (!W_ERROR_EQUAL(werr, WERR_INVALID_PARAMETER)) {
+		fprintf(stderr, "reg_setvalue(256 bytes) returned %s, "
+			"expected WERR_INVALID_PARAMETER\n",
+			win_errstr(werr));
+		return false;
+	}
+
+	subkeys[0] = name255;
+	ok = legacy_regdb_pack_subkeys(mem_ctx, subkeys, 1, &subkeys_blob);
+	if (!ok) {
+		return false;
+	}
+	ok = regdb_raw_fetch(db, mem_ctx, path, &blob);
+	if (!ok) {
+		return false;
+	}
+	ok = regdb_blob_equal(path, &blob, &subkeys_blob);
+	if (!ok) {
+		return false;
+	}
+
+	values[0] = (struct legacy_regdb_value) {
+		.name = name255,
+		.type = v.type,
+		.data = v.data,
+	};
+	ok = legacy_regdb_pack_values(mem_ctx, values, 1, &expected);
+	if (!ok) {
+		return false;
+	}
+	ok = regdb_raw_fetch(db, mem_ctx, keystr, &blob);
+	if (!ok) {
+		return false;
+	}
+	ok = regdb_blob_equal(keystr, &blob, &expected);
+	if (!ok) {
+		return false;
+	}
+
+	werr = regdb_test_read_key(mem_ctx, parent, name,
+				   &names, &num_names, &vals, &num_vals);
+	if (!W_ERROR_IS_OK(werr)) {
+		fprintf(stderr, "%s: reading failed: %s\n",
+			path, win_errstr(werr));
+		return false;
+	}
+	ok = regdb_subkeys_equal(path, names, num_names, subkeys, 1);
+	if (!ok) {
+		return false;
+	}
+	ok = regdb_values_equal(keystr, vals, num_vals, values, 1);
+	if (!ok) {
+		return false;
+	}
+
+	/*
+	 * Older versions were able to store subkey names with
+	 * 256 bytes, but the subkey list can't be read,
+	 * so the key isn't found.
+	 */
+	subkeys[1] = name256;
+	ok = legacy_regdb_pack_subkeys(mem_ctx, subkeys, 2, &blob);
+	if (!ok) {
+		return false;
+	}
+	ok = legacy_regdb_unpack_subkeys(mem_ctx, &blob, &names, &num_names);
+	if (ok) {
+		fprintf(stderr, "legacy unpack of 256 bytes subkey "
+			"unexpectedly worked\n");
+		return false;
+	}
+	ok = regdb_raw_store(db, path, &blob);
+	if (!ok) {
+		return false;
+	}
+	werr = regdb_test_read_key(mem_ctx, parent, name,
+				   &names, &num_names, &vals, &num_vals);
+	if (!W_ERROR_EQUAL(werr, WERR_FILE_NOT_FOUND)) {
+		fprintf(stderr, "%s: 256 bytes subkey name: "
+			"%s, expected WERR_FILE_NOT_FOUND\n",
+			path, win_errstr(werr));
+		return false;
+	}
+	ok = regdb_raw_store(db, path, &subkeys_blob);
+	if (!ok) {
+		return false;
+	}
+
+	/*
+	 * Value names with 256 bytes (not written by older
+	 * versions, as they were truncated) can't be read,
+	 * the whole value list is ignored.
+	 */
+	values[0].name = name256;
+	ok = legacy_regdb_pack_values(mem_ctx, values, 1, &blob);
+	if (!ok) {
+		return false;
+	}
+	ok = legacy_regdb_unpack_values(mem_ctx, &blob, &vals, &num_vals);
+	if (ok) {
+		fprintf(stderr, "legacy unpack of 256 bytes value name "
+			"unexpectedly worked\n");
+		return false;
+	}
+	ok = regdb_raw_store(db, keystr, &blob);
+	if (!ok) {
+		return false;
+	}
+	werr = regdb_test_read_key(mem_ctx, parent, name,
+				   &names, &num_names, &vals, &num_vals);
+	if (!W_ERROR_IS_OK(werr)) {
+		fprintf(stderr, "%s: 256 bytes value name: reading failed: "
+			"%s\n", path, win_errstr(werr));
+		return false;
+	}
+	if (num_vals != 0) {
+		fprintf(stderr, "%s: 256 bytes value name: %"PRIu32" values, "
+			"expected 0\n", path, num_vals);
+		return false;
+	}
+
+	return true;
+}
+
+/*
  * registry.tdb, see source3/librpc/idl/regdb.idl
  */
 bool run_registry_wire_format(int dummy)
@@ -161,6 +1136,35 @@ bool run_registry_wire_format(int dummy)
 	const char *value_names[ARRAY_SIZE(values)] = {
 		"dword", "binary", "",
 	};
+	/*
+	 * The expected records, independent of the code
+	 * writing and reading them.
+	 */
+	const uint8_t golden_subkeys[] = {
+		0x02, 0x00, 0x00, 0x00,
+		'S', 'u', 'b', '1', 0x00,
+		'S', 'u', 'b', '2', 0x00,
+	};
+	const uint8_t golden_values[] = {
+		0x03, 0x00, 0x00, 0x00,
+		'd', 'w', 'o', 'r', 'd', 0x00,
+		0x04, 0x00, 0x00, 0x00,	/* REG_DWORD */
+		0x04, 0x00, 0x00, 0x00,
+		0x04, 0x03, 0x02, 0x01,
+		'b', 'i', 'n', 'a', 'r', 'y', 0x00,
+		0x03, 0x00, 0x00, 0x00,	/* REG_BINARY */
+		0x04, 0x00, 0x00, 0x00,
+		0x00, 0x01, 0x02, 0xff,
+		0x00,
+		0x00, 0x00, 0x00, 0x00,	/* REG_NONE */
+		0x00, 0x00, 0x00, 0x00,
+	};
+	const DATA_BLOB golden_subkeys_blob =
+		data_blob_const(golden_subkeys, sizeof(golden_subkeys));
+	const DATA_BLOB golden_values_blob =
+		data_blob_const(golden_values, sizeof(golden_values));
+	struct legacy_regdb_value legacy_values[ARRAY_SIZE(values)];
+	DATA_BLOB blob;
 	struct security_token *token = NULL;
 	struct registry_key *parent = NULL;
 	struct registry_key *key = NULL;
@@ -252,7 +1256,7 @@ bool run_registry_wire_format(int dummy)
 		goto fail;
 	}
 	db = db_open(frame, db_path, 0,
-		     REG_TDB_FLAGS, O_RDONLY, 0600,
+		     REG_TDB_FLAGS, O_RDWR, 0600,
 		     DBWRAP_LOCK_ORDER_1, REG_DBWRAP_FLAGS);
 	if (db == NULL) {
 		fprintf(stderr, "db_open(%s) failed\n", db_path);
@@ -326,12 +1330,76 @@ bool run_registry_wire_format(int dummy)
 				value_names[i]);
 			goto fail;
 		}
+		legacy_values[i] = (struct legacy_regdb_value) {
+			.name = value_names[i],
+			.type = values[i].type,
+			.data = values[i].data,
+		};
+	}
+
+	/*
+	 * The records are exactly the expected bytes,
+	 * which are also produced by the frozen
+	 * tdb_pack() based marshalling.
+	 */
+	ok = regdb_raw_fetch(db, frame, test_key, &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal(test_key, &blob, &golden_subkeys_blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = legacy_regdb_pack_subkeys(frame, subkey_names,
+				       ARRAY_SIZE(subkey_names), &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal("legacy subkeys", &blob, &golden_subkeys_blob);
+	if (!ok) {
+		goto fail;
+	}
+
+	ok = regdb_raw_fetch(db, frame, keystr, &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal(keystr, &blob, &golden_values_blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = legacy_regdb_pack_values(frame, legacy_values,
+				      ARRAY_SIZE(legacy_values), &blob);
+	if (!ok) {
+		goto fail;
+	}
+	ok = regdb_blob_equal("legacy values", &blob, &golden_values_blob);
+	if (!ok) {
+		goto fail;
+	}
+
+	ok = registry_wire_format_new_writer(frame, parent, db);
+	if (!ok) {
+		goto fail;
+	}
+
+	ok = registry_wire_format_old_writer(frame, parent, db);
+	if (!ok) {
+		goto fail;
+	}
+
+	ok = registry_wire_format_name_limits(frame, parent, db);
+	if (!ok) {
+		goto fail;
 	}
 
 	ret = true;
 fail:
 	if (parent != NULL) {
 		reg_deletekey_recursive(parent, test_name);
+		reg_deletekey_recursive(parent, "WireFormatNew");
+		reg_deletekey_recursive(parent, "WireFormatOld");
+		reg_deletekey_recursive(parent, "WireFormatLimits");
 	}
 	TALLOC_FREE(frame);
 	return ret;
