@@ -30,6 +30,7 @@
 #include "../libcli/security/security.h"
 #include "../lib/util/util_pw.h"
 #include "util_tdb.h"
+#include "librpc/gen_ndr/ndr_tdbsam.h"
 #include "auth/credentials/credentials.h"
 #include "lib/param/param.h"
 #include "lib/util/string_wrappers.h"
@@ -1566,6 +1567,17 @@ done:
 /*********************************************************************
 *********************************************************************/
 
+/*
+ * tdb_unpack() with "B" returns NULL for a length of 0
+ */
+static uint8_t *tdbsam_blob_data(const struct tdbsam_blob *b)
+{
+	if (b->length == 0) {
+		return NULL;
+	}
+	return b->data;
+}
+
 static bool init_samu_from_buffer_v3(struct samu *sampass, uint8_t *buf, uint32_t buflen)
 {
 
@@ -1577,85 +1589,93 @@ static bool init_samu_from_buffer_v3(struct samu *sampass, uint8_t *buf, uint32_
 		kickoff_time,
 		bad_password_time,
 		pass_last_set_time,
-		pass_can_change_time,
-		pass_must_change_time;
-	char *username = NULL;
-	char *domain = NULL;
-	char *nt_username = NULL;
-	char *dir_drive = NULL;
-	char *comment = NULL;
-	char *munged_dial = NULL;
-	char *fullname = NULL;
-	char *homedir = NULL;
-	char *logon_script = NULL;
-	char *profile_path = NULL;
-	char *acct_desc = NULL;
-	char *workstations = NULL;
-	uint32_t	username_len, domain_len, nt_username_len,
-		dir_drive_len, comment_len, munged_dial_len,
-		fullname_len, homedir_len, logon_script_len,
-		profile_path_len, acct_desc_len, workstations_len;
+		pass_can_change_time;
+	const char *username = NULL;
+	const char *domain = NULL;
+	const char *nt_username = NULL;
+	const char *dir_drive = NULL;
+	const char *comment = NULL;
+	const char *munged_dial = NULL;
+	const char *fullname = NULL;
+	const char *homedir = NULL;
+	const char *logon_script = NULL;
+	const char *profile_path = NULL;
+	const char *acct_desc = NULL;
+	const char *workstations = NULL;
 
-	uint32_t	user_rid, group_rid, hours_len, unknown_6, acct_ctrl;
+	uint32_t	user_rid, hours_len, unknown_6, acct_ctrl;
 	uint16_t  logon_divs;
 	uint16_t	bad_password_count, logon_count;
 	uint8_t	*hours = NULL;
 	uint8_t	*lm_pw_ptr = NULL, *nt_pw_ptr = NULL, *nt_pw_hist_ptr = NULL;
-	uint32_t		len = 0;
-	uint32_t		lm_pw_len, nt_pw_len, nt_pw_hist_len, hourslen;
+	uint32_t		lm_pw_len, nt_pw_len, nt_pw_hist_len;
 	uint32_t pwHistLen = 0;
 	bool ret = True;
 	fstring tmp_string;
 	bool expand_explicit = lp_passdb_expand_explicit();
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct tdbsam_user_v3 r = { .logon_time = 0, };
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 
 	if(sampass == NULL || buf == NULL) {
 		DEBUG(0, ("init_samu_from_buffer_v3: NULL parameters found!\n"));
+		TALLOC_FREE(frame);
 		return False;
 	}
 
 /* SAMU_BUFFER_FORMAT_V3       "dddddddBBBBBBBBBBBBddBBBdwdBwwd" */
 
-	/* unpack the buffer into variables */
-	len = tdb_unpack (buf, buflen, SAMU_BUFFER_FORMAT_V3,
-		&logon_time,						/* d */
-		&logoff_time,						/* d */
-		&kickoff_time,						/* d */
-		&bad_password_time,					/* d */
-		&pass_last_set_time,					/* d */
-		&pass_can_change_time,					/* d */
-		&pass_must_change_time,					/* d */
-		&username_len, &username,				/* B */
-		&domain_len, &domain,					/* B */
-		&nt_username_len, &nt_username,				/* B */
-		&fullname_len, &fullname,				/* B */
-		&homedir_len, &homedir,					/* B */
-		&dir_drive_len, &dir_drive,				/* B */
-		&logon_script_len, &logon_script,			/* B */
-		&profile_path_len, &profile_path,			/* B */
-		&acct_desc_len, &acct_desc,				/* B */
-		&workstations_len, &workstations,			/* B */
-		&comment_len, &comment,					/* B */
-		&munged_dial_len, &munged_dial,				/* B */
-		&user_rid,						/* d */
-		&group_rid,						/* d */
-		&lm_pw_len, &lm_pw_ptr,					/* B */
-		&nt_pw_len, &nt_pw_ptr,					/* B */
-		/* Change from V1 is addition of password history field. */
-		&nt_pw_hist_len, &nt_pw_hist_ptr,			/* B */
-		/* Change from V2 is the uint32_t acb_mask */
-		&acct_ctrl,						/* d */
-		/* Also "remove_me" field was removed. */
-		&logon_divs,						/* w */
-		&hours_len,						/* d */
-		&hourslen, &hours,					/* B */
-		&bad_password_count,					/* w */
-		&logon_count,						/* w */
-		&unknown_6);						/* d */
-
-	if (len == (uint32_t) -1)  {
+	/*
+	 * The format is tdbsam_user_v3, see
+	 * source3/librpc/idl/tdbsam.idl, it must not
+	 * change as passdb.tdb is shared by all nodes
+	 * in a cluster. Like tdb_unpack() additional
+	 * bytes are ignored.
+	 */
+	blob = data_blob_const(buf, buflen);
+	ndr_err = ndr_pull_struct_blob(&blob, frame, &r,
+			(ndr_pull_flags_fn_t)ndr_pull_tdbsam_user_v3);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_WARNING("ndr_pull_tdbsam_user_v3 failed: %s\n",
+			    ndr_errstr(ndr_err));
 		ret = False;
 		goto done;
 	}
+
+	logon_time = r.logon_time;
+	logoff_time = r.logoff_time;
+	kickoff_time = r.kickoff_time;
+	bad_password_time = r.bad_password_time;
+	pass_last_set_time = r.pass_last_set_time;
+	pass_can_change_time = r.pass_can_change_time;
+	username = r.username;
+	domain = r.domain;
+	nt_username = r.nt_username;
+	fullname = r.fullname;
+	homedir = r.homedir;
+	dir_drive = r.dir_drive;
+	logon_script = r.logon_script;
+	profile_path = r.profile_path;
+	acct_desc = r.acct_desc;
+	workstations = r.workstations;
+	comment = r.comment;
+	munged_dial = r.munged_dial;
+	user_rid = r.user_rid;
+	/* group_rid and pass_must_change_time are not used here */
+	lm_pw_len = r.lm_pw.length;
+	lm_pw_ptr = tdbsam_blob_data(&r.lm_pw);
+	nt_pw_len = r.nt_pw.length;
+	nt_pw_ptr = tdbsam_blob_data(&r.nt_pw);
+	nt_pw_hist_len = r.nt_pw_hist.length;
+	nt_pw_hist_ptr = tdbsam_blob_data(&r.nt_pw_hist);
+	acct_ctrl = r.acct_ctrl;
+	logon_divs = r.logon_divs;
+	hours_len = r.hours_len;
+	hours = tdbsam_blob_data(&r.hours);
+	bad_password_count = r.bad_password_count;
+	logon_count = r.logon_count;
+	unknown_6 = r.unknown_6;
 
 	pdb_set_logon_time(sampass, convert_uint32_t_to_time_t(logon_time), PDB_SET);
 	pdb_set_logoff_time(sampass, convert_uint32_t_to_time_t(logoff_time), PDB_SET);
@@ -1777,32 +1797,24 @@ static bool init_samu_from_buffer_v3(struct samu *sampass, uint8_t *buf, uint32_
 
 done:
 
-	SAFE_FREE(username);
-	SAFE_FREE(domain);
-	SAFE_FREE(nt_username);
-	SAFE_FREE(fullname);
-	SAFE_FREE(homedir);
-	SAFE_FREE(dir_drive);
-	SAFE_FREE(logon_script);
-	SAFE_FREE(profile_path);
-	SAFE_FREE(acct_desc);
-	SAFE_FREE(workstations);
-	SAFE_FREE(munged_dial);
-	SAFE_FREE(comment);
-	SAFE_FREE(lm_pw_ptr);
-	SAFE_FREE(nt_pw_ptr);
-	SAFE_FREE(nt_pw_hist_ptr);
-	SAFE_FREE(hours);
-
+	TALLOC_FREE(frame);
 	return ret;
 }
 
 /*********************************************************************
 *********************************************************************/
 
+/*
+ * tdb_pack() with "B" and a length of 0 doesn't look at the data
+ */
+#define TDBSAM_BLOB(_len, _data) (struct tdbsam_blob) { \
+	.length = (_len), \
+	.data = ((_len) > 0) ? discard_const_p(uint8_t, (_data)) : NULL, \
+}
+
 static uint32_t init_buffer_from_samu_v3 (uint8_t **buf, struct samu *sampass, bool size_only)
 {
-	size_t len, buflen;
+	size_t buflen;
 
 	/* times are stored as 32bit integer
 	   take care on system with 64bit wide time_t
@@ -1829,10 +1841,6 @@ static uint32_t init_buffer_from_samu_v3 (uint8_t **buf, struct samu *sampass, b
 	const char *profile_path;
 	const char *acct_desc;
 	const char *workstations;
-	uint32_t	username_len, domain_len, nt_username_len,
-		dir_drive_len, comment_len, munged_dial_len,
-		fullname_len, homedir_len, logon_script_len,
-		profile_path_len, acct_desc_len, workstations_len;
 
 	const uint8_t *lm_pw;
 	const uint8_t *nt_pw;
@@ -1841,6 +1849,9 @@ static uint32_t init_buffer_from_samu_v3 (uint8_t **buf, struct samu *sampass, b
 	uint32_t	nt_pw_len = 16;
 	uint32_t  nt_pw_hist_len;
 	uint32_t pwHistLen = 0;
+	struct tdbsam_user_v3 r;
+	DATA_BLOB blob = { .length = 0, };
+	enum ndr_err_code ndr_err;
 
 	*buf = NULL;
 	buflen = 0;
@@ -1857,32 +1868,12 @@ static uint32_t init_buffer_from_samu_v3 (uint8_t **buf, struct samu *sampass, b
 	group_rid = pdb_get_group_rid(sampass);
 
 	username = pdb_get_username(sampass);
-	if (username) {
-		username_len = strlen(username) +1;
-	} else {
-		username_len = 0;
-	}
 
 	domain = pdb_get_domain(sampass);
-	if (domain) {
-		domain_len = strlen(domain) +1;
-	} else {
-		domain_len = 0;
-	}
 
 	nt_username = pdb_get_nt_username(sampass);
-	if (nt_username) {
-		nt_username_len = strlen(nt_username) +1;
-	} else {
-		nt_username_len = 0;
-	}
 
 	fullname = pdb_get_fullname(sampass);
-	if (fullname) {
-		fullname_len = strlen(fullname) +1;
-	} else {
-		fullname_len = 0;
-	}
 
 	/*
 	 * Only updates fields which have been set (not defaults from smb.conf)
@@ -1893,21 +1884,11 @@ static uint32_t init_buffer_from_samu_v3 (uint8_t **buf, struct samu *sampass, b
 	} else {
 		dir_drive = NULL;
 	}
-	if (dir_drive) {
-		dir_drive_len = strlen(dir_drive) +1;
-	} else {
-		dir_drive_len = 0;
-	}
 
 	if (!IS_SAM_DEFAULT(sampass, PDB_SMBHOME)) {
 		homedir = pdb_get_homedir(sampass);
 	} else {
 		homedir = NULL;
-	}
-	if (homedir) {
-		homedir_len = strlen(homedir) +1;
-	} else {
-		homedir_len = 0;
 	}
 
 	if (!IS_SAM_DEFAULT(sampass, PDB_LOGONSCRIPT)) {
@@ -1915,21 +1896,11 @@ static uint32_t init_buffer_from_samu_v3 (uint8_t **buf, struct samu *sampass, b
 	} else {
 		logon_script = NULL;
 	}
-	if (logon_script) {
-		logon_script_len = strlen(logon_script) +1;
-	} else {
-		logon_script_len = 0;
-	}
 
 	if (!IS_SAM_DEFAULT(sampass, PDB_PROFILE)) {
 		profile_path = pdb_get_profile_path(sampass);
 	} else {
 		profile_path = NULL;
-	}
-	if (profile_path) {
-		profile_path_len = strlen(profile_path) +1;
-	} else {
-		profile_path_len = 0;
 	}
 
 	lm_pw = pdb_get_lanman_passwd(sampass);
@@ -1951,119 +1922,73 @@ static uint32_t init_buffer_from_samu_v3 (uint8_t **buf, struct samu *sampass, b
 	}
 
 	acct_desc = pdb_get_acct_desc(sampass);
-	if (acct_desc) {
-		acct_desc_len = strlen(acct_desc) +1;
-	} else {
-		acct_desc_len = 0;
-	}
 
 	workstations = pdb_get_workstations(sampass);
-	if (workstations) {
-		workstations_len = strlen(workstations) +1;
-	} else {
-		workstations_len = 0;
-	}
 
 	comment = pdb_get_comment(sampass);
-	if (comment) {
-		comment_len = strlen(comment) +1;
-	} else {
-		comment_len = 0;
-	}
 
 	munged_dial = pdb_get_munged_dial(sampass);
-	if (munged_dial) {
-		munged_dial_len = strlen(munged_dial) +1;
-	} else {
-		munged_dial_len = 0;
-	}
 
 /* SAMU_BUFFER_FORMAT_V3       "dddddddBBBBBBBBBBBBddBBBdwdBwwd" */
 
-	/* one time to get the size needed */
-	len = tdb_pack(NULL, 0,  SAMU_BUFFER_FORMAT_V3,
-		logon_time,				/* d */
-		logoff_time,				/* d */
-		kickoff_time,				/* d */
-		bad_password_time,			/* d */
-		pass_last_set_time,			/* d */
-		pass_can_change_time,			/* d */
-		pass_must_change_time,			/* d */
-		username_len, username,			/* B */
-		domain_len, domain,			/* B */
-		nt_username_len, nt_username,		/* B */
-		fullname_len, fullname,			/* B */
-		homedir_len, homedir,			/* B */
-		dir_drive_len, dir_drive,		/* B */
-		logon_script_len, logon_script,		/* B */
-		profile_path_len, profile_path,		/* B */
-		acct_desc_len, acct_desc,		/* B */
-		workstations_len, workstations,		/* B */
-		comment_len, comment,			/* B */
-		munged_dial_len, munged_dial,		/* B */
-		user_rid,				/* d */
-		group_rid,				/* d */
-		lm_pw_len, lm_pw,			/* B */
-		nt_pw_len, nt_pw,			/* B */
-		nt_pw_hist_len, nt_pw_hist,		/* B */
-		pdb_get_acct_ctrl(sampass),		/* d */
-		pdb_get_logon_divs(sampass),		/* w */
-		pdb_get_hours_len(sampass),		/* d */
-		MAX_HOURS_LEN, pdb_get_hours(sampass),	/* B */
-		pdb_get_bad_password_count(sampass),	/* w */
-		pdb_get_logon_count(sampass),		/* w */
-		pdb_get_unknown_6(sampass));		/* d */
+	r = (struct tdbsam_user_v3) {
+		.logon_time = logon_time,
+		.logoff_time = logoff_time,
+		.kickoff_time = kickoff_time,
+		.bad_password_time = bad_password_time,
+		.pass_last_set_time = pass_last_set_time,
+		.pass_can_change_time = pass_can_change_time,
+		.pass_must_change_time = pass_must_change_time,
+		.username = username,
+		.domain = domain,
+		.nt_username = nt_username,
+		.fullname = fullname,
+		.homedir = homedir,
+		.dir_drive = dir_drive,
+		.logon_script = logon_script,
+		.profile_path = profile_path,
+		.acct_desc = acct_desc,
+		.workstations = workstations,
+		.comment = comment,
+		.munged_dial = munged_dial,
+		.user_rid = user_rid,
+		.group_rid = group_rid,
+		.lm_pw = TDBSAM_BLOB(lm_pw_len, lm_pw),
+		.nt_pw = TDBSAM_BLOB(nt_pw_len, nt_pw),
+		.nt_pw_hist = TDBSAM_BLOB(nt_pw_hist_len, nt_pw_hist),
+		.acct_ctrl = pdb_get_acct_ctrl(sampass),
+		.logon_divs = pdb_get_logon_divs(sampass),
+		.hours_len = pdb_get_hours_len(sampass),
+		.hours = TDBSAM_BLOB(MAX_HOURS_LEN, pdb_get_hours(sampass)),
+		.bad_password_count = pdb_get_bad_password_count(sampass),
+		.logon_count = pdb_get_logon_count(sampass),
+		.unknown_6 = pdb_get_unknown_6(sampass),
+	};
 
 	if (size_only) {
 		return buflen;
 	}
 
-	/* malloc the space needed */
-	if ( (*buf=(uint8_t*)SMB_MALLOC(len)) == NULL) {
-		DEBUG(0,("init_buffer_from_samu_v3: Unable to malloc() memory for buffer!\n"));
+	/*
+	 * The format is tdbsam_user_v3, see
+	 * source3/librpc/idl/tdbsam.idl, it must not
+	 * change as passdb.tdb is shared by all nodes
+	 * in a cluster.
+	 */
+	ndr_err = ndr_push_struct_blob(&blob, talloc_tos(), &r,
+			(ndr_push_flags_fn_t)ndr_push_tdbsam_user_v3);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_ERR("ndr_push_tdbsam_user_v3 failed: %s\n",
+			ndr_errstr(ndr_err));
 		return (-1);
 	}
 
-	/* now for the real call to tdb_pack() */
-	buflen = tdb_pack(*buf, len,  SAMU_BUFFER_FORMAT_V3,
-		logon_time,				/* d */
-		logoff_time,				/* d */
-		kickoff_time,				/* d */
-		bad_password_time,			/* d */
-		pass_last_set_time,			/* d */
-		pass_can_change_time,			/* d */
-		pass_must_change_time,			/* d */
-		username_len, username,			/* B */
-		domain_len, domain,			/* B */
-		nt_username_len, nt_username,		/* B */
-		fullname_len, fullname,			/* B */
-		homedir_len, homedir,			/* B */
-		dir_drive_len, dir_drive,		/* B */
-		logon_script_len, logon_script,		/* B */
-		profile_path_len, profile_path,		/* B */
-		acct_desc_len, acct_desc,		/* B */
-		workstations_len, workstations,		/* B */
-		comment_len, comment,			/* B */
-		munged_dial_len, munged_dial,		/* B */
-		user_rid,				/* d */
-		group_rid,				/* d */
-		lm_pw_len, lm_pw,			/* B */
-		nt_pw_len, nt_pw,			/* B */
-		nt_pw_hist_len, nt_pw_hist,		/* B */
-		pdb_get_acct_ctrl(sampass),		/* d */
-		pdb_get_logon_divs(sampass),		/* w */
-		pdb_get_hours_len(sampass),		/* d */
-		MAX_HOURS_LEN, pdb_get_hours(sampass),	/* B */
-		pdb_get_bad_password_count(sampass),	/* w */
-		pdb_get_logon_count(sampass),		/* w */
-		pdb_get_unknown_6(sampass));		/* d */
-
-	/* check to make sure we got it correct */
-	if (buflen != len) {
-		DEBUG(0, ("init_buffer_from_samu_v3: something odd is going on here: bufflen (%lu) != len (%lu) in tdb_pack operations!\n",
-			  (unsigned long)buflen, (unsigned long)len));
-		/* error */
-		SAFE_FREE (*buf);
+	/* the callers free the buffer with SAFE_FREE() */
+	*buf = (uint8_t *)smb_memdup(blob.data, blob.length);
+	buflen = blob.length;
+	data_blob_free(&blob);
+	if (*buf == NULL) {
+		DEBUG(0,("init_buffer_from_samu_v3: Unable to malloc() memory for buffer!\n"));
 		return (-1);
 	}
 
