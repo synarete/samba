@@ -2112,7 +2112,10 @@ if have_cluster_support:
 # The rolling upgrade tests, planned in cfl_upgrade against the selftest
 # cluster.
 #
-cfl_tests = ["cluster_rolling_upgrade"]
+cfl_tests = [
+    "cluster_rolling_upgrade",
+    "cluster_cross_node_locking",
+]
 
 for t in cfl_tests:
     if have_cluster_support and have_mixed_cluster_support:
