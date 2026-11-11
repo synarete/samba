@@ -7,7 +7,9 @@
 # are comments, they are not compared.
 
 root regdb_version_rec
+root regdb_subkey
 root regdb_subkey_list
+root regdb_value
 root regdb_value_list
 
 [flag(LIBNDR_FLAG_NOALIGN)] struct regdb_subkey align(4) {
@@ -41,6 +43,12 @@ sample regdb_version_rec length(4) {
 #	    regdb_version_rec: struct regdb_version_rec
 #	        version                  : 67305985
 
+sample regdb_subkey length(15) {
+	[0000] 73 74 72 69 6e 67 30 30  30 30 30 30 30 31 00
+}
+#	    regdb_subkey: struct regdb_subkey
+#	        name                     : 'string00000001'
+
 sample regdb_subkey_list length(34) {
 	[0000] 02 00 00 00 73 74 72 69  6e 67 30 30 30 30 30 30
 	[0010] 30 31 00 73 74 72 69 6e  67 30 30 30 30 30 30 30
@@ -60,6 +68,28 @@ sample regdb_subkey_list@minimal length(4) {
 #	    regdb_subkey_list: struct regdb_subkey_list
 #	        num_subkeys              : 0x00000000 (0)
 #	        subkeys: ARRAY(0)
+
+sample regdb_value length(25) {
+	[0000] 73 74 72 69 6e 67 30 30  30 30 30 30 30 31 00 02
+	[0010] 03 04 05 02 00 00 00 03  04
+}
+#	    regdb_value: struct regdb_value
+#	        name                     : 'string00000001'
+#	        type                     : 0x05040302 (84148994)
+#	        size                     : 0x00000002 (2)
+#	        data: ARRAY(2)
+#	            [0]                      : 0x03 (3)
+#	            [1]                      : 0x04 (4)
+
+sample regdb_value@minimal length(23) {
+	[0000] 73 74 72 69 6e 67 30 30  30 30 30 30 30 31 00 02
+	[0010] 03 04 05 00 00 00 00
+}
+#	    regdb_value: struct regdb_value
+#	        name                     : 'string00000001'
+#	        type                     : 0x05040302 (84148994)
+#	        size                     : 0x00000000 (0)
+#	        data: ARRAY(0)
 
 sample regdb_value_list length(54) {
 	[0000] 02 00 00 00 73 74 72 69  6e 67 30 30 30 30 30 30

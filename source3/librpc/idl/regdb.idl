@@ -39,8 +39,12 @@ interface regdb
 	 * normalized path, e.g. HKLM\SOFTWARE\SAMBA.
 	 *
 	 * tdb_pack() formats "d" and "f" for each subkey.
+	 *
+	 * regdb_subkey is [public] as the subkeys are
+	 * pulled one by one in order to behave like
+	 * the tdb_unpack() based code of older versions.
 	 */
-	typedef [flag(NDR_NOALIGN)] struct {
+	typedef [public,flag(NDR_NOALIGN)] struct {
 		raw8string name;
 	} regdb_subkey;
 
@@ -54,8 +58,12 @@ interface regdb
 	 * SAMBA_REGVAL\ followed by the normalized path.
 	 *
 	 * tdb_pack() formats "d" and "fdB" for each value.
+	 *
+	 * regdb_value is [public] as the values are
+	 * pulled one by one in order to behave like
+	 * the tdb_unpack() based code of older versions.
 	 */
-	typedef [flag(NDR_NOALIGN)] struct {
+	typedef [public,flag(NDR_NOALIGN)] struct {
 		raw8string name;
 		/* enum winreg_Type */
 		uint32 type;
