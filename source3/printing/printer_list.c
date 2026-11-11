@@ -23,6 +23,7 @@
 #include "dbwrap/dbwrap_open.h"
 #include "util_tdb.h"
 #include "printer_list.h"
+#include "librpc/gen_ndr/ndr_printer_list.h"
 
 #define PL_KEY_PREFIX "PRINTERLIST/PRN/"
 #define PL_KEY_FORMAT PL_KEY_PREFIX"%s"
@@ -33,9 +34,32 @@
  * source3/librpc/idl/printer_list.idl, they must not
  * change as printer_list.tdb is shared by all
  * nodes in a cluster.
+ *
+ * Older versions used tdb_pack() with "ddPPP" and "dd",
+ * like tdb_unpack() additional bytes are ignored.
  */
-#define PL_DATA_FORMAT "ddPPP"
-#define PL_TSTAMP_FORMAT "dd"
+static bool printer_list_parse(TALLOC_CTX *mem_ctx,
+			       TDB_DATA data,
+			       struct printer_list_printer_rec *r)
+{
+	DATA_BLOB blob = data_blob_const(data.dptr, data.dsize);
+	enum ndr_err_code ndr_err;
+
+	ndr_err = ndr_pull_struct_blob(&blob, mem_ctx, r,
+			(ndr_pull_flags_fn_t)ndr_pull_printer_list_printer_rec);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DBG_INFO("ndr_pull_printer_list_printer_rec failed: %s\n",
+			 ndr_errstr(ndr_err));
+		return false;
+	}
+
+	return true;
+}
+
+static time_t printer_list_refresh_time(uint32_t time_h, uint32_t time_l)
+{
+	return (time_t)(((uint64_t)time_h << 32) + time_l);
+}
 
 static struct db_context *printerlist_db;
 
@@ -76,12 +100,9 @@ NTSTATUS printer_list_get_printer(TALLOC_CTX *mem_ctx,
 	struct db_context *db;
 	char *key;
 	TDB_DATA data;
-	uint32_t time_h, time_l;
-	char *nstr = NULL;
-	char *cstr = NULL;
-	char *lstr = NULL;
+	struct printer_list_printer_rec r = { .refresh_high = 0, };
 	NTSTATUS status;
-	int ret;
+	bool ok;
 
 	db = get_printer_list_db();
 	if (db == NULL) {
@@ -101,21 +122,20 @@ NTSTATUS printer_list_get_printer(TALLOC_CTX *mem_ctx,
 		goto done;
 	}
 
-	ret = tdb_unpack(data.dptr, data.dsize,
-			 PL_DATA_FORMAT,
-			 &time_h, &time_l, &nstr, &cstr, &lstr);
-	if (ret == -1) {
+	ok = printer_list_parse(key, data, &r);
+	if (!ok) {
 		DEBUG(1, ("Failed to unpack printer data\n"));
 		status = NT_STATUS_INTERNAL_DB_CORRUPTION;
 		goto done;
 	}
 
 	if (last_refresh) {
-		*last_refresh = (time_t)(((uint64_t)time_h << 32) + time_l);
+		*last_refresh = printer_list_refresh_time(r.refresh_high,
+							  r.refresh_low);
 	}
 
 	if (comment) {
-		*comment = talloc_strdup(mem_ctx, cstr);
+		*comment = talloc_strdup(mem_ctx, r.comment);
 		if (!*comment) {
 			DEBUG(1, ("Failed to strdup comment!\n"));
 			status = NT_STATUS_NO_MEMORY;
@@ -124,7 +144,7 @@ NTSTATUS printer_list_get_printer(TALLOC_CTX *mem_ctx,
 	}
 
 	if (location) {
-		*location = talloc_strdup(mem_ctx, lstr);
+		*location = talloc_strdup(mem_ctx, r.location);
 		if (*location == NULL) {
 			DEBUG(1, ("Failed to strdup location!\n"));
 			status = NT_STATUS_NO_MEMORY;
@@ -135,9 +155,6 @@ NTSTATUS printer_list_get_printer(TALLOC_CTX *mem_ctx,
 	status = NT_STATUS_OK;
 
 done:
-	SAFE_FREE(nstr);
-	SAFE_FREE(cstr);
-	SAFE_FREE(lstr);
 	TALLOC_FREE(key);
 	return status;
 }
@@ -173,9 +190,10 @@ NTSTATUS printer_list_set_printer(TALLOC_CTX *mem_ctx,
 	char *key;
 	TDB_DATA data;
 	uint64_t time_64;
-	uint32_t time_h, time_l;
+	struct printer_list_printer_rec r;
+	DATA_BLOB blob = { .length = 0, };
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
-	int len;
 
 	db = get_printer_list_db();
 	if (db == NULL) {
@@ -197,32 +215,23 @@ NTSTATUS printer_list_set_printer(TALLOC_CTX *mem_ctx,
 	}
 
 	time_64 = last_refresh;
-	time_l = time_64 & 0xFFFFFFFFL;
-	time_h = time_64 >> 32;
+	r = (struct printer_list_printer_rec) {
+		.refresh_high = time_64 >> 32,
+		.refresh_low = time_64 & 0xFFFFFFFFL,
+		.name = name,
+		.comment = comment,
+		.location = location,
+	};
 
-	len = tdb_pack(NULL, 0,
-		       PL_DATA_FORMAT,
-		       time_h,
-		       time_l,
-		       name,
-		       comment,
-		       location);
-
-	data.dptr = talloc_array(key, uint8_t, len);
-	if (!data.dptr) {
-		DEBUG(0, ("Failed to allocate tdb data buffer!\n"));
-		status = NT_STATUS_NO_MEMORY;
+	ndr_err = ndr_push_struct_blob(&blob, key, &r,
+			(ndr_push_flags_fn_t)ndr_push_printer_list_printer_rec);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("Failed to pack printer data: %s\n",
+			  ndr_errstr(ndr_err)));
+		status = ndr_map_error2ntstatus(ndr_err);
 		goto done;
 	}
-	data.dsize = len;
-
-	len = tdb_pack(data.dptr, data.dsize,
-		       PL_DATA_FORMAT,
-		       time_h,
-		       time_l,
-		       name,
-		       comment,
-		       location);
+	data = make_tdb_data(blob.data, blob.length);
 
 	status = dbwrap_store_bystring_upper(db, key, data, DBWRAP_REPLACE);
 
@@ -235,9 +244,10 @@ NTSTATUS printer_list_get_last_refresh(time_t *last_refresh)
 {
 	struct db_context *db;
 	TDB_DATA data;
-	uint32_t time_h, time_l;
+	struct printer_list_last_refresh_rec r = { .refresh_high = 0, };
+	DATA_BLOB blob;
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
-	int ret;
 
 	db = get_printer_list_db();
 	if (db == NULL) {
@@ -252,16 +262,19 @@ NTSTATUS printer_list_get_last_refresh(time_t *last_refresh)
 		goto done;
 	}
 
-	ret = tdb_unpack(data.dptr, data.dsize,
-			 PL_TSTAMP_FORMAT, &time_h, &time_l);
+	/* like tdb_unpack() additional bytes are ignored */
+	blob = data_blob_const(data.dptr, data.dsize);
+	ndr_err = ndr_pull_struct_blob(&blob, talloc_tos(), &r,
+		(ndr_pull_flags_fn_t)ndr_pull_printer_list_last_refresh_rec);
 	TALLOC_FREE(data.dptr);
-	if (ret == -1) {
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
 		DEBUG(1, ("Failed to unpack printer data\n"));
 		status = NT_STATUS_INTERNAL_DB_CORRUPTION;
 		goto done;
 	}
 
-	*last_refresh = (time_t)(((uint64_t)time_h << 32) + time_l);
+	*last_refresh = printer_list_refresh_time(r.refresh_high,
+						  r.refresh_low);
 	status = NT_STATUS_OK;
 
 done:
@@ -272,37 +285,33 @@ NTSTATUS printer_list_mark_reload(void)
 {
 	struct db_context *db;
 	TDB_DATA data;
-	uint32_t time_h, time_l;
 	time_t now = time_mono(NULL);
+	struct printer_list_last_refresh_rec r = {
+		.refresh_high = ((uint64_t)now) >> 32,
+		.refresh_low = ((uint64_t)now) & 0xFFFFFFFFL,
+	};
+	DATA_BLOB blob = { .length = 0, };
+	enum ndr_err_code ndr_err;
 	NTSTATUS status;
-	int len;
 
 	db = get_printer_list_db();
 	if (db == NULL) {
 		return NT_STATUS_INTERNAL_DB_CORRUPTION;
 	}
 
-	time_l = ((uint64_t)now) & 0xFFFFFFFFL;
-	time_h = ((uint64_t)now) >> 32;
-
-	len = tdb_pack(NULL, 0, PL_TSTAMP_FORMAT, time_h, time_l);
-
-	data.dptr = talloc_array(talloc_tos(), uint8_t, len);
-	if (!data.dptr) {
-		DEBUG(0, ("Failed to allocate tdb data buffer!\n"));
-		status = NT_STATUS_NO_MEMORY;
-		goto done;
+	ndr_err = ndr_push_struct_blob(&blob, talloc_tos(), &r,
+		(ndr_push_flags_fn_t)ndr_push_printer_list_last_refresh_rec);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(0, ("Failed to pack the last refresh time: %s\n",
+			  ndr_errstr(ndr_err)));
+		return ndr_map_error2ntstatus(ndr_err);
 	}
-	data.dsize = len;
-
-	len = tdb_pack(data.dptr, data.dsize,
-		       PL_TSTAMP_FORMAT, time_h, time_l);
+	data = make_tdb_data(blob.data, blob.length);
 
 	status = dbwrap_store_bystring(db, PL_TIMESTAMP_KEY,
 						data, DBWRAP_REPLACE);
 
-done:
-	TALLOC_FREE(data.dptr);
+	data_blob_free(&blob);
 	return status;
 }
 
@@ -338,18 +347,16 @@ static int printer_list_clean_fn(struct db_record *rec, void *private_data)
 {
 	struct printer_list_clean_state *state =
 			(struct printer_list_clean_state *)private_data;
-	uint32_t time_h, time_l;
+	TALLOC_CTX *frame = NULL;
+	struct printer_list_printer_rec r = { .refresh_high = 0, };
 	time_t refresh;
-	char *name;
-	char *comment;
-	char *location;
-	int ret;
+	bool ok;
 	TDB_DATA key;
 	TDB_DATA value;
 
 	key = dbwrap_record_get_key(rec);
 
-	/* skip anything that does not contain PL_DATA_FORMAT data */
+	/* skip anything that does not contain printer_list_printer_rec data */
 	if (strncmp((char *)key.dptr,
 		    PL_KEY_PREFIX, sizeof(PL_KEY_PREFIX)-1)) {
 		return 0;
@@ -357,20 +364,17 @@ static int printer_list_clean_fn(struct db_record *rec, void *private_data)
 
 	value = dbwrap_record_get_value(rec);
 
-	ret = tdb_unpack(value.dptr, value.dsize,
-			 PL_DATA_FORMAT, &time_h, &time_l, &name, &comment,
-			 &location);
-	if (ret == -1) {
+	frame = talloc_stackframe();
+	ok = printer_list_parse(frame, value, &r);
+	if (!ok) {
 		DEBUG(1, ("Failed to unpack printer data\n"));
 		state->status = NT_STATUS_INTERNAL_DB_CORRUPTION;
+		TALLOC_FREE(frame);
 		return -1;
 	}
 
-	SAFE_FREE(name);
-	SAFE_FREE(comment);
-	SAFE_FREE(location);
-
-	refresh = (time_t)(((uint64_t)time_h << 32) + time_l);
+	refresh = printer_list_refresh_time(r.refresh_high, r.refresh_low);
+	TALLOC_FREE(frame);
 
 	if (refresh < state->last_refresh) {
 		state->status = dbwrap_record_delete(rec);
@@ -413,11 +417,9 @@ static int printer_list_exec_fn(struct db_record *rec, void *private_data)
 {
 	struct printer_list_exec_state *state =
 			(struct printer_list_exec_state *)private_data;
-	uint32_t time_h, time_l;
-	char *name;
-	char *comment;
-	char *location;
-	int ret;
+	TALLOC_CTX *frame = NULL;
+	struct printer_list_printer_rec r = { .refresh_high = 0, };
+	bool ok;
 	TDB_DATA key;
 	TDB_DATA value;
 
@@ -430,20 +432,18 @@ static int printer_list_exec_fn(struct db_record *rec, void *private_data)
 
 	value = dbwrap_record_get_value(rec);
 
-	ret = tdb_unpack(value.dptr, value.dsize,
-			 PL_DATA_FORMAT, &time_h, &time_l, &name, &comment,
-			 &location);
-	if (ret == -1) {
+	frame = talloc_stackframe();
+	ok = printer_list_parse(frame, value, &r);
+	if (!ok) {
 		DEBUG(1, ("Failed to unpack printer data\n"));
 		state->status = NT_STATUS_INTERNAL_DB_CORRUPTION;
+		TALLOC_FREE(frame);
 		return -1;
 	}
 
-	state->fn(name, comment, location, state->private_data);
+	state->fn(r.name, r.comment, r.location, state->private_data);
 
-	SAFE_FREE(name);
-	SAFE_FREE(comment);
-	SAFE_FREE(location);
+	TALLOC_FREE(frame);
 	return 0;
 }
 
