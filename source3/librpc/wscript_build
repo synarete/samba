@@ -43,9 +43,12 @@ bld.SAMBA3_LIBRARY("NDR_TDBSAM",
                    public_deps='ndr',
                    private_library=True)
 
-bld.SAMBA3_SUBSYSTEM("NDR_GROUP_MAPPING",
-                     source='gen_ndr/ndr_group_mapping.c',
-                     public_deps='ndr')
+# A private library, as it's used by samba-passdb,
+# but must not be part of its public ABI.
+bld.SAMBA3_LIBRARY("NDR_GROUP_MAPPING",
+                   source='gen_ndr/ndr_group_mapping.c',
+                   public_deps='ndr',
+                   private_library=True)
 
 bld.SAMBA3_SUBSYSTEM("NDR_ACCOUNT_POLICY",
                      source='gen_ndr/ndr_account_policy.c',
