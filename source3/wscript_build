@@ -91,7 +91,7 @@ bld.SAMBA3_SUBSYSTEM('GROUPDB',
                            groupdb/mapping.c
                            groupdb/mapping_tdb.c
                            ''',
-                    deps='tdb')
+                    deps='tdb NDR_GROUP_MAPPING')
 
 bld.SAMBA3_SUBSYSTEM('TLDAP',
                     source='''
