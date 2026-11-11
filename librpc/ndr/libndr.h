@@ -126,10 +126,17 @@ typedef enum {
 	LIBNDR_FLAG_NO_NDR_SIZE = 1U << 31,
 
 	/*
-	 * present to keep the size of this enumeration 64 bits until we need a
-	 * 33rd flag.
+	 * Only valid together with LIBNDR_FLAG_STR_SIZE4:
+	 * a NULL string has a size of 0 on the wire, so it's
+	 * different from an empty string, which has a size of
+	 * 1 (the terminating nul byte) or 0 with
+	 * LIBNDR_FLAG_STR_NOTERM, where empty strings can't
+	 * be used.
+	 *
+	 * This is used e.g. for the strings in passdb.tdb,
+	 * which are stored with tdb_pack() using "B".
 	 */
-	LIBNDR_FLAG_0x100000000 = UINT64_C(1) << 32,
+	LIBNDR_FLAG_STR_SIZE4_NULL = UINT64_C(1) << 32,
 } libndr_flags;
 LIBNDR_STATIC_ASSERT(libndr_flags_are_64_bit, sizeof (libndr_flags) == 8);
 #define PRI_LIBNDR_FLAGS PRIx64
@@ -268,6 +275,7 @@ struct ndr_print {
 		LIBNDR_FLAG_STR_CHARLEN | \
 		LIBNDR_FLAG_STR_UTF8 | \
 		LIBNDR_FLAG_STR_RAW8 | \
+		LIBNDR_FLAG_STR_SIZE4_NULL | \
 		0)
 
 #define LIBNDR_ENCODING_FLAGS		(0U | \
