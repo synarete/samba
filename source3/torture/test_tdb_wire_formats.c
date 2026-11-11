@@ -1481,6 +1481,303 @@ static bool tdbsam_string_check(const char *name,
 }
 
 /*
+ * The tdb_pack() based marshalling of the USER_ records in
+ * passdb.tdb (SAMU_BUFFER_FORMAT_V3) as used by older Samba
+ * versions.
+ *
+ * This is a frozen copy of init_buffer_from_samu_v3() in
+ * passdb.c, it represents the format written by older
+ * versions (e.g. other nodes in a cluster) and must never
+ * be changed.
+ */
+#define LEGACY_SAMU_BUFFER_FORMAT_V3 "dddddddBBBBBBBBBBBBddBBBdwdBwwd"
+
+static uint32_t legacy_tdbsam_strlen(const char *s)
+{
+	return (s != NULL) ? strlen(s) + 1 : 0;
+}
+
+static bool legacy_tdbsam_pack_v3(TALLOC_CTX *mem_ctx,
+				  struct samu *sampass,
+				  DATA_BLOB *blob)
+{
+	uint32_t logon_time, logoff_time, kickoff_time, bad_password_time;
+	uint32_t pass_last_set_time, pass_can_change_time;
+	uint32_t pass_must_change_time;
+	uint32_t user_rid, group_rid;
+	const char *username, *domain, *nt_username, *dir_drive, *comment;
+	const char *munged_dial, *fullname, *homedir, *logon_script;
+	const char *profile_path, *acct_desc, *workstations;
+	const uint8_t *lm_pw, *nt_pw, *nt_pw_hist;
+	uint32_t lm_pw_len = 16;
+	uint32_t nt_pw_len = 16;
+	uint32_t nt_pw_hist_len;
+	uint32_t pwHistLen = 0;
+	size_t len, len2;
+
+	logon_time = convert_time_t_to_uint32_t(pdb_get_logon_time(sampass));
+	logoff_time = convert_time_t_to_uint32_t(pdb_get_logoff_time(sampass));
+	kickoff_time = convert_time_t_to_uint32_t(pdb_get_kickoff_time(sampass));
+	bad_password_time = convert_time_t_to_uint32_t(
+		pdb_get_bad_password_time(sampass));
+	pass_can_change_time = convert_time_t_to_uint32_t(
+		pdb_get_pass_can_change_time_noncalc(sampass));
+	pass_must_change_time = convert_time_t_to_uint32_t(
+		pdb_get_pass_must_change_time(sampass));
+	pass_last_set_time = convert_time_t_to_uint32_t(
+		pdb_get_pass_last_set_time(sampass));
+
+	user_rid = pdb_get_user_rid(sampass);
+	group_rid = pdb_get_group_rid(sampass);
+
+	username = pdb_get_username(sampass);
+	domain = pdb_get_domain(sampass);
+	nt_username = pdb_get_nt_username(sampass);
+	fullname = pdb_get_fullname(sampass);
+
+	/*
+	 * Only fields which have been set (not defaults from smb.conf)
+	 */
+	dir_drive = !IS_SAM_DEFAULT(sampass, PDB_DRIVE) ?
+		pdb_get_dir_drive(sampass) : NULL;
+	homedir = !IS_SAM_DEFAULT(sampass, PDB_SMBHOME) ?
+		pdb_get_homedir(sampass) : NULL;
+	logon_script = !IS_SAM_DEFAULT(sampass, PDB_LOGONSCRIPT) ?
+		pdb_get_logon_script(sampass) : NULL;
+	profile_path = !IS_SAM_DEFAULT(sampass, PDB_PROFILE) ?
+		pdb_get_profile_path(sampass) : NULL;
+
+	lm_pw = pdb_get_lanman_passwd(sampass);
+	if (lm_pw == NULL) {
+		lm_pw_len = 0;
+	}
+
+	nt_pw = pdb_get_nt_passwd(sampass);
+	if (nt_pw == NULL) {
+		nt_pw_len = 0;
+	}
+
+	pdb_get_account_policy(PDB_POLICY_PASSWORD_HISTORY, &pwHistLen);
+	nt_pw_hist = pdb_get_pw_history(sampass, &nt_pw_hist_len);
+	if (pwHistLen && nt_pw_hist && nt_pw_hist_len) {
+		nt_pw_hist_len *= PW_HISTORY_ENTRY_LEN;
+	} else {
+		nt_pw_hist_len = 0;
+	}
+
+	acct_desc = pdb_get_acct_desc(sampass);
+	workstations = pdb_get_workstations(sampass);
+	comment = pdb_get_comment(sampass);
+	munged_dial = pdb_get_munged_dial(sampass);
+
+#define LEGACY_TDBSAM_ARGS \
+		logon_time, logoff_time, kickoff_time, bad_password_time, \
+		pass_last_set_time, pass_can_change_time, \
+		pass_must_change_time, \
+		legacy_tdbsam_strlen(username), username, \
+		legacy_tdbsam_strlen(domain), domain, \
+		legacy_tdbsam_strlen(nt_username), nt_username, \
+		legacy_tdbsam_strlen(fullname), fullname, \
+		legacy_tdbsam_strlen(homedir), homedir, \
+		legacy_tdbsam_strlen(dir_drive), dir_drive, \
+		legacy_tdbsam_strlen(logon_script), logon_script, \
+		legacy_tdbsam_strlen(profile_path), profile_path, \
+		legacy_tdbsam_strlen(acct_desc), acct_desc, \
+		legacy_tdbsam_strlen(workstations), workstations, \
+		legacy_tdbsam_strlen(comment), comment, \
+		legacy_tdbsam_strlen(munged_dial), munged_dial, \
+		user_rid, group_rid, \
+		lm_pw_len, lm_pw, \
+		nt_pw_len, nt_pw, \
+		nt_pw_hist_len, nt_pw_hist, \
+		pdb_get_acct_ctrl(sampass), \
+		pdb_get_logon_divs(sampass), \
+		pdb_get_hours_len(sampass), \
+		MAX_HOURS_LEN, pdb_get_hours(sampass), \
+		pdb_get_bad_password_count(sampass), \
+		pdb_get_logon_count(sampass), \
+		pdb_get_unknown_6(sampass)
+
+	len = tdb_pack(NULL, 0, LEGACY_SAMU_BUFFER_FORMAT_V3,
+		       LEGACY_TDBSAM_ARGS);
+
+	*blob = data_blob_talloc_zero(mem_ctx, len);
+	if (blob->data == NULL) {
+		return false;
+	}
+
+	len2 = tdb_pack(blob->data, blob->length,
+			LEGACY_SAMU_BUFFER_FORMAT_V3,
+			LEGACY_TDBSAM_ARGS);
+#undef LEGACY_TDBSAM_ARGS
+
+	return (len2 == len);
+}
+
+static bool passdb_raw_compare(struct db_context *db,
+			       TALLOC_CTX *mem_ctx,
+			       const char *keystr,
+			       struct samu *sam)
+{
+	DATA_BLOB blob;
+	DATA_BLOB expected;
+	bool ok;
+
+	ok = regdb_raw_fetch(db, mem_ctx, keystr, &blob);
+	if (!ok) {
+		return false;
+	}
+	ok = legacy_tdbsam_pack_v3(mem_ctx, sam, &expected);
+	if (!ok) {
+		fprintf(stderr, "legacy_tdbsam_pack_v3 failed\n");
+		return false;
+	}
+	return regdb_blob_equal(keystr, &blob, &expected);
+}
+
+/*
+ * Old writer -> new reader: a record written by the frozen
+ * tdb_pack() based marshalling, read by the passdb code and
+ * written again by the frozen marshalling results in the
+ * same bytes, so no field got lost or changed.
+ */
+static bool passdb_wire_format_old_writer(TALLOC_CTX *mem_ctx,
+					  struct db_context *db,
+					  uint32_t rid)
+{
+	const char *username = "wireformatold";
+	uint8_t nt_pw[NT_HASH_LEN];
+	uint8_t hours[MAX_HOURS_LEN];
+	struct samu *sam = NULL;
+	struct samu *sam2 = NULL;
+	char *keystr = NULL;
+	DATA_BLOB blob;
+	DATA_BLOB blob2;
+	DATA_BLOB tmp;
+	size_t i;
+	bool ok;
+
+	sam = samu_new(mem_ctx);
+	if (sam == NULL) {
+		return false;
+	}
+
+	fill_pattern(nt_pw, sizeof(nt_pw), 0x50);
+	/*
+	 * The reader only uses hours_len (21) bytes,
+	 * the rest of the MAX_HOURS_LEN bytes are 0.
+	 */
+	memset(hours, 0, sizeof(hours));
+	fill_pattern(hours, 21, 0x60);
+
+	/*
+	 * Some strings are not set (NULL), there's no
+	 * lanman password and no default from smb.conf
+	 * is used for the home directory and friends.
+	 */
+	ok = pdb_set_username(sam, username, PDB_SET) &&
+	     pdb_set_domain(sam, "OLDDOMAIN", PDB_SET) &&
+	     pdb_set_nt_username(sam, "WireFormatOld", PDB_SET) &&
+	     pdb_set_homedir(sam, "\\\\old\\home", PDB_SET) &&
+	     pdb_set_dir_drive(sam, "O:", PDB_SET) &&
+	     pdb_set_logon_script(sam, "old.cmd", PDB_SET) &&
+	     pdb_set_profile_path(sam, "\\\\old\\profile", PDB_SET) &&
+	     pdb_set_user_sid_from_rid(sam, rid, PDB_SET) &&
+	     pdb_set_nt_passwd(sam, nt_pw, PDB_SET) &&
+	     pdb_set_acct_ctrl(sam, ACB_NORMAL|ACB_DISABLED, PDB_SET) &&
+	     pdb_set_logon_time(sam, 0x31323334, PDB_SET) &&
+	     pdb_set_logoff_time(sam, 0x41424344, PDB_SET) &&
+	     pdb_set_bad_password_time(sam, 0x51525354, PDB_SET) &&
+	     pdb_set_pass_last_set_time(sam, 0x61626364, PDB_SET) &&
+	     pdb_set_logon_divs(sam, 168, PDB_SET) &&
+	     pdb_set_hours_len(sam, 21, PDB_SET) &&
+	     pdb_set_hours(sam, hours, sizeof(hours), PDB_SET) &&
+	     pdb_set_bad_password_count(sam, 0x0506, PDB_SET) &&
+	     pdb_set_logon_count(sam, 0x0708, PDB_SET);
+	if (!ok) {
+		fprintf(stderr, "pdb_set_* failed\n");
+		return false;
+	}
+
+	ok = legacy_tdbsam_pack_v3(mem_ctx, sam, &blob);
+	if (!ok) {
+		fprintf(stderr, "legacy_tdbsam_pack_v3 failed\n");
+		return false;
+	}
+
+	keystr = talloc_asprintf(mem_ctx, "USER_%s", username);
+	if (keystr == NULL) {
+		return false;
+	}
+
+	/*
+	 * Additional bytes after the record are ignored
+	 */
+	for (i = 0; i < 2; i++) {
+		tmp = data_blob_talloc(mem_ctx, NULL, blob.length + i * 3);
+		if (tmp.data == NULL) {
+			return false;
+		}
+		memcpy(tmp.data, blob.data, blob.length);
+		memset(tmp.data + blob.length, 'X', i * 3);
+
+		ok = regdb_raw_store(db, keystr, &tmp);
+		if (!ok) {
+			return false;
+		}
+
+		sam2 = samu_new(mem_ctx);
+		if (sam2 == NULL) {
+			return false;
+		}
+		ok = pdb_getsampwnam(sam2, username);
+		if (!ok) {
+			fprintf(stderr, "pdb_getsampwnam(%s) failed "
+				"(%zu additional bytes)\n",
+				username, i * 3);
+			return false;
+		}
+
+		ok = (pdb_get_user_rid(sam2) == rid) &&
+		     (strcmp(pdb_get_domain(sam2), "OLDDOMAIN") == 0) &&
+		     (strcmp(pdb_get_homedir(sam2), "\\\\old\\home") == 0) &&
+		     (pdb_get_lanman_passwd(sam2) == NULL) &&
+		     (memcmp(pdb_get_nt_passwd(sam2), nt_pw,
+			     sizeof(nt_pw)) == 0) &&
+		     (pdb_get_acct_ctrl(sam2) == (ACB_NORMAL|ACB_DISABLED)) &&
+		     (pdb_get_logon_time(sam2) == 0x31323334) &&
+		     (pdb_get_logoff_time(sam2) == 0x41424344) &&
+		     (pdb_get_logon_divs(sam2) == 168) &&
+		     (pdb_get_hours_len(sam2) == 21) &&
+		     (memcmp(pdb_get_hours(sam2), hours, 21) == 0) &&
+		     (pdb_get_bad_password_count(sam2) == 0x0506) &&
+		     (pdb_get_logon_count(sam2) == 0x0708);
+		if (!ok) {
+			fprintf(stderr, "%s: content mismatch "
+				"(%zu additional bytes)\n",
+				keystr, i * 3);
+			return false;
+		}
+
+		ok = legacy_tdbsam_pack_v3(mem_ctx, sam2, &blob2);
+		if (!ok) {
+			fprintf(stderr, "legacy_tdbsam_pack_v3 failed\n");
+			return false;
+		}
+		ok = regdb_blob_equal(keystr, &blob2, &blob);
+		if (!ok) {
+			fprintf(stderr, "%s: round trip differs "
+				"(%zu additional bytes)\n",
+				keystr, i * 3);
+			return false;
+		}
+		TALLOC_FREE(sam2);
+	}
+
+	return true;
+}
+
+/*
  * passdb.tdb, see source3/librpc/idl/tdbsam.idl
  */
 bool run_passdb_wire_format(int dummy)
@@ -1584,7 +1881,7 @@ bool run_passdb_wire_format(int dummy)
 	 * This shares the tdb with pdb_tdb.c
 	 */
 	db = db_open(frame, db_path, 0,
-		     TDB_DEFAULT, O_RDONLY, 0600,
+		     TDB_DEFAULT, O_RDWR, 0600,
 		     DBWRAP_LOCK_ORDER_1, DBWRAP_FLAG_NONE);
 	if (db == NULL) {
 		fprintf(stderr, "db_open(%s) failed\n", db_path);
@@ -1676,6 +1973,25 @@ bool run_passdb_wire_format(int dummy)
 	if (!ok) {
 		fprintf(stderr, "%s: content mismatch\n", keystr);
 		NDR_PRINT_DEBUG(tdbsam_user_v3, &user);
+		goto fail;
+	}
+
+	/*
+	 * New writer -> old reader: the record is byte identical
+	 * to the frozen tdb_pack() based marshalling.
+	 */
+	ok = passdb_raw_compare(db, frame, keystr, sam);
+	if (!ok) {
+		goto fail;
+	}
+
+	ok = pdb_new_rid(&rid);
+	if (!ok) {
+		fprintf(stderr, "pdb_new_rid failed\n");
+		goto fail;
+	}
+	ok = passdb_wire_format_old_writer(frame, db, rid);
+	if (!ok) {
 		goto fail;
 	}
 
