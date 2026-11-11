@@ -454,6 +454,19 @@ sub FillData($$$$$)
 		if (defined($range)) {
 			my ($low, $high) = split(/,/, $range, 2);
 			$self->pidl("$var = ($ctype)ndr_abi_range(state, $low, $high);");
+		} elsif ($r->{KIND} eq "scalar" and $r->{NAME} eq "string" and
+			 (has_property($e, "flag") // "") =~ /STR_SIZE4_NULL\b/) {
+			# a NULL string has a size of 0 on the wire,
+			# the samples with null_pointers cover it
+			$self->pidl("if (state->null_pointers) {");
+			$self->indent;
+			$self->pidl("$var = NULL;");
+			$self->deindent;
+			$self->pidl("} else {");
+			$self->indent;
+			$self->pidl("ndr_abi_fill_string(state, &$var);");
+			$self->deindent;
+			$self->pidl("}");
 		} elsif ($r->{KIND} eq "scalar") {
 			$self->pidl("ndr_abi_fill_$r->{NAME}(state, &$var);");
 		} else {
