@@ -31,6 +31,7 @@
 #include "lib/util/dlinklist.h"
 #include "lib/util/debug.h"
 #include "lib/util/sys_rw.h"
+#include "lib/util/bytearray.h"
 
 #include "ctdb_private.h"
 #include "ctdb_client.h"
@@ -68,6 +69,7 @@ struct ctdb_queue {
 	TALLOC_CTX *data_pool;
 	const char *name;
 	uint32_t buffer_size;
+	bool check_ctdb_header;
 };
 
 
@@ -78,6 +80,90 @@ uint32_t ctdb_queue_length(struct ctdb_queue *queue)
 }
 
 static void queue_process(struct ctdb_queue *queue);
+
+/*
+ * The packets of the ctdb protocol start with struct
+ * ctdb_req_header. Check it before waiting for the rest of
+ * the packet, so that invalid data doesn't let us wait for
+ * (and allocate) a huge packet, before rejecting it.
+ *
+ * This is not meant as a protection against a peer sending
+ * huge packets with a valid header, see the comment in
+ * queue_process(), but it gives useful error messages, e.g.
+ * for nodes with a different byte order. These send a length
+ * that looks like a huge packet.
+ */
+static size_t queue_header_len(struct ctdb_queue *queue)
+{
+	if (queue->check_ctdb_header) {
+		return sizeof(struct ctdb_req_header);
+	}
+
+	return sizeof(uint32_t);
+}
+
+static bool queue_check_pkt_size(struct ctdb_queue *queue, uint32_t pkt_size)
+{
+	if (!queue->check_ctdb_header) {
+		return true;
+	}
+
+	if (pkt_size >= sizeof(struct ctdb_req_header)) {
+		return true;
+	}
+
+	D_ERR("%s: packet length %"PRIu32" is smaller than the header\n",
+	      queue->name,
+	      pkt_size);
+	return false;
+}
+
+/*
+ * The caller needs to make sure that the buffer contains
+ * queue_header_len() bytes.
+ */
+static bool queue_check_header(struct ctdb_queue *queue)
+{
+	struct ctdb_req_header hdr;
+
+	if (!queue->check_ctdb_header) {
+		return true;
+	}
+
+	memcpy(&hdr, queue->buffer.data + queue->buffer.offset, sizeof(hdr));
+
+	if (hdr.ctdb_magic == BSWAP_U32(CTDB_MAGIC)) {
+		D_ERR("%s: packet with a different byte order "
+		      "(length 0x%08"PRIx32", magic 0x%08"PRIx32"), "
+		      "the peer uses a different architecture\n",
+		      queue->name,
+		      hdr.length,
+		      hdr.ctdb_magic);
+		return false;
+	}
+
+	if (hdr.ctdb_magic != CTDB_MAGIC) {
+		D_ERR("%s: non CTDB packet "
+		      "(length 0x%08"PRIx32", magic 0x%08"PRIx32")\n",
+		      queue->name,
+		      hdr.length,
+		      hdr.ctdb_magic);
+		return false;
+	}
+
+	if (hdr.ctdb_version != CTDB_PROTOCOL) {
+		D_ERR("%s: bad CTDB version 0x%"PRIx32"\n",
+		      queue->name,
+		      hdr.ctdb_version);
+		return false;
+	}
+
+	if (!queue_check_pkt_size(queue, hdr.length)) {
+		return false;
+	}
+
+	return true;
+}
 
 static void queue_process_event(struct tevent_context *ev, struct tevent_immediate *im,
 				void *private_data)
@@ -107,6 +193,21 @@ static void queue_process(struct ctdb_queue *queue)
 	pkt_size = *(uint32_t *)(queue->buffer.data + queue->buffer.offset);
 	if (pkt_size == 0) {
 		DEBUG(DEBUG_CRIT, ("Invalid packet of length 0\n"));
+		goto failed;
+	}
+
+	/* wait for the header before waiting for the whole packet */
+	if (queue->buffer.length < queue_header_len(queue)) {
+		if (queue->buffer.length >= pkt_size &&
+		    !queue_check_pkt_size(queue, pkt_size))
+		{
+			/* a complete packet without a header */
+			goto failed;
+		}
+		return;
+	}
+
+	if (!queue_check_header(queue)) {
 		goto failed;
 	}
 
@@ -211,9 +312,13 @@ static void queue_io_read(struct ctdb_queue *queue)
 		goto data_read;
 	}
 
-	if (sizeof(pkt_size) > queue->buffer.length) {
-		/* data read is not sufficient to gather message size */
+	if (queue_header_len(queue) > queue->buffer.length) {
+		/* data read is not sufficient to gather message header */
 		goto buffer_shift;
+	}
+
+	if (!queue_check_header(queue)) {
+		goto failed;
 	}
 
 	pkt_size = *(uint32_t *)(queue->buffer.data + queue->buffer.offset);
@@ -231,10 +336,11 @@ static void queue_io_read(struct ctdb_queue *queue)
 	}
 
 buffer_shift:
-	if (sizeof(pkt_size) > queue->buffer.size - queue->buffer.offset ||
+	if (queue_header_len(queue) >
+		    queue->buffer.size - queue->buffer.offset ||
 	    pkt_size > queue->buffer.size - queue->buffer.offset) {
 		/* Either the offset has progressed too far to host at least
-		 * the size information or the remaining space in the buffer
+		 * the header information or the remaining space in the buffer
 		 * is not sufficient for the full message.
 		 * Therefore, move the data and try again.
 		 */
@@ -473,6 +579,18 @@ int ctdb_queue_set_fd(struct ctdb_queue *queue, int fd)
 /*
   setup a packet queue on a socket
  */
+/*
+ * Check struct ctdb_req_header before waiting for the rest
+ * of a packet, see queue_check_header()
+ */
+void ctdb_queue_check_ctdb_header(struct ctdb_queue *queue)
+{
+	queue->check_ctdb_header = true;
+	if (queue->buffer_size < sizeof(struct ctdb_req_header)) {
+		queue->buffer_size = sizeof(struct ctdb_req_header);
+	}
+}
+
 struct ctdb_queue *ctdb_queue_setup(struct ctdb_context *ctdb,
 				    TALLOC_CTX *mem_ctx, int fd, int alignment,
 				    ctdb_queue_cb_fn_t callback,
