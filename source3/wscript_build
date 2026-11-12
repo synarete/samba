@@ -1174,6 +1174,17 @@ if bld.env.with_ctdb:
                           ''',
                      for_selftest=True)
 
+    bld.SAMBA3_BINARY('test_ctdbd_conn_marshall',
+                     source='lib/test_ctdbd_conn_marshall.c',
+                     deps='''
+                          samba3-util
+                          samba-cluster-support
+                          ctdb-protocol
+                          smbconf
+                          cmocka
+                          ''',
+                     for_selftest=True)
+
 bld.SAMBA3_BINARY('test_adouble',
                  source='lib/test_adouble.c',
                  deps='smbd_base STRING_REPLACE AFPINFO cmocka',
