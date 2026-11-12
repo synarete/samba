@@ -335,6 +335,12 @@ bld.SAMBA3_MODULE('vfs_streams_xattr',
                  internal_module=bld.SAMBA3_IS_STATIC_MODULE('vfs_streams_xattr'),
                  enabled=bld.SAMBA3_IS_ENABLED_MODULE('vfs_streams_xattr'))
 
+bld.SAMBA3_BINARY('test_vfs_streams_xattr',
+                  source='test_vfs_streams_xattr.c',
+                  deps='smbd_base HASH_INODE cmocka',
+                  for_selftest=True,
+                  enabled=bld.SAMBA3_IS_ENABLED_MODULE('vfs_streams_xattr'))
+
 bld.SAMBA3_MODULE('vfs_streams_depot',
                  subsystem='vfs',
                  source='vfs_streams_depot.c',
