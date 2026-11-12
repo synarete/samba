@@ -572,6 +572,8 @@ plantestsuite("samba.unittests.rc4_passwd_buffer", "none",
               [os.path.join(bindir(), "default/libcli/auth/test_rc4_passwd_buffer")])
 plantestsuite("samba.unittests.schannel", "none",
               [os.path.join(bindir(), "default/libcli/auth/test_schannel")])
+plantestsuite("samba.unittests.netlogon_creds_cli_key", "none",
+              [os.path.join(bindir(), "default/libcli/auth/test_netlogon_creds_cli_key")])
 plantestsuite("samba.unittests.test_registry_regfio", "none",
               [os.path.join(bindir(), "default/source3/test_registry_regfio")])
 plantestsuite("samba.unittests.test_oLschema2ldif", "none",
