@@ -225,6 +225,11 @@ NTSTATUS trust_pw_change(struct netlogon_creds_cli_context *context,
 		return NT_STATUS_NO_MEMORY;
 	}
 
+	/*
+	 * The name of the g_lock is shared between all nodes
+	 * of a cluster, also between different versions,
+	 * it needs to stay as it is.
+	 */
 	state->g_lock_key = talloc_asprintf(state,
 				"trust_password_change_%s",
 				domain);
