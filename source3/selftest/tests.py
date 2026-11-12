@@ -1089,6 +1089,10 @@ if is_module_enabled("vfs_streams_depot"):
     plantestsuite("samba3.test_vfs_streams_depot", "none",
                   [os.path.join(bindir(), "test_vfs_streams_depot")])
 
+if is_module_enabled("vfs_streams_xattr"):
+    plantestsuite("samba3.test_vfs_streams_xattr", "none",
+                  [os.path.join(bindir(), "test_vfs_streams_xattr")])
+
 plantestsuite(
     "samba3.resolvconf", "none",
     [os.path.join(samba3srcdir, "script/tests/test_resolvconf.sh")])
