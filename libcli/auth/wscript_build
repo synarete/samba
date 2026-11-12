@@ -72,6 +72,23 @@ bld.SAMBA_BINARY('test_rc4_passwd_buffer',
                       ''',
                  for_selftest=True)
 
+bld.SAMBA_BINARY('test_netlogon_creds_cli_key',
+                 source='tests/test_netlogon_creds_cli_key.c',
+                 deps='''
+                      dbwrap
+                      util_tdb
+                      tevent-util
+                      samba-hostconfig
+                      gensec
+                      RPC_NDR_NETLOGON
+                      NDR_NETLOGON
+                      TDB_LIB
+                      smbconf
+                      samba3-util
+                      cmocka
+                      ''',
+                 for_selftest=True)
+
 bld.SAMBA_BINARY('test_schannel',
                  source='tests/test_schannel.c',
                  deps='''
