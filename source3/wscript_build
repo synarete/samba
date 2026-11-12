@@ -1195,6 +1195,11 @@ bld.SAMBA3_BINARY('test_posix_acls_pai',
                  deps='smbd_base cmocka',
                  for_selftest=True)
 
+bld.SAMBA3_BINARY('test_file_name_hash',
+                 source='smbd/test_file_name_hash.c',
+                 deps='smbd_base cmocka',
+                 for_selftest=True)
+
 bld.SAMBA3_BINARY('test_adouble',
                  source='lib/test_adouble.c',
                  deps='smbd_base STRING_REPLACE AFPINFO cmocka',
