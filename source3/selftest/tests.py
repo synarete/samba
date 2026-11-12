@@ -1827,6 +1827,8 @@ plantestsuite("samba3.blackbox.smbXsrv_client_dead_rec", "fileserver:local",
 if have_cluster_support:
     plantestsuite("samba3.unittests.dbwrap_ctdb_marshall", "none",
                   [os.path.join(bindir(), "test_dbwrap_ctdb_marshall")])
+    plantestsuite("samba3.unittests.ctdbd_conn_marshall", "none",
+                  [os.path.join(bindir(), "test_ctdbd_conn_marshall")])
     plantestsuite("samba3.blackbox.smbXsrv_client_cross_node", "clusteredmember:local",
                   [os.path.join(samba3srcdir,
                                 "script/tests/test_smbXsrv_client_cross_node.sh"),
