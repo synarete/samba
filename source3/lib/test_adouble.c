@@ -363,6 +363,149 @@ static void parse_abouble_date2(void **state)
 	return;
 }
 
+/*
+ * The AppleDouble metadata xattr written by vfs_fruit, which is
+ * stored on the shared filesystem, also used by different versions
+ * on the nodes of a cluster.
+ */
+static const uint8_t ad_meta_header[] = {
+	0x00, 0x05, 0x16, 0x07, /* Magic */
+	0x00, 0x02, 0x00, 0x00, /* Version */
+	0x00, 0x00, 0x00, 0x00, /* Filler */
+	0x00, 0x00, 0x00, 0x00, /* Filler */
+	0x00, 0x00, 0x00, 0x00, /* Filler */
+	0x00, 0x00, 0x00, 0x00, /* Filler */
+	0x00, 0x08,             /* Count */
+	/* Comment */
+	0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x9a, 0x00, 0x00, 0x00, 0x00,
+	/* FileDatesI */
+	0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x01, 0x62, 0x00, 0x00, 0x00, 0x10,
+	/* FinderInfo */
+	0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x7a, 0x00, 0x00, 0x00, 0x20,
+	/* AFPFileInfo */
+	0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x01, 0x72, 0x00, 0x00, 0x00, 0x04,
+	/* PrivDev */
+	0x80, 0x44, 0x45, 0x56, 0x00, 0x00, 0x01, 0x76, 0x00, 0x00, 0x00, 0x00,
+	/* PrivIno */
+	0x80, 0x49, 0x4e, 0x4f, 0x00, 0x00, 0x01, 0x7e, 0x00, 0x00, 0x00, 0x00,
+	/* PrivSyn */
+	0x80, 0x53, 0x59, 0x4e, 0x00, 0x00, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00,
+	/* PrivId */
+	0x80, 0x53, 0x56, 0x7e, 0x00, 0x00, 0x01, 0x8e, 0x00, 0x00, 0x00, 0x00,
+};
+
+static const uint8_t ad_meta_dates[] = {
+	0x01, 0x02, 0x03, 0x04, /* Create */
+	0x11, 0x12, 0x13, 0x14, /* Modify */
+	0x80, 0x00, 0x00, 0x00, /* Backup */
+	0x21, 0x22, 0x23, 0x24, /* Access */
+};
+
+static void pack_adouble_meta(void **state)
+{
+	TALLOC_CTX *frame = *state;
+	struct adouble *ad = NULL;
+	struct adouble *ad2 = NULL;
+	uint8_t *data = NULL;
+	char *p = NULL;
+	size_t i;
+	bool ok;
+
+	ad = ad_init(frame, ADOUBLE_META);
+	assert_non_null(ad);
+
+	ad_setdate(ad, AD_DATE_CREATE | AD_DATE_UNIX,
+		   AD_DATE_DELTA + 0x01020304);
+	ad_setdate(ad, AD_DATE_MODIFY | AD_DATE_UNIX,
+		   AD_DATE_DELTA + 0x11121314);
+	ad_setdate(ad, AD_DATE_ACCESS | AD_DATE_UNIX,
+		   AD_DATE_DELTA + 0x21222324);
+
+	p = ad_get_entry(ad, ADEID_FINDERI);
+	assert_non_null(p);
+	for (i = 0; i < ADEDLEN_FINDERI; i++) {
+		p[i] = 0x30 + i;
+	}
+
+	ok = ad_pack(NULL, ad, NULL);
+	assert_true(ok);
+
+	data = (uint8_t *)ad->ad_data;
+	assert_int_equal(talloc_get_size(data), 402);
+
+	assert_memory_equal(data, ad_meta_header, sizeof(ad_meta_header));
+	for (i = 0; i < ADEDLEN_FINDERI; i++) {
+		assert_int_equal(data[122 + i], 0x30 + i);
+	}
+	for (i = 154; i < 354; i++) {
+		assert_int_equal(data[i], 0);
+	}
+	assert_memory_equal(data + 354, ad_meta_dates, sizeof(ad_meta_dates));
+	for (i = 370; i < 402; i++) {
+		assert_int_equal(data[i], 0);
+	}
+
+	/* and parse it again */
+	ad2 = talloc_zero(frame, struct adouble);
+	assert_non_null(ad2);
+	ad2->ad_data = talloc_memdup(ad2, data, 402);
+	assert_non_null(ad2->ad_data);
+
+	ok = ad_unpack(ad2, ADEID_NUM_XATTR, 402);
+	assert_true(ok);
+
+	p = ad_get_entry(ad2, ADEID_FINDERI);
+	assert_non_null(p);
+	assert_memory_equal(p, data + 122, ADEDLEN_FINDERI);
+	assert_int_equal(ad_getentrylen(ad2, ADEID_FILEDATESI), 16);
+	assert_int_equal(ad_getentryoff(ad2, ADEID_FILEDATESI), 354);
+}
+
+/*
+ * The AFP_AfpInfo stream, stored in the AppleDouble metadata or
+ * in a stream on the shared filesystem.
+ */
+static void pack_afpinfo(void **state)
+{
+	TALLOC_CTX *frame = *state;
+	const uint8_t expected[AFP_INFO_SIZE] = {
+		0x41, 0x46, 0x50, 0x00, /* Signature */
+		0x00, 0x00, 0x01, 0x00, /* Version */
+		0x00, 0x00, 0x00, 0x00, /* Reserved */
+		0x80, 0x00, 0x00, 0x01, /* BackupTime */
+		/* FinderInfo */
+		0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
+		0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
+		0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,
+		0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,
+		/* ProDosInfo and Reserved */
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	};
+	char buf[AFP_INFO_SIZE];
+	AfpInfo *ai = NULL;
+	ssize_t len;
+	size_t i;
+
+	ai = afpinfo_new(frame);
+	assert_non_null(ai);
+	ai->afpi_BackupTime = 0x80000001;
+	for (i = 0; i < sizeof(ai->afpi_FinderInfo); i++) {
+		ai->afpi_FinderInfo[i] = 0x40 + i;
+	}
+
+	len = afpinfo_pack(ai, buf);
+	assert_int_equal(len, AFP_INFO_SIZE);
+	assert_memory_equal(buf, expected, sizeof(expected));
+
+	ai = afpinfo_unpack(frame, expected, true);
+	assert_non_null(ai);
+	assert_int_equal(ai->afpi_Signature, AFP_Signature);
+	assert_int_equal(ai->afpi_Version, AFP_Version);
+	assert_int_equal(ai->afpi_BackupTime, 0x80000001);
+	assert_memory_equal(ai->afpi_FinderInfo, expected + 16, 32);
+}
+
 int main(int argc, char *argv[])
 {
 	int rc;
@@ -374,6 +517,8 @@ int main(int argc, char *argv[])
 		cmocka_unit_test(parse_abouble_name),
 		cmocka_unit_test(parse_abouble_date1),
 		cmocka_unit_test(parse_abouble_date2),
+		cmocka_unit_test(pack_adouble_meta),
+		cmocka_unit_test(pack_afpinfo),
 	};
 
 	if (argc == 2) {
