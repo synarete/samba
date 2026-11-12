@@ -340,6 +340,10 @@ void ctdb_node_dead(struct ctdb_node *node)
 	}
 	node->ctdb->methods->restart(node);
 
+	/* the node might be restarted with a different build */
+	node->wire_format = CTDB_NODE_WIRE_FORMAT_UNKNOWN;
+	TALLOC_FREE(node->wire_format_req);
+
 	if (node->flags & NODE_FLAGS_DISCONNECTED) {
 		DEBUG(DEBUG_INFO,("%s: node %s is already marked disconnected: %u connected\n",
 			 node->ctdb->name, node->name,
