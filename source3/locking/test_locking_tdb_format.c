@@ -84,6 +84,51 @@ static void test_locking_tdb_data_parse(void **state)
 }
 
 /*
+ * locking_tdb_data_dbufs() creates what locking_tdb_data_parse()
+ * expects.
+ */
+static void test_locking_tdb_data_dbufs(void **state)
+{
+	uint8_t entries[2 * SHARE_MODE_ENTRY_SIZE];
+	const struct locking_tdb_data ltdb = {
+		.share_mode_data_buf = (const uint8_t *)"abc",
+		.share_mode_data_len = 3,
+		.share_entries = entries,
+		.num_share_entries = 2,
+	};
+	uint8_t share_mode_data_len_buf[4];
+	TDB_DATA dbufs[3];
+	uint8_t buf[4 + 3 + sizeof(entries)];
+	struct locking_tdb_data data = { .share_mode_data_len = 0, };
+	NTSTATUS status;
+	size_t i, ofs = 0;
+	bool ok;
+
+	memset(entries, 0x5a, sizeof(entries));
+
+	status = locking_tdb_data_dbufs(&ltdb, share_mode_data_len_buf, dbufs);
+	assert_true(NT_STATUS_IS_OK(status));
+
+	for (i = 0; i < ARRAY_SIZE(dbufs); i++) {
+		assert_in_range(ofs + dbufs[i].dsize, 0, sizeof(buf));
+		memcpy(buf + ofs, dbufs[i].dptr, dbufs[i].dsize);
+		ofs += dbufs[i].dsize;
+	}
+	assert_int_equal(ofs, sizeof(buf));
+
+	/* little endian length, the share_mode_data and the entries */
+	assert_memory_equal(buf, "\x03\x00\x00\x00" "abc", 7);
+	assert_memory_equal(buf + 7, entries, sizeof(entries));
+
+	ok = locking_tdb_data_parse(&data, buf, sizeof(buf));
+	assert_true(ok);
+	assert_int_equal(data.share_mode_data_len, 3);
+	assert_memory_equal(data.share_mode_data_buf, "abc", 3);
+	assert_int_equal(data.num_share_entries, 2);
+	assert_memory_equal(data.share_entries, entries, sizeof(entries));
+}
+
+/*
  * The order of share_mode_entry_cmp() from the smallest to the
  * largest entry, a change would break the binary search in
  * share_mode_entry_find() for records written by other versions.
@@ -224,6 +269,7 @@ int main(int argc, char **argv)
 {
 	const struct CMUnitTest tests[] = {
 		cmocka_unit_test(test_locking_tdb_data_parse),
+		cmocka_unit_test(test_locking_tdb_data_dbufs),
 		cmocka_unit_test(test_share_mode_entry_cmp),
 		cmocka_unit_test(test_share_mode_entry_find),
 	};
