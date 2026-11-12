@@ -151,6 +151,14 @@ Test and debugging variable options
 
 		export CTDB_TEST_SAMBA_VERSION=$(( (4 << 16) | 12 ))
 
+       CTDB_TEST_STATISTICS_SIZE_DELTA=DELTA
+
+	    DELTA is added to the size of struct ctdb_statistics
+	    that is expected in the reply to CTDB_CONTROL_STATISTICS
+	    from other nodes.  This can be used to test CTDB's
+	    checking of nodes with a different wire format (e.g. a
+	    32-bit and a 64-bit build) without such a build.
+
        CTDB_VARDIR=DIRECTORY
 	   DIRECTORY containing CTDB files that are modified at runtime.
 
