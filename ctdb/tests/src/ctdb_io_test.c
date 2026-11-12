@@ -320,6 +320,157 @@ static void test4(void)
 	TALLOC_FREE(ctdb);
 }
 
+/*
+ * Tests for ctdb_queue_check_ctdb_header(): invalid headers are
+ * rejected without waiting for the rest of the packet.
+ */
+static int test_hdr_cb_num = 0;
+
+static void test_hdr_fail_callback(uint8_t *data,
+				   size_t length,
+				   void *private_data)
+{
+	assert(data == NULL);
+	assert(length == 0);
+
+	test_hdr_cb_num++;
+}
+
+static void test_hdr_ok_callback(uint8_t *data,
+				 size_t length,
+				 void *private_data)
+{
+	struct ctdb_req_header hdr;
+
+	assert(data != NULL);
+	assert(length == 40);
+
+	memcpy(&hdr, data, sizeof(hdr));
+	assert(hdr.length == 40);
+	assert(hdr.ctdb_magic == CTDB_MAGIC);
+	assert(hdr.ctdb_version == CTDB_PROTOCOL);
+
+	test_hdr_cb_num++;
+}
+
+static void test_hdr(ctdb_queue_cb_fn_t cb,
+		     const struct ctdb_req_header *hdr,
+		     size_t first,
+		     size_t len)
+{
+	struct ctdb_context *ctdb;
+	struct ctdb_queue *queue;
+	uint8_t pkt[64] = { 0, };
+	uint32_t buffer_size;
+	int fd;
+	ssize_t ret;
+
+	assert(len <= sizeof(pkt));
+	assert(first <= len);
+	memcpy(pkt, hdr, sizeof(*hdr));
+
+	test_setup(cb, &fd, &ctdb, &queue);
+	ctdb_queue_check_ctdb_header(queue);
+
+	test_hdr_cb_num = 0;
+
+	if (first > 0) {
+		ret = write(fd, pkt, first);
+		assert(ret != -1 && (size_t)ret == first);
+
+		tevent_loop_once(ctdb->ev);
+		assert(test_hdr_cb_num == 0);
+		buffer_size = queue->buffer.size;
+
+		ret = write(fd, pkt + first, 1);
+		assert(ret == 1);
+
+		tevent_loop_once(ctdb->ev);
+		assert(test_hdr_cb_num == 0);
+
+		/* no realloc before the header is complete */
+		assert(queue->buffer.size == buffer_size);
+
+		first += 1;
+	}
+
+	ret = write(fd, pkt + first, len - first);
+	assert(ret != -1 && (size_t)ret == len - first);
+
+	tevent_loop_once(ctdb->ev);
+	assert(test_hdr_cb_num == 1);
+
+	TALLOC_FREE(ctdb);
+}
+
+static uint32_t test_bswap32(uint32_t v)
+{
+	return ((v & 0x000000ffU) << 24) |
+	       ((v & 0x0000ff00U) << 8) |
+	       ((v & 0x00ff0000U) >> 8) |
+	       ((v & 0xff000000U) >> 24);
+}
+
+/* a packet from a node with a different byte order */
+static void test5(void)
+{
+	struct ctdb_req_header hdr = {
+		.length = test_bswap32(40),
+		.ctdb_magic = test_bswap32(CTDB_MAGIC),
+		.ctdb_version = test_bswap32(CTDB_PROTOCOL),
+	};
+
+	test_hdr(test_hdr_fail_callback, &hdr, 8, sizeof(hdr));
+}
+
+/* a valid packet */
+static void test6(void)
+{
+	struct ctdb_req_header hdr = {
+		.length = 40,
+		.ctdb_magic = CTDB_MAGIC,
+		.ctdb_version = CTDB_PROTOCOL,
+	};
+
+	test_hdr(test_hdr_ok_callback, &hdr, 8, 40);
+}
+
+/* not a ctdb packet */
+static void test7(void)
+{
+	struct ctdb_req_header hdr = {
+		.length = 0x10000000,
+		.ctdb_magic = 0x11223344,
+		.ctdb_version = CTDB_PROTOCOL,
+	};
+
+	test_hdr(test_hdr_fail_callback, &hdr, 8, sizeof(hdr));
+}
+
+/* wrong version */
+static void test8(void)
+{
+	struct ctdb_req_header hdr = {
+		.length = 0x10000000,
+		.ctdb_magic = CTDB_MAGIC,
+		.ctdb_version = 0x2,
+	};
+
+	test_hdr(test_hdr_fail_callback, &hdr, 8, sizeof(hdr));
+}
+
+/* a complete packet that is smaller than the header */
+static void test9(void)
+{
+	struct ctdb_req_header hdr = {
+		.length = 16,
+		.ctdb_magic = CTDB_MAGIC,
+		.ctdb_version = CTDB_PROTOCOL,
+	};
+
+	test_hdr(test_hdr_fail_callback, &hdr, 0, 16);
+}
+
 int main(int argc, const char **argv)
 {
 	int num;
@@ -346,6 +497,26 @@ int main(int argc, const char **argv)
 
 	case 4:
 		test4();
+		break;
+
+	case 5:
+		test5();
+		break;
+
+	case 6:
+		test6();
+		break;
+
+	case 7:
+		test7();
+		break;
+
+	case 8:
+		test8();
+		break;
+
+	case 9:
+		test9();
 		break;
 
 	default:

@@ -33,6 +33,8 @@ int ctdb_queue_send(struct ctdb_queue *queue, uint8_t *data, uint32_t length);
 
 int ctdb_queue_set_fd(struct ctdb_queue *queue, int fd);
 
+void ctdb_queue_check_ctdb_header(struct ctdb_queue *queue);
+
 struct ctdb_queue *ctdb_queue_setup(struct ctdb_context *ctdb,
 				    TALLOC_CTX *mem_ctx, int fd, int alignment,
 				    ctdb_queue_cb_fn_t callback,

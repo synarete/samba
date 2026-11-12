@@ -322,6 +322,9 @@ int ctdb_socket_connect(struct ctdb_context *ctdb)
 	ctdb->daemon.queue = ctdb_queue_setup(ctdb, ctdb, ctdb->daemon.sd,
 					      CTDB_DS_ALIGNMENT,
 					      ctdb_client_read_cb, ctdb, "to-ctdbd");
+	if (ctdb->daemon.queue != NULL) {
+		ctdb_queue_check_ctdb_header(ctdb->daemon.queue);
+	}
 	return 0;
 }
 
