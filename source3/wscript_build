@@ -1185,6 +1185,11 @@ if bld.env.with_ctdb:
                           ''',
                      for_selftest=True)
 
+bld.SAMBA3_BINARY('test_locking_tdb_format',
+                 source='locking/test_locking_tdb_format.c',
+                 deps='smbd_base cmocka',
+                 for_selftest=True)
+
 bld.SAMBA3_BINARY('test_adouble',
                  source='lib/test_adouble.c',
                  deps='smbd_base STRING_REPLACE AFPINFO cmocka',
