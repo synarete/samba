@@ -618,6 +618,8 @@ plantestsuite("samba.unittests.file_name_hash", "none",
               [os.path.join(bindir(), "test_file_name_hash")])
 plantestsuite("samba.unittests.fss_state_keys", "none",
               [os.path.join(bindir(), "test_fss_state_keys")])
+plantestsuite("samba.unittests.secrets_legacy_formats", "none",
+              [os.path.join(bindir(), "test_secrets_legacy_formats")])
 plantestsuite("samba.unittests.gnutls_aead_aes_256_cbc_hmac_sha512", "none",
               [os.path.join(bindir(), "test_gnutls_aead_aes_256_cbc_hmac_sha512")])
 plantestsuite("samba.unittests.gnutls_sp800_108", "none",
