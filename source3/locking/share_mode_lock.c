@@ -350,6 +350,12 @@ struct share_mode_entry_buf {
 };
 #define SHARE_MODE_ENTRY_SIZE (sizeof(struct share_mode_entry_buf))
 
+/*
+ * locking.tdb is shared between all nodes of a cluster,
+ * also between different versions.
+ */
+BUILD_ASSERT(SHARE_MODE_ENTRY_SIZE == 128);
+
 static bool share_mode_entry_put(
 	const struct share_mode_entry *e,
 	struct share_mode_entry_buf *dst)
@@ -524,6 +530,9 @@ static NTSTATUS locking_tdb_data_store(
 	uint8_t share_mode_data_len_buf[4];
 	TDB_DATA dbufs[num_share_mode_dbufs+3];
 	NTSTATUS status;
+
+	/* see the comment above struct locking_tdb_data */
+	BUILD_ASSERT(sizeof(share_mode_data_len_buf) == sizeof(uint32_t));
 
 	if ((ltdb->share_mode_data_len == 0) &&
 	    (ltdb->num_share_entries == 0) &&
