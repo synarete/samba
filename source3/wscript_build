@@ -1161,6 +1161,19 @@ bld.SAMBA3_BINARY('test_ndr_wire_layouts',
                       ''',
                  for_selftest=True)
 
+if bld.env.with_ctdb:
+    bld.SAMBA3_BINARY('test_dbwrap_ctdb_marshall',
+                     source='lib/dbwrap/test_dbwrap_ctdb_marshall.c',
+                     deps='''
+                          samba3-util
+                          dbwrap
+                          samba-cluster-support
+                          ctdb-protocol
+                          smbconf
+                          cmocka
+                          ''',
+                     for_selftest=True)
+
 bld.SAMBA3_BINARY('test_adouble',
                  source='lib/test_adouble.c',
                  deps='smbd_base STRING_REPLACE AFPINFO cmocka',
