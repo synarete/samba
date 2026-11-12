@@ -37,6 +37,8 @@
 #include "librpc/gen_ndr/ndr_dbwrap_watch.h"
 #include "lib/dbwrap/dbwrap.h"
 #include "lib/dbwrap/dbwrap_rbt.h"
+#include "librpc/gen_ndr/ndr_idmap_tdb.h"
+#include "librpc/gen_ndr/ndr_tdbsam.h"
 #include <cmocka.h>
 
 /*
@@ -912,6 +914,126 @@ static void test_dbwrap_watch_modified_msg(void **state)
 	assert_int_equal(m2.instance, m.instance);
 }
 
+/*
+ * The dbwrap integer helpers are used for records in many
+ * databases shared by all nodes in a cluster, e.g. the
+ * INFO/version records of registry.tdb, passdb.tdb and
+ * account_policy.tdb and the high water marks of the idmap
+ * databases. The key is the string including the terminating
+ * nul byte and the value is 4 bytes little endian, see e.g.
+ * idmap_tdb_uint32_rec and tdbsam_version_rec.
+ *
+ * The dbwrap_trans_* variants need a persistent database,
+ * but they use the same marshalling.
+ */
+static void dbwrap_int_check(struct db_context *db,
+			     const char *keystr,
+			     const uint8_t expected[4])
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	TDB_DATA value = { .dsize = 0, };
+	NTSTATUS status;
+
+	/* the key includes the terminating nul byte */
+	status = dbwrap_fetch(db, frame,
+			      make_tdb_data((const uint8_t *)keystr,
+					    strlen(keystr)),
+			      &value);
+	assert_true(NT_STATUS_EQUAL(status, NT_STATUS_NOT_FOUND));
+
+	status = dbwrap_fetch(db, frame, string_term_tdb_data(keystr), &value);
+	assert_true(NT_STATUS_IS_OK(status));
+	assert_int_equal(value.dsize, 4);
+	assert_memory_equal(value.dptr, expected, 4);
+
+	TALLOC_FREE(frame);
+}
+
+static void test_dbwrap_int_helpers(void **state)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	const uint8_t u32[] = { 0x04, 0x03, 0x02, 0x01 };
+	const uint8_t u32_changed[] = { 0x14, 0x03, 0x02, 0x01 };
+	const uint8_t u32_new[] = { 0x15, 0x00, 0x00, 0x00 };
+	const uint8_t i32[] = { 0xfe, 0xff, 0xff, 0xff };
+	const uint8_t i32_changed[] = { 0x01, 0x00, 0x00, 0x00 };
+	struct db_context *db = NULL;
+	struct idmap_tdb_uint32_rec urec = { .value = 0, };
+	struct tdbsam_version_rec irec = { .version = 0, };
+	DATA_BLOB blob;
+	DATA_BLOB blob2 = { .length = 0, };
+	enum ndr_err_code ndr_err;
+	uint32_t uval = 0;
+	int32_t ival = 0;
+	NTSTATUS status;
+
+	db = db_open_rbt(frame);
+	assert_non_null(db);
+
+	status = dbwrap_store_uint32_bystring(db, "U32", 0x01020304);
+	assert_true(NT_STATUS_IS_OK(status));
+	dbwrap_int_check(db, "U32", u32);
+
+	status = dbwrap_fetch_uint32_bystring(db, "U32", &uval);
+	assert_true(NT_STATUS_IS_OK(status));
+	assert_int_equal(uval, 0x01020304);
+
+	/* the same as idmap_tdb_uint32_rec */
+	blob = data_blob_const(u32, sizeof(u32));
+	ndr_err = ndr_pull_struct_blob_all(&blob, frame, &urec,
+			(ndr_pull_flags_fn_t)ndr_pull_idmap_tdb_uint32_rec);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_int_equal(urec.value, 0x01020304);
+	ndr_err = ndr_push_struct_blob(&blob2, frame, &urec,
+			(ndr_push_flags_fn_t)ndr_push_idmap_tdb_uint32_rec);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_int_equal(blob2.length, sizeof(u32));
+	assert_memory_equal(blob2.data, u32, sizeof(u32));
+
+	status = dbwrap_change_uint32_atomic_bystring(db, "U32", &uval, 0x10);
+	assert_true(NT_STATUS_IS_OK(status));
+	assert_int_equal(uval, 0x01020304);
+	dbwrap_int_check(db, "U32", u32_changed);
+
+	/* a missing record starts with the passed old value */
+	uval = 0x05;
+	status = dbwrap_change_uint32_atomic_bystring(db, "NEW", &uval, 0x10);
+	assert_true(NT_STATUS_IS_OK(status));
+	dbwrap_int_check(db, "NEW", u32_new);
+
+	status = dbwrap_store_int32_bystring(db, "I32", -2);
+	assert_true(NT_STATUS_IS_OK(status));
+	dbwrap_int_check(db, "I32", i32);
+
+	status = dbwrap_fetch_int32_bystring(db, "I32", &ival);
+	assert_true(NT_STATUS_IS_OK(status));
+	assert_int_equal(ival, -2);
+
+	/* the same as tdbsam_version_rec */
+	blob = data_blob_const(i32, sizeof(i32));
+	ndr_err = ndr_pull_struct_blob_all(&blob, frame, &irec,
+			(ndr_pull_flags_fn_t)ndr_pull_tdbsam_version_rec);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_int_equal(irec.version, -2);
+	ndr_err = ndr_push_struct_blob(&blob2, frame, &irec,
+			(ndr_push_flags_fn_t)ndr_push_tdbsam_version_rec);
+	assert_true(NDR_ERR_CODE_IS_SUCCESS(ndr_err));
+	assert_int_equal(blob2.length, sizeof(i32));
+	assert_memory_equal(blob2.data, i32, sizeof(i32));
+
+	status = dbwrap_change_int32_atomic_bystring(db, "I32", &ival, 3);
+	assert_true(NT_STATUS_IS_OK(status));
+	assert_int_equal(ival, -2);
+	dbwrap_int_check(db, "I32", i32_changed);
+
+	status = dbwrap_change_int32_atomic_bystring(db, "I32", &ival, -3);
+	assert_true(NT_STATUS_IS_OK(status));
+	assert_int_equal(ival, 1);
+	dbwrap_int_check(db, "I32", i32);
+
+	TALLOC_FREE(frame);
+}
+
 int main(int argc, const char **argv)
 {
 	const struct CMUnitTest tests[] = {
@@ -930,6 +1052,7 @@ int main(int argc, const char **argv)
 		cmocka_unit_test(test_messaging_hdr),
 		cmocka_unit_test(test_notifyd_entry),
 		cmocka_unit_test(test_dbwrap_marshall),
+		cmocka_unit_test(test_dbwrap_int_helpers),
 		cmocka_unit_test(test_dbwrap_watch_modified_msg),
 	};
 
