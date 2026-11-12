@@ -148,6 +148,7 @@ static void ctdb_node_connect_write(struct tevent_context *ev,
 						     node);
 		return;
 	}
+	ctdb_queue_check_ctdb_header(tnode->out_queue);
 
 	/* the queue subsystem now owns this fd */
 	tnode->out_fd = -1;
@@ -381,6 +382,7 @@ static void ctdb_listen_event(struct tevent_context *ev, struct tevent_fd *fde,
 		DBG_ERR("Failed to set up incoming queue\n");
 		goto failed;
 	}
+	ctdb_queue_check_ctdb_header(tnode->in_queue);
 
        /*
 	* Mark the connecting node as connected, but only if the
