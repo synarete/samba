@@ -70,6 +70,17 @@ struct ctdb_client {
 };
 
 /*
+  the result of comparing the wire format of a node,
+  see ctdb_keepalive.c
+*/
+enum ctdb_node_wire_format {
+	CTDB_NODE_WIRE_FORMAT_UNKNOWN = 0,
+	CTDB_NODE_WIRE_FORMAT_PENDING,
+	CTDB_NODE_WIRE_FORMAT_SAME,
+	CTDB_NODE_WIRE_FORMAT_DIFFERENT,
+};
+
+/*
   state associated with one node
 */
 struct ctdb_node {
@@ -88,6 +99,11 @@ struct ctdb_node {
 	/* a list of controls pending to this node, so we can time them out quickly
 	   if the node becomes disconnected */
 	struct daemon_control_state *pending_controls;
+
+	/* checked after the first keepalive of a connection */
+	enum ctdb_node_wire_format wire_format;
+	bool wire_format_shutdown;
+	TALLOC_CTX *wire_format_req;
 };
 
 /*
