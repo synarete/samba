@@ -22,8 +22,29 @@
 
 #include "ctdbd_conn.c"
 #include "ctdb/protocol/protocol_api.h"
+#include "ctdb_srvids.h"
 #include <setjmp.h>
 #include <cmocka.h>
+
+/*
+ * The srvids used by Samba processes to talk to each other via
+ * ctdb, also between different versions on different nodes:
+ *
+ * - messaging_send_iov_from() sends messages for other nodes to
+ *   the srvid dst.pid, messaging_ctdb_init() registers the pid.
+ *
+ * - messaging_ctdb_init() registers the unique_id of the process
+ *   as srvid, ctdbd_process_exists() checks it with
+ *   CTDB_CONTROL_CHECK_PID_SRVID.
+ *
+ * - the srvids below.
+ *
+ * CTDB_SRVID_SAMBA_NOTIFY and the srvid ranges are part of
+ * ctdb/protocol/ABI/ctdb_protocol.ndrabi.
+ */
+BUILD_ASSERT(CTDB_SRVID_SAMBA_NOTIFY == 0xFE00000000000000LL);
+BUILD_ASSERT(CTDB_SRVID_SAMBA_NOTIFY_PROXY == 0xFE00000000000001LL);
+BUILD_ASSERT(CTDB_SRVID_SAMBA_PROCESS == 0xFE00000000000002LL);
 
 /*
  * Most of the controls go to the local ctdbd, which comes from the
