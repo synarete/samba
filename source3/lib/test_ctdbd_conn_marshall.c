@@ -101,10 +101,11 @@ static void test_conn_teardown(struct test_conn *tc)
 	TALLOC_FREE(tc->conn);
 }
 
-static void test_write_reply(struct test_conn *tc,
-			     uint32_t opcode,
-			     int32_t status,
-			     struct ctdb_reply_control_data *rdata)
+static void test_write_reply_reqid(struct test_conn *tc,
+				   uint32_t reqid,
+				   uint32_t opcode,
+				   int32_t status,
+				   struct ctdb_reply_control_data *rdata)
 {
 	struct ctdb_req_header h;
 	struct ctdb_reply_control c = {
@@ -118,10 +119,9 @@ static void test_write_reply(struct test_conn *tc,
 
 	c.rdata.opcode = opcode;
 
-	/* the reqid of the next request */
 	ctdb_req_header_fill(&h, 0, CTDB_REPLY_CONTROL,
 			     tc->conn->our_vnn, 7,
-			     tc->conn->reqid + 1);
+			     reqid);
 
 	buflen = ctdb_reply_control_len(&h, &c);
 	buf = talloc_size(tc->conn, buflen);
@@ -133,6 +133,62 @@ static void test_write_reply(struct test_conn *tc,
 	assert_int_equal(nwritten, buflen);
 
 	TALLOC_FREE(buf);
+}
+
+static void test_write_reply(struct test_conn *tc,
+			     uint32_t opcode,
+			     int32_t status,
+			     struct ctdb_reply_control_data *rdata)
+{
+	/* the reqid of the next request */
+	test_write_reply_reqid(tc, tc->conn->reqid + 1,
+			       opcode, status, rdata);
+}
+
+/*
+ * A record of a traverse, as sent by ctdbd to the srvid of the
+ * traverse.
+ */
+static void test_write_traverse_record(struct test_conn *tc,
+				       uint64_t srvid,
+				       uint32_t reqid,
+				       TDB_DATA key,
+				       TDB_DATA data)
+{
+	struct ctdb_rec_data rec = {
+		.reqid = reqid,
+		.key = key,
+		.data = data,
+	};
+	struct ctdb_req_header h;
+	struct ctdb_req_message_data m = {
+		.srvid = srvid,
+	};
+	uint8_t *buf = NULL;
+	size_t buflen, np;
+	ssize_t nwritten;
+	int ret;
+
+	m.data.dsize = ctdb_rec_data_len(&rec);
+	m.data.dptr = talloc_size(tc->conn, m.data.dsize);
+	assert_non_null(m.data.dptr);
+	ctdb_rec_data_push(&rec, m.data.dptr, &np);
+	assert_int_equal(np, m.data.dsize);
+
+	ctdb_req_header_fill(&h, 0, CTDB_REQ_MESSAGE,
+			     tc->conn->our_vnn, 7, 0);
+
+	buflen = ctdb_req_message_data_len(&h, &m);
+	buf = talloc_size(tc->conn, buflen);
+	assert_non_null(buf);
+	ret = ctdb_req_message_data_push(&h, &m, buf, &buflen);
+	assert_int_equal(ret, 0);
+
+	nwritten = write_data(tc->ctdbd_fd, buf, buflen);
+	assert_int_equal(nwritten, buflen);
+
+	TALLOC_FREE(buf);
+	TALLOC_FREE(m.data.dptr);
 }
 
 static TDB_DATA test_read_packet(struct test_conn *tc, TALLOC_CTX *mem_ctx)
@@ -343,6 +399,85 @@ static void test_messaging_send(void **state)
 	TALLOC_FREE(frame);
 }
 
+struct test_traverse_state {
+	size_t num;
+};
+
+static void test_traverse_fn(TDB_DATA key, TDB_DATA data, void *private_data)
+{
+	struct test_traverse_state *state = private_data;
+
+	switch (state->num) {
+	case 0:
+		assert_int_equal(key.dsize, 3);
+		assert_memory_equal(key.dptr, "abc", 3);
+		assert_int_equal(data.dsize, 5);
+		assert_memory_equal(data.dptr, "hello", 5);
+		break;
+	case 1:
+		assert_int_equal(key.dsize, 1);
+		assert_memory_equal(key.dptr, "k", 1);
+		assert_int_equal(data.dsize, 0);
+		break;
+	default:
+		fail_msg("unexpected record %zu", state->num);
+	}
+
+	state->num += 1;
+}
+
+/*
+ * The records of a traverse come from the ctdbd of all nodes,
+ * which may run different versions. ctdbd_traverse() casts them
+ * to struct ctdb_rec_data_old.
+ */
+static void test_traverse(void **state)
+{
+	TALLOC_CTX *frame = talloc_stackframe();
+	struct test_conn tc = test_conn_setup(frame);
+	struct ctdb_reply_control_data rdata = { 0, };
+	struct test_traverse_state tstate = { .num = 0, };
+	struct ctdb_req_control c;
+	uint32_t traverse_reqid;
+	int ret;
+
+	tc.conn->rand_srvid = 0x0102030405060708;
+
+	/*
+	 * ctdbd_traverse() uses the next reqid for the traverse,
+	 * the one after it for the control.
+	 */
+	traverse_reqid = tc.conn->reqid + 1;
+	test_write_reply_reqid(&tc, traverse_reqid + 1,
+			       CTDB_CONTROL_TRAVERSE_START, 0, &rdata);
+
+	test_write_traverse_record(&tc, tc.conn->rand_srvid, traverse_reqid,
+				   make_tdb_data((const uint8_t *)"abc", 3),
+				   make_tdb_data((const uint8_t *)"hello", 5));
+	test_write_traverse_record(&tc, tc.conn->rand_srvid, traverse_reqid,
+				   make_tdb_data((const uint8_t *)"k", 1),
+				   tdb_null);
+	/* an empty record ends the traverse */
+	test_write_traverse_record(&tc, tc.conn->rand_srvid, traverse_reqid,
+				   tdb_null, tdb_null);
+
+	ret = ctdbd_traverse(tc.conn, 0x11223344, test_traverse_fn, &tstate);
+	assert_int_equal(ret, 0);
+	assert_int_equal(tstate.num, 2);
+
+	test_read_control(&tc, frame, CTDB_CURRENT_NODE,
+			  CTDB_CONTROL_TRAVERSE_START, &c);
+	assert_int_equal(c.srvid, 0x0102030405060708);
+	assert_non_null(c.rdata.data.traverse_start);
+	assert_int_equal(c.rdata.data.traverse_start->db_id, 0x11223344);
+	assert_int_equal(c.rdata.data.traverse_start->reqid, traverse_reqid);
+	assert_int_equal(c.rdata.data.traverse_start->srvid,
+			 0x0102030405060708);
+
+	test_conn_teardown(&tc);
+	TALLOC_FREE(frame);
+}
+
 int main(int argc, char **argv)
 {
 	const struct CMUnitTest tests[] = {
@@ -350,6 +485,7 @@ int main(int argc, char **argv)
 		cmocka_unit_test(test_check_pid_srvid),
 		cmocka_unit_test(test_get_public_ips),
 		cmocka_unit_test(test_messaging_send),
+		cmocka_unit_test(test_traverse),
 	};
 
 	cmocka_set_message_output(CM_OUTPUT_SUBUNIT);
