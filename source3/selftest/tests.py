@@ -1079,6 +1079,10 @@ if is_module_enabled("vfs_gpfs"):
     plantestsuite("samba3.test_vfs_gpfs", "none",
                   [os.path.join(bindir(), "test_vfs_gpfs")])
 
+if is_module_enabled("vfs_fileid"):
+    plantestsuite("samba3.test_vfs_fileid", "none",
+                  [os.path.join(bindir(), "test_vfs_fileid")])
+
 plantestsuite(
     "samba3.resolvconf", "none",
     [os.path.join(samba3srcdir, "script/tests/test_resolvconf.sh")])
