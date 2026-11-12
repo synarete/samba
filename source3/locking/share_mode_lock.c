@@ -524,6 +524,38 @@ done:
 	return NT_STATUS_OK;
 }
 
+/*
+ * Fill the first three dbufs of a locking.tdb record,
+ * see the comment above struct locking_tdb_data.
+ */
+static NTSTATUS locking_tdb_data_dbufs(
+	const struct locking_tdb_data *ltdb,
+	uint8_t share_mode_data_len_buf[4],
+	TDB_DATA dbufs[3])
+{
+	PUSH_LE_U32(share_mode_data_len_buf, 0, ltdb->share_mode_data_len);
+
+	dbufs[0] = (TDB_DATA) {
+		.dptr = share_mode_data_len_buf,
+		.dsize = sizeof(uint32_t),
+	};
+	dbufs[1] = (TDB_DATA) {
+		.dptr = discard_const_p(uint8_t, ltdb->share_mode_data_buf),
+		.dsize = ltdb->share_mode_data_len,
+	};
+
+	if (ltdb->num_share_entries > SIZE_MAX/SHARE_MODE_ENTRY_SIZE) {
+		/* overflow */
+		return NT_STATUS_BUFFER_OVERFLOW;
+	}
+	dbufs[2] = (TDB_DATA) {
+		.dptr = discard_const_p(uint8_t, ltdb->share_entries),
+		.dsize = ltdb->num_share_entries * SHARE_MODE_ENTRY_SIZE,
+	};
+
+	return NT_STATUS_OK;
+}
+
 static NTSTATUS locking_tdb_data_store(
 	TDB_DATA key,
 	const struct locking_tdb_data *ltdb,
@@ -552,25 +584,10 @@ static NTSTATUS locking_tdb_data_store(
 		return status;
 	}
 
-	PUSH_LE_U32(share_mode_data_len_buf, 0, ltdb->share_mode_data_len);
-
-	dbufs[0] = (TDB_DATA) {
-		.dptr = share_mode_data_len_buf,
-		.dsize = sizeof(share_mode_data_len_buf),
-	};
-	dbufs[1] = (TDB_DATA) {
-		.dptr = discard_const_p(uint8_t, ltdb->share_mode_data_buf),
-		.dsize = ltdb->share_mode_data_len,
-	};
-
-	if (ltdb->num_share_entries > SIZE_MAX/SHARE_MODE_ENTRY_SIZE) {
-		/* overflow */
-		return NT_STATUS_BUFFER_OVERFLOW;
+	status = locking_tdb_data_dbufs(ltdb, share_mode_data_len_buf, dbufs);
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
 	}
-	dbufs[2] = (TDB_DATA) {
-		.dptr = discard_const_p(uint8_t, ltdb->share_entries),
-		.dsize = ltdb->num_share_entries * SHARE_MODE_ENTRY_SIZE,
-	};
 
 	if (num_share_mode_dbufs != 0) {
 		memcpy(&dbufs[3],
