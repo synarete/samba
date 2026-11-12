@@ -439,16 +439,49 @@ static bool messaging_payload_check(uint32_t msg_type,
 	case MSG_PRINTER_PCAP:
 	case MSG_CLUSTER_LEVEL_UPGRADED:
 	case MSG_SMB_NOTIFY_GET_DB:
+	case MSG_SHUTDOWN:
+	case MSG_RELOAD_TLS_CERTIFICATES:
+	case MSG_REQ_PROFILELEVEL:
+	case MSG_REQ_DEBUGLEVEL:
+	case MSG_REQ_RINGBUF_LOG:
+	case MSG_SMB_TELL_NUM_CHILDREN:
+	case MSG_WINBIND_DISCONNECT_DC:
 		*expected = "no payload";
 		return (len == 0);
 	case MSG_SMB_FORCE_TDIS:
+	case MSG_SMB_FORCE_TDIS_DENIED:
 	case MSG_SMB_KILL_CLIENT_IP:
+	case MSG_DEBUG:
+	case MSG_DEBUGLEVEL:
+	case MSG_WINBIND_IP_DROPPED:
+	case MSG_PRINTER_DRVUPGRADE:
 		*expected = "a nul-terminated string";
 		return messaging_iov_is_string(iov, iovlen, len);
 	case ID_CACHE_DELETE:
 	case ID_CACHE_KILL:
+	case MSG_WINBIND_ONLINE:
+	case MSG_WINBIND_OFFLINE:
+	case MSG_WINBIND_ONLINESTATUS:
 		*expected = "no payload or a nul-terminated string";
 		return (len == 0) || messaging_iov_is_string(iov, iovlen, len);
+	case MSG_PROFILE:
+	case MSG_PROFILELEVEL:
+	case MSG_SMB_INJECT_FAULT:
+	case MSG_SMB_SLEEP:
+		*expected = "an int in host byte order";
+		return (len == sizeof(int));
+	case MSG_SMB_NUM_CHILDREN:
+		*expected = "a little endian uint32_t";
+		return (len == sizeof(uint32_t));
+	case MSG_WINBIND_VALIDATE_CACHE:
+		/*
+		 * The request from smbcontrol contains the
+		 * struct server_id of the sender, the reply
+		 * a uint8_t with the result.
+		 */
+		*expected = "a struct server_id or a uint8_t";
+		return (len == sizeof(struct server_id)) ||
+		       (len == sizeof(uint8_t));
 	case MSG_DBWRAP_MODIFIED:
 		*expected = "dbwrap_watch_modified_msg";
 		return (len == DBWRAP_WATCH_MODIFIED_MSG_SIZE);
