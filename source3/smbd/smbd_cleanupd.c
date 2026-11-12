@@ -97,6 +97,11 @@ struct tevent_req *smbd_cleanupd_send(TALLOC_CTX *mem_ctx,
 		return req;
 	}
 
+	/*
+	 * The name of the g_lock is shared between all nodes
+	 * of a cluster, also between different versions,
+	 * it needs to stay as it is.
+	 */
 	subreq = g_lock_lock_send(state,
 				  ev,
 				  state->glock_ctx,
