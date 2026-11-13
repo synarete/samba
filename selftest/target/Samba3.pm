@@ -729,6 +729,16 @@ $member_options
 	read only = no
 	vfs objects =
 
+# The same, continuously available, for persistent handles
+[cfl_ca]
+	path = $args{prefix}/shared
+	read only = no
+	vfs objects =
+	continuous availability = yes
+	posix locking = no
+	kernel share modes = no
+	kernel oplocks = no
+
 # What the registry share copies, see cluster_registry_share()
 [tmp]
 	path = $args{prefix}/shared

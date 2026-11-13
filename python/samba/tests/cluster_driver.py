@@ -206,9 +206,10 @@ class Cluster(metaclass=abc.ABCMeta):
     STABLE = "stable"
     NEW = "new"
 
-    # Every test uses the same share, see cfl_node_conf() in
-    # selftest/target/Samba3.pm.
+    # The shares the tests use, see cfl_node_conf() in
+    # selftest/target/Samba3.pm. ca_share is continuously available.
     share = "cfl"
+    ca_share = "cfl_ca"
 
     def __init__(self):
         self.nodes = []
@@ -272,8 +273,9 @@ class Cluster(metaclass=abc.ABCMeta):
         """
         return os.environ["SMB_CONF_PATH"]
 
-    def smb_conn(self, node):
-        """An SMB connection from this process to the test share on node."""
+    def smb_conn(self, node, share=None):
+        """An SMB connection from this process to a share on node, by
+        default the test share."""
         lp = s3param.get_context()
         lp.load(self.client_conf())
         creds = credentials.Credentials()
@@ -281,7 +283,7 @@ class Cluster(metaclass=abc.ABCMeta):
         creds.set_domain(self.domain)
         creds.set_username(self.username)
         creds.set_password(self.password)
-        return libsmb.Conn(node.name, self.share, lp, creds)
+        return libsmb.Conn(node.name, share or self.share, lp, creds)
 
     def _client(self, argv, env):
         """argv and environment of an SMB client of the build under test."""
