@@ -2109,12 +2109,13 @@ if have_cluster_support:
          dbwrap_tool])
 
 #
-# The rolling upgrade tests, planned in cfl_upgrade against the selftest
+# The cluster tests, planned in cfl_upgrade against the selftest
 # cluster.
 #
 cfl_tests = [
     "cluster_rolling_upgrade",
     "cluster_cross_node_locking",
+    "cluster_persistent_handles",
 ]
 
 for t in cfl_tests:
