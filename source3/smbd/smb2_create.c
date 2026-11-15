@@ -950,9 +950,16 @@ static struct tevent_req *smbd_smb2_create_send(TALLOC_CTX *mem_ctx,
 		state->request_time = old_state->request_time;
 		state->open_rec = talloc_move(state, &old_state->open_rec);
 		state->open_was_deferred = old_state->open_was_deferred;
-		state->_purge_create_guid = old_state->_purge_create_guid;
-		state->purge_create_guid = old_state->purge_create_guid;
-		old_state->purge_create_guid = NULL;
+		if (old_state->purge_create_guid != NULL) {
+			/*
+			 * old_state->purge_create_guid points to
+			 * old_state->_purge_create_guid, which is
+			 * freed below.
+			 */
+			state->_purge_create_guid = *old_state->purge_create_guid;
+			state->purge_create_guid = &state->_purge_create_guid;
+			old_state->purge_create_guid = NULL;
+		}
 	}
 
 	TALLOC_FREE(smb2req->subreq);
