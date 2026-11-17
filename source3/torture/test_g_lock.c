@@ -1530,7 +1530,6 @@ bool run_g_lock_wire_format(int dummy)
 {
 	struct tevent_context *ev = NULL;
 	struct messaging_context *msg = NULL;
-	struct db_context *backend = NULL;
 	struct db_context *raw = NULL;
 	struct g_lock_ctx *ctx = NULL;
 	TDB_DATA key = string_term_tdb_data("wire_format");
@@ -1558,19 +1557,12 @@ bool run_g_lock_wire_format(int dummy)
 	self = messaging_server_id(msg);
 
 	/*
-	 * We keep a pointer to the backend in order
+	 * We get a pointer to the backend in order
 	 * to look at the raw records.
 	 */
-	backend = db_open_rbt(talloc_tos());
-	if (backend == NULL) {
-		fprintf(stderr, "db_open_rbt failed\n");
-		goto fail;
-	}
-	raw = backend;
-
-	ctx = g_lock_ctx_init_backend(talloc_tos(), msg, &backend);
+	ctx = g_lock_ctx_init_rbt_testing(talloc_tos(), msg, &raw);
 	if (ctx == NULL) {
-		fprintf(stderr, "g_lock_ctx_init_backend failed\n");
+		fprintf(stderr, "g_lock_ctx_init_rbt_testing failed\n");
 		goto fail;
 	}
 

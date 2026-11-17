@@ -27,6 +27,7 @@
 #include "dbwrap/dbwrap.h"
 #include "dbwrap/dbwrap_open.h"
 #include "dbwrap/dbwrap_watch.h"
+#include "dbwrap/dbwrap_rbt.h"
 #include "g_lock.h"
 #include "util_tdb.h"
 #include "../lib/util/tevent_ntstatus.h"
@@ -195,12 +196,19 @@ static NTSTATUS g_lock_store(
 	return dbwrap_record_storev(rec, dbufs, ARRAY_SIZE(dbufs), dbwrap_flags);
 }
 
-struct g_lock_ctx *g_lock_ctx_init_backend(
+/*
+ * The watched layer for DBWRAP_FLAG_G_LOCK is created by db_open_ex()
+ * for g_lock_ctx_init_db() or by g_lock_ctx_init_rbt_testing().
+ */
+static struct g_lock_ctx *g_lock_ctx_init_backend(
 	TALLOC_CTX *mem_ctx,
 	struct messaging_context *msg,
 	struct db_context **backend)
 {
 	struct g_lock_ctx *result;
+
+	SMB_ASSERT(dbwrap_is_watched(*backend));
+	SMB_ASSERT(dbwrap_uses_layer(*backend, DBWRAP_FLAG_G_LOCK));
 
 	result = talloc_zero(mem_ctx, struct g_lock_ctx);
 	if (result == NULL) {
@@ -208,27 +216,48 @@ struct g_lock_ctx *g_lock_ctx_init_backend(
 	}
 	result->msg = msg;
 	result->lock_order = DBWRAP_LOCK_ORDER_NONE;
+	result->db = talloc_move(result, backend);
 
-	if (dbwrap_is_watched(*backend)) {
-		/*
-		 * db_open_ex() already created the layer
-		 * for DBWRAP_FLAG_G_LOCK.
-		 */
-		SMB_ASSERT(dbwrap_uses_layer(*backend, DBWRAP_FLAG_G_LOCK));
-		result->db = talloc_move(result, backend);
-		return result;
-	}
+	return result;
+}
 
-	result->db = db_open_watched_layer(result,
-					   backend,
-					   msg,
-					   DBWRAP_FLAG_G_LOCK);
-	if (result->db == NULL) {
-		DBG_WARNING("db_open_watched_layer failed\n");
-		TALLOC_FREE(result);
+/*
+ * Only for tests, e.g. LOCAL-G-LOCK*: an in-memory database of
+ * db_open_rbt(), which is only used by the current process, *praw
+ * returns the database below the layers, so that the caller can
+ * check the raw records.
+ */
+struct g_lock_ctx *g_lock_ctx_init_rbt_testing(TALLOC_CTX *mem_ctx,
+					       struct messaging_context *msg,
+					       struct db_context **praw)
+{
+	struct db_context *raw = NULL;
+	struct db_context *backend = NULL;
+	struct db_context *db = NULL;
+	struct g_lock_ctx *ctx = NULL;
+
+	raw = db_open_rbt(mem_ctx);
+	if (raw == NULL) {
 		return NULL;
 	}
-	return result;
+	backend = raw;
+
+	db = db_open_watched_layer(mem_ctx, &backend, msg, DBWRAP_FLAG_G_LOCK);
+	if (db == NULL) {
+		TALLOC_FREE(raw);
+		return NULL;
+	}
+
+	ctx = g_lock_ctx_init_backend(mem_ctx, msg, &db);
+	if (ctx == NULL) {
+		TALLOC_FREE(db);
+		return NULL;
+	}
+
+	if (praw != NULL) {
+		*praw = raw;
+	}
+	return ctx;
 }
 
 void g_lock_set_lock_order(struct g_lock_ctx *ctx,
