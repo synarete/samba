@@ -590,6 +590,7 @@ struct db_context *db_open_rbt(TALLOC_CTX *mem_ctx)
 	result->parse_record = db_rbt_parse_record;
 	result->id = db_rbt_id;
 	result->name = "dbwrap rbt";
+	result->process_private = true;
 
 	return result;
 }

@@ -86,6 +86,12 @@ struct db_context {
 	uint64_t flags;
 	enum dbwrap_lock_order lock_order;
 	bool persistent;
+
+	/*
+	 * Only used by the current process, e.g. db_open_rbt(),
+	 * so any layer can be used, see dbwrap_uses_layer().
+	 */
+	bool process_private;
 };
 
 #define DBWRAP_LOCK_ORDER_MIN DBWRAP_LOCK_ORDER_1

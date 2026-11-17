@@ -733,6 +733,26 @@ const char *dbwrap_name(struct db_context *db)
 	return db->name;
 }
 
+/*
+ * Check the database uses exactly the given layer,
+ * DBWRAP_FLAG_WATCHED or DBWRAP_FLAG_G_LOCK, which
+ * db_open_ex() created on top of the backend.
+ *
+ * Databases only used by the current process can use
+ * any layer.
+ */
+bool dbwrap_uses_layer(struct db_context *db, uint64_t layer)
+{
+	SMB_ASSERT(layer == DBWRAP_FLAG_WATCHED ||
+		   layer == DBWRAP_FLAG_G_LOCK);
+
+	if (db->process_private) {
+		return true;
+	}
+
+	return (db->flags & DBWRAP_FLAG_LAYERS) == layer;
+}
+
 static ssize_t tdb_data_buf(const TDB_DATA *dbufs, int num_dbufs,
 			    uint8_t *buf, size_t buflen)
 {
