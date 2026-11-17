@@ -37,6 +37,7 @@
 #include "lib/cmdline/cmdline.h"
 #include "dbwrap/dbwrap.h"
 #include "dbwrap/dbwrap_open.h"
+#include "g_lock.h"
 #include "../libcli/security/security.h"
 #include "session.h"
 #include "locking/share_mode_lock.h"
@@ -1343,7 +1344,7 @@ int main(int argc, const char *argv[])
 		TALLOC_CTX *mem_ctx = talloc_stackframe();
 		char *db_path = NULL;
 		int result;
-		struct db_context *db;
+		struct g_lock_ctx *g_ctx = NULL;
 		struct status_collect_brl_state brl_state = {
 			.brl = NULL,
 			.ts = &state,
@@ -1358,11 +1359,19 @@ int main(int argc, const char *argv[])
 			goto done;
 		}
 
-		db = db_open(NULL, db_path, 0,
-			     TDB_CLEAR_IF_FIRST|TDB_INCOMPATIBLE_HASH, O_RDONLY, 0,
-			     DBWRAP_LOCK_ORDER_1, DBWRAP_FLAG_NONE);
+		g_ctx = g_lock_ctx_init_db(NULL,
+					   NULL, /* msg */
+					   NULL, /* ev_ctx_ex */
+					   NULL, /* ctdb_conn_ex */
+					   db_path,
+					   0,
+					   TDB_CLEAR_IF_FIRST|TDB_INCOMPATIBLE_HASH,
+					   O_RDONLY,
+					   0,
+					   DBWRAP_LOCK_ORDER_1,
+					   DBWRAP_FLAG_NONE);
 
-		if (!db) {
+		if (g_ctx == NULL) {
 			fprintf(stderr, "%s not initialised\n", db_path);
 			fprintf(stderr, "This is normal if an SMB client has never "
 				 "connected to your server.\n");
@@ -1370,7 +1379,7 @@ int main(int argc, const char *argv[])
 			ret = 0;
 			goto done;
 		} else {
-			TALLOC_FREE(db);
+			TALLOC_FREE(g_ctx);
 		}
 
 		if (!locking_init_readonly()) {
