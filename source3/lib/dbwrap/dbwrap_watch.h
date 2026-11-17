@@ -24,9 +24,6 @@
 #include "dbwrap/dbwrap.h"
 #include "messages.h"
 
-struct db_context *db_open_watched(TALLOC_CTX *mem_ctx,
-				   struct db_context **backend,
-				   struct messaging_context *msg);
 struct db_context *db_open_watched_layer(TALLOC_CTX *mem_ctx,
 					 struct db_context **backend,
 					 struct messaging_context *msg,

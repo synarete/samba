@@ -938,9 +938,10 @@ static size_t dbwrap_watched_id(struct db_context *db, uint8_t *id,
 }
 
 /*
- * Used by db_open_ex() for DBWRAP_FLAG_WATCHED and
- * DBWRAP_FLAG_G_LOCK, the layer is remembered in the
- * flags of the returned database.
+ * Only used by db_open_ex() for DBWRAP_FLAG_WATCHED and
+ * DBWRAP_FLAG_G_LOCK and by g_lock_ctx_init_rbt_testing() for
+ * the in-memory databases of db_open_rbt(), the layer is
+ * remembered in the flags of the returned database.
  */
 struct db_context *db_open_watched_layer(TALLOC_CTX *mem_ctx,
 					 struct db_context **backend,
@@ -950,8 +951,11 @@ struct db_context *db_open_watched_layer(TALLOC_CTX *mem_ctx,
 	struct db_context *db;
 	struct db_watched_ctx *ctx;
 
-	SMB_ASSERT(layer == DBWRAP_FLAG_WATCHED ||
-		   layer == DBWRAP_FLAG_G_LOCK);
+	/*
+	 * The backend needs to be opened with the layer
+	 * by db_open_ex()
+	 */
+	SMB_ASSERT(dbwrap_uses_layer(*backend, layer));
 
 	db = talloc_zero(mem_ctx, struct db_context);
 	if (db == NULL) {
@@ -990,16 +994,6 @@ struct db_context *db_open_watched_layer(TALLOC_CTX *mem_ctx,
 	db->process_private = ctx->backend->process_private;
 
 	return db;
-}
-
-struct db_context *db_open_watched(TALLOC_CTX *mem_ctx,
-				   struct db_context **backend,
-				   struct messaging_context *msg)
-{
-	return db_open_watched_layer(mem_ctx,
-				     backend,
-				     msg,
-				     DBWRAP_FLAG_WATCHED);
 }
 
 bool dbwrap_is_watched(struct db_context *db)
