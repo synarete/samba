@@ -112,7 +112,6 @@ static NTSTATUS share_mode_g_lock_writev(TDB_DATA key,
 
 static bool locking_init_internal(bool read_only)
 {
-	struct db_context *backend;
 	char *db_path;
 	uint64_t dbwrap_flags = DBWRAP_FLAG_NONE;
 
@@ -131,24 +130,21 @@ static bool locking_init_internal(bool read_only)
 		dbwrap_flags |= DBWRAP_FLAG_PER_REC_PERSISTENT;
 	}
 
-	backend = db_open(NULL, db_path,
-			  SMBD_VOLATILE_TDB_HASH_SIZE,
-			  SMBD_VOLATILE_TDB_FLAGS |
-			  TDB_SEQNUM,
-			  read_only?O_RDONLY:O_RDWR|O_CREAT, 0640,
-			  DBWRAP_LOCK_ORDER_NONE,
-			  dbwrap_flags);
+	lock_ctx = g_lock_ctx_init_db(NULL,
+				      global_messaging_context(),
+				      NULL, /* ev_ctx_ex */
+				      NULL, /* ctdb_conn_ex */
+				      db_path,
+				      SMBD_VOLATILE_TDB_HASH_SIZE,
+				      SMBD_VOLATILE_TDB_FLAGS |
+				      TDB_SEQNUM,
+				      read_only?O_RDONLY:O_RDWR|O_CREAT, 0640,
+				      DBWRAP_LOCK_ORDER_NONE,
+				      dbwrap_flags);
 	TALLOC_FREE(db_path);
-	if (!backend) {
+	if (lock_ctx == NULL) {
 		DEBUG(0,("ERROR: Failed to initialise locking database\n"));
 		return False;
-	}
-
-	lock_ctx = g_lock_ctx_init_backend(
-		NULL, global_messaging_context(), &backend);
-	if (lock_ctx == NULL) {
-		TALLOC_FREE(backend);
-		return false;
 	}
 	g_lock_set_lock_order(lock_ctx, DBWRAP_LOCK_ORDER_1);
 
