@@ -43,6 +43,17 @@ struct g_lock_ctx *g_lock_ctx_init_backend(
 	struct db_context **backend);
 void g_lock_set_lock_order(struct g_lock_ctx *ctx,
 			   enum dbwrap_lock_order lock_order);
+struct g_lock_ctx *g_lock_ctx_init_db(TALLOC_CTX *mem_ctx,
+				      struct messaging_context *msg,
+				      struct tevent_context *ev_ctx_ex,
+				      struct ctdbd_connection *ctdb_conn_ex,
+				      const char *name,
+				      int hash_size,
+				      int tdb_flags,
+				      int open_flags,
+				      mode_t mode,
+				      enum dbwrap_lock_order lock_order,
+				      uint64_t dbwrap_flags);
 struct g_lock_ctx *g_lock_ctx_init_ex(TALLOC_CTX *mem_ctx,
 				      struct messaging_context *msg,
 				      struct tevent_context *ev_ctx_ex,

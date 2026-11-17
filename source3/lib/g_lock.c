@@ -237,13 +237,57 @@ void g_lock_set_lock_order(struct g_lock_ctx *ctx,
 	ctx->lock_order = lock_order;
 }
 
+/*
+ * Open a database used with the g_lock layer, db_open_ex() creates
+ * the layer for DBWRAP_FLAG_G_LOCK
+ */
+struct g_lock_ctx *g_lock_ctx_init_db(TALLOC_CTX *mem_ctx,
+				      struct messaging_context *msg,
+				      struct tevent_context *ev_ctx_ex,
+				      struct ctdbd_connection *ctdb_conn_ex,
+				      const char *name,
+				      int hash_size,
+				      int tdb_flags,
+				      int open_flags,
+				      mode_t mode,
+				      enum dbwrap_lock_order lock_order,
+				      uint64_t dbwrap_flags)
+{
+	struct db_context *db = NULL;
+	struct g_lock_ctx *ctx = NULL;
+
+	SMB_ASSERT((dbwrap_flags & DBWRAP_FLAG_LAYERS) == 0);
+
+	db = db_open_ex(mem_ctx,
+			ev_ctx_ex,
+			msg,
+			ctdb_conn_ex,
+			name,
+			hash_size,
+			tdb_flags,
+			open_flags,
+			mode,
+			lock_order,
+			dbwrap_flags | DBWRAP_FLAG_G_LOCK);
+	if (db == NULL) {
+		return NULL;
+	}
+
+	ctx = g_lock_ctx_init_backend(mem_ctx, msg, &db);
+	if (ctx == NULL) {
+		TALLOC_FREE(db);
+		return NULL;
+	}
+
+	return ctx;
+}
+
 struct g_lock_ctx *g_lock_ctx_init_ex(TALLOC_CTX *mem_ctx,
 				      struct messaging_context *msg,
 				      struct tevent_context *ev_ctx_ex,
 				      struct ctdbd_connection *ctdb_conn_ex)
 {
 	char *db_path = NULL;
-	struct db_context *backend = NULL;
 	struct g_lock_ctx *ctx = NULL;
 
 	SMB_ASSERT(msg != NULL);
@@ -253,10 +297,10 @@ struct g_lock_ctx *g_lock_ctx_init_ex(TALLOC_CTX *mem_ctx,
 		return NULL;
 	}
 
-	backend = db_open_ex(
+	ctx = g_lock_ctx_init_db(
 		mem_ctx,
-		ev_ctx_ex,
 		msg,
+		ev_ctx_ex,
 		ctdb_conn_ex,
 		db_path,
 		0,
@@ -266,12 +310,11 @@ struct g_lock_ctx *g_lock_ctx_init_ex(TALLOC_CTX *mem_ctx,
 		DBWRAP_LOCK_ORDER_3,
 		DBWRAP_FLAG_NONE);
 	TALLOC_FREE(db_path);
-	if (backend == NULL) {
+	if (ctx == NULL) {
 		DBG_WARNING("Could not open g_lock.tdb\n");
 		return NULL;
 	}
 
-	ctx = g_lock_ctx_init_backend(mem_ctx, msg, &backend);
 	return ctx;
 }
 
