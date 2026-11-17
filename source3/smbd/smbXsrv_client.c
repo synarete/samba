@@ -57,7 +57,6 @@ NTSTATUS smbXsrv_client_global_init(void)
 {
 	char *global_path = NULL;
 	struct db_context *backend = NULL;
-	struct db_context *db_ctx = NULL;
 
 	if (smbXsrv_client_global_db_ctx != NULL) {
 		return NT_STATUS_OK;
@@ -78,20 +77,14 @@ NTSTATUS smbXsrv_client_global_init(void)
 			  TDB_INCOMPATIBLE_HASH,
 			  O_RDWR | O_CREAT, 0600,
 			  DBWRAP_LOCK_ORDER_1,
-			  DBWRAP_FLAG_NONE);
+			  DBWRAP_FLAG_WATCHED);
 	TALLOC_FREE(global_path);
 	if (backend == NULL) {
 		NTSTATUS status = map_nt_error_from_unix_common(errno);
 		return status;
 	}
 
-	db_ctx = db_open_watched(NULL, &backend, global_messaging_context());
-	if (db_ctx == NULL) {
-		TALLOC_FREE(backend);
-		return NT_STATUS_NO_MEMORY;
-	}
-
-	smbXsrv_client_global_db_ctx = db_ctx;
+	smbXsrv_client_global_db_ctx = backend;
 
 	return NT_STATUS_OK;
 }
