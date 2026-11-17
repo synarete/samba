@@ -27,6 +27,12 @@
 struct db_context *db_open_watched(TALLOC_CTX *mem_ctx,
 				   struct db_context **backend,
 				   struct messaging_context *msg);
+struct db_context *db_open_watched_layer(TALLOC_CTX *mem_ctx,
+					 struct db_context **backend,
+					 struct messaging_context *msg,
+					 uint64_t layer);
+bool dbwrap_is_watched(struct db_context *db);
+struct db_context *dbwrap_watched_backend(struct db_context *db);
 uint64_t dbwrap_watched_watch_add_instance(struct db_record *rec);
 void dbwrap_watched_watch_remove_instance(struct db_record *rec, uint64_t instance);
 void dbwrap_watched_watch_skip_alerting(struct db_record *rec);
