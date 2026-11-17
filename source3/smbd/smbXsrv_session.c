@@ -61,7 +61,6 @@ NTSTATUS smbXsrv_session_global_init(struct messaging_context *msg_ctx)
 {
 	char *global_path = NULL;
 	struct db_context *backend = NULL;
-	struct db_context *db_ctx = NULL;
 
 	if (smbXsrv_session_global_db_ctx != NULL) {
 		return NT_STATUS_OK;
@@ -80,7 +79,7 @@ NTSTATUS smbXsrv_session_global_init(struct messaging_context *msg_ctx)
 			  SMBD_VOLATILE_TDB_FLAGS,
 			  O_RDWR | O_CREAT, 0600,
 			  DBWRAP_LOCK_ORDER_1,
-			  DBWRAP_FLAG_NONE);
+			  DBWRAP_FLAG_WATCHED);
 	TALLOC_FREE(global_path);
 	if (backend == NULL) {
 		NTSTATUS status;
@@ -90,13 +89,7 @@ NTSTATUS smbXsrv_session_global_init(struct messaging_context *msg_ctx)
 		return status;
 	}
 
-	db_ctx = db_open_watched(NULL, &backend, global_messaging_context());
-	if (db_ctx == NULL) {
-		TALLOC_FREE(backend);
-		return NT_STATUS_NO_MEMORY;
-	}
-
-	smbXsrv_session_global_db_ctx = db_ctx;
+	smbXsrv_session_global_db_ctx = backend;
 
 	return NT_STATUS_OK;
 }
