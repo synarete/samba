@@ -40,6 +40,17 @@ enum dbwrap_lock_order {
 #define DBWRAP_FLAG_NONE                     0x0000000000000000ULL
 #define DBWRAP_FLAG_OPTIMIZE_READONLY_ACCESS 0x0000000000000001ULL
 #define DBWRAP_FLAG_PER_REC_PERSISTENT       0x0000000000000002ULL
+/*
+ * The layer which db_open_ex() creates on top of the backend,
+ * it changes the format of the records.
+ *
+ * DBWRAP_FLAG_G_LOCK is the g_lock layer on top of the watched layer,
+ * so it's used instead of DBWRAP_FLAG_WATCHED, not together with it.
+ */
+#define DBWRAP_FLAG_WATCHED                  0x0000000000000004ULL
+#define DBWRAP_FLAG_G_LOCK                   0x0000000000000008ULL
+#define DBWRAP_FLAG_LAYERS \
+	(DBWRAP_FLAG_WATCHED | DBWRAP_FLAG_G_LOCK)
 
 /** Flags to dbwrap_store() */
 #define DBWRAP_REPLACE	TDB_REPLACE	/* Replace record */
@@ -197,6 +208,7 @@ int dbwrap_transaction_cancel(struct db_context *db);
 size_t dbwrap_db_id(struct db_context *db, uint8_t *id, size_t idlen);
 bool dbwrap_is_persistent(struct db_context *db);
 const char *dbwrap_name(struct db_context *db);
+bool dbwrap_uses_layer(struct db_context *db, uint64_t layer);
 
 /* The following definitions come from lib/dbwrap_util.c  */
 

@@ -209,9 +209,22 @@ struct g_lock_ctx *g_lock_ctx_init_backend(
 	result->msg = msg;
 	result->lock_order = DBWRAP_LOCK_ORDER_NONE;
 
-	result->db = db_open_watched(result, backend, msg);
+	if (dbwrap_is_watched(*backend)) {
+		/*
+		 * db_open_ex() already created the layer
+		 * for DBWRAP_FLAG_G_LOCK.
+		 */
+		SMB_ASSERT(dbwrap_uses_layer(*backend, DBWRAP_FLAG_G_LOCK));
+		result->db = talloc_move(result, backend);
+		return result;
+	}
+
+	result->db = db_open_watched_layer(result,
+					   backend,
+					   msg,
+					   DBWRAP_FLAG_G_LOCK);
 	if (result->db == NULL) {
-		DBG_WARNING("db_open_watched failed\n");
+		DBG_WARNING("db_open_watched_layer failed\n");
 		TALLOC_FREE(result);
 		return NULL;
 	}

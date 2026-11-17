@@ -936,12 +936,21 @@ static size_t dbwrap_watched_id(struct db_context *db, uint8_t *id,
 	return dbwrap_db_id(ctx->backend, id, idlen);
 }
 
-struct db_context *db_open_watched(TALLOC_CTX *mem_ctx,
-				   struct db_context **backend,
-				   struct messaging_context *msg)
+/*
+ * Used by db_open_ex() for DBWRAP_FLAG_WATCHED and
+ * DBWRAP_FLAG_G_LOCK, the layer is remembered in the
+ * flags of the returned database.
+ */
+struct db_context *db_open_watched_layer(TALLOC_CTX *mem_ctx,
+					 struct db_context **backend,
+					 struct messaging_context *msg,
+					 uint64_t layer)
 {
 	struct db_context *db;
 	struct db_watched_ctx *ctx;
+
+	SMB_ASSERT(layer == DBWRAP_FLAG_WATCHED ||
+		   layer == DBWRAP_FLAG_G_LOCK);
 
 	db = talloc_zero(mem_ctx, struct db_context);
 	if (db == NULL) {
@@ -976,8 +985,38 @@ struct db_context *db_open_watched(TALLOC_CTX *mem_ctx,
 	db->wipe = dbwrap_watched_wipe;
 	db->id = dbwrap_watched_id;
 	db->name = dbwrap_name(ctx->backend);
+	db->flags = (ctx->backend->flags & ~DBWRAP_FLAG_LAYERS) | layer;
+	db->process_private = ctx->backend->process_private;
 
 	return db;
+}
+
+struct db_context *db_open_watched(TALLOC_CTX *mem_ctx,
+				   struct db_context **backend,
+				   struct messaging_context *msg)
+{
+	return db_open_watched_layer(mem_ctx,
+				     backend,
+				     msg,
+				     DBWRAP_FLAG_WATCHED);
+}
+
+bool dbwrap_is_watched(struct db_context *db)
+{
+	return db->fetch_locked == dbwrap_watched_fetch_locked;
+}
+
+/*
+ * Only for tests, which need to access the raw records
+ */
+struct db_context *dbwrap_watched_backend(struct db_context *db)
+{
+	struct db_watched_ctx *ctx = NULL;
+
+	SMB_ASSERT(dbwrap_is_watched(db));
+
+	ctx = talloc_get_type_abort(db->private_data, struct db_watched_ctx);
+	return ctx->backend;
 }
 
 uint64_t dbwrap_watched_watch_add_instance(struct db_record *rec)

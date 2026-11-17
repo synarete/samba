@@ -24,6 +24,7 @@
 #include "dbwrap/dbwrap_open.h"
 #include "dbwrap/dbwrap_tdb.h"
 #include "dbwrap/dbwrap_ctdb.h"
+#include "dbwrap/dbwrap_watch.h"
 #include "lib/param/param.h"
 #include "lib/cluster_support.h"
 #include "lib/messages_ctdb.h"
@@ -81,6 +82,42 @@ static bool db_open_registry_allowed;
 void db_open_allow_registry(bool allow)
 {
 	db_open_registry_allowed = allow;
+}
+
+/*
+ * Put the layer requested by DBWRAP_FLAG_WATCHED or
+ * DBWRAP_FLAG_G_LOCK on top of the backend, so that only
+ * db_open_ex() creates the layers.
+ */
+static struct db_context *db_open_ex_layer(TALLOC_CTX *mem_ctx,
+					    struct db_context *backend,
+					    struct messaging_context *msg_ctx,
+					    uint64_t dbwrap_flags)
+{
+	uint64_t layer = dbwrap_flags & DBWRAP_FLAG_LAYERS;
+	struct db_context *db = NULL;
+
+	if (backend == NULL || layer == 0) {
+		return backend;
+	}
+
+	if (msg_ctx == NULL) {
+		/*
+		 * As before db_open_ex() created the layer,
+		 * this may still be NULL, which is fine for
+		 * readers like smbstatus.
+		 */
+		msg_ctx = global_messaging_context();
+	}
+
+	db = db_open_watched_layer(mem_ctx, &backend, msg_ctx, layer);
+	if (db == NULL) {
+		TALLOC_FREE(backend);
+		errno = ENOMEM;
+		return NULL;
+	}
+
+	return db;
 }
 
 /**
@@ -269,7 +306,10 @@ struct db_context *db_open_ex(TALLOC_CTX *mem_ctx,
 				return NULL;
 			}
 
-			return result;
+			return db_open_ex_layer(mem_ctx,
+						result,
+						msg_ctx,
+						dbwrap_flags);
 		}
 	} else if (!cluster_level_global_is_valid()) {
 		/*
@@ -310,7 +350,7 @@ struct db_context *db_open_ex(TALLOC_CTX *mem_ctx,
 				   lock_order,
 				   dbwrap_flags);
 	talloc_unlink(mem_ctx, lp_ctx);
-	return result;
+	return db_open_ex_layer(mem_ctx, result, msg_ctx_ex, dbwrap_flags);
 }
 
 struct db_context *db_open(TALLOC_CTX *mem_ctx,
