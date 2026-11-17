@@ -73,9 +73,13 @@ static bool wipe_db(struct test_ctx *ctx,
 
 static bool open_db(struct test_ctx *ctx)
 {
-	struct db_context *watched_db = NULL;
+	uint64_t dbwrap_flags = DBWRAP_FLAG_PER_REC_PERSISTENT;
 
 	TALLOC_FREE(ctx->db);
+
+	if (ctx->watched) {
+		dbwrap_flags |= DBWRAP_FLAG_WATCHED;
+	}
 
 	ctx->db = db_open(talloc_tos(),
 			     ctx->dbname,
@@ -84,26 +88,12 @@ static bool open_db(struct test_ctx *ctx)
 			     O_CREAT | O_RDWR,
 			     0644,
 			     DBWRAP_LOCK_ORDER_1,
-			     DBWRAP_FLAG_PER_REC_PERSISTENT);
+			     dbwrap_flags);
 	if (ctx->db == NULL) {
 		fprintf(stderr, "db_open failed: %s\n",
 			strerror(errno));
 		return false;
 	}
-
-	if (!ctx->watched) {
-		return true;
-	}
-
-	watched_db = db_open_watched(talloc_tos(),
-				     &ctx->db,
-				     ctx->msg);
-	if (watched_db == NULL) {
-		fprintf(stderr, "db_open_watched failed: %s\n",
-			strerror(errno));
-		return false;
-	}
-	ctx->db = watched_db;
 
 	return true;
 }
@@ -673,7 +663,23 @@ do_tests:
 	LOG_OK(ok, "test_traverse");
 
 	if (!ctx->watched) {
+		/*
+		 * The watched records have a different format,
+		 * so they use their own database.
+		 */
+		if (!lp_clustering()) {
+			unlink(ctx->dbname);
+			unlink(ctx->pdbname);
+		} else {
+			wipe_db(ctx,
+				(struct dbwrap_wipe_flags){
+					.wipe_default=true,
+					.wipe_persistent_backup_db=true,
+				});
+		}
 		ctx->watched = true;
+		ctx->dbname = "test_per_rec_persistency_watched.tdb";
+		ctx->pdbname = "test_per_rec_persistency_watched_persistent.tdb";
 		goto do_tests;
 	}
 
