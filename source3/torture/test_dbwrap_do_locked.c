@@ -74,7 +74,6 @@ bool run_dbwrap_do_locked1(int dummy)
 {
 	struct tevent_context *ev;
 	struct messaging_context *msg;
-	struct db_context *backend;
 	struct db_context *db;
 	const char *dbname = "test_do_locked.tdb";
 	const char *keystr = "key";
@@ -96,18 +95,11 @@ bool run_dbwrap_do_locked1(int dummy)
 		return false;
 	}
 
-	backend = db_open(talloc_tos(), dbname, 0,
-			  TDB_CLEAR_IF_FIRST, O_CREAT|O_RDWR, 0644,
-			  DBWRAP_LOCK_ORDER_1, DBWRAP_FLAG_NONE);
-	if (backend == NULL) {
-		fprintf(stderr, "db_open failed: %s\n", strerror(errno));
-		return false;
-	}
-
-	db = db_open_watched(talloc_tos(), &backend, msg);
+	db = db_open(talloc_tos(), dbname, 0,
+		     TDB_CLEAR_IF_FIRST, O_CREAT|O_RDWR, 0644,
+		     DBWRAP_LOCK_ORDER_1, DBWRAP_FLAG_WATCHED);
 	if (db == NULL) {
-		fprintf(stderr, "db_open_watched failed: %s\n",
-			strerror(errno));
+		fprintf(stderr, "db_open failed: %s\n", strerror(errno));
 		return false;
 	}
 

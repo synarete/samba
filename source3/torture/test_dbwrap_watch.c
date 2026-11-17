@@ -50,29 +50,26 @@ static bool test_dbwrap_watch_init(
 		goto fail;
 	}
 
-	backend = db_open(
+	/*
+	 * The watched layer uses our own messaging context
+	 */
+	db = db_open_ex(
+		ev,
+		ev,
 		msg,
+		NULL,
 		dbname,
 		0,
 		TDB_CLEAR_IF_FIRST,
 		O_CREAT|O_RDWR,
 		0644,
 		DBWRAP_LOCK_ORDER_1,
-		DBWRAP_FLAG_NONE);
-	if (backend == NULL) {
-		fprintf(stderr, "db_open failed: %s\n", strerror(errno));
+		DBWRAP_FLAG_WATCHED);
+	if (db == NULL) {
+		fprintf(stderr, "db_open_ex failed: %s\n", strerror(errno));
 		goto fail;
 	}
-
-	{
-		struct db_context *backend_copy = backend;
-
-		db = db_open_watched(ev, &backend_copy, msg);
-		if (db == NULL) {
-			fprintf(stderr, "db_open_watched failed\n");
-			goto fail;
-		}
-	}
+	backend = dbwrap_watched_backend(db);
 
 	if (pev != NULL) {
 		*pev = ev;
@@ -89,7 +86,7 @@ static bool test_dbwrap_watch_init(
 	return true;
 
 fail:
-	TALLOC_FREE(backend);
+	TALLOC_FREE(db);
 	TALLOC_FREE(msg);
 	TALLOC_FREE(ev);
 	return false;
