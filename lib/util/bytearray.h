@@ -121,4 +121,14 @@
 #define PUSH_BE_I64(data, pos, val) \
     PUSH_BE_U64(data, pos, val)
 
+/*
+ * These macros reverse the byte order of an integer value.
+ */
+#define BSWAP_U16(val) \
+    ((uint16_t)((((uint16_t)(val) & 0x00ffU) << 8) | (((uint16_t)(val) & 0xff00U) >> 8)))
+#define BSWAP_U32(val) \
+    ((((uint32_t)BSWAP_U16((uint32_t)(val) & 0xffffU)) << 16) | (uint32_t)BSWAP_U16((uint32_t)(val) >> 16))
+#define BSWAP_U64(val) \
+    ((((uint64_t)BSWAP_U32((uint64_t)(val) & 0xffffffffU)) << 32) | (uint64_t)BSWAP_U32((uint64_t)(val) >> 32))
+
 #endif /* _BYTEARRAY_H */
