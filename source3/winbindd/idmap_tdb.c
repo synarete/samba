@@ -154,7 +154,7 @@ static bool idmap_tdb_upgrade(struct idmap_domain *dom, struct db_context *db)
 		vers = -1;
 	}
 
-	if (IREV(vers) == IDMAP_VERSION) {
+	if (BSWAP_U32(vers) == IDMAP_VERSION) {
 		/* Arrggghh ! Bytereversed - make order independent ! */
 		/*
 		 * high and low records were created on a
@@ -169,7 +169,7 @@ static bool idmap_tdb_upgrade(struct idmap_domain *dom, struct db_context *db)
 		}
 
 		if (wm != -1) {
-			wm = IREV(wm);
+			wm = BSWAP_U32(wm);
 		}  else {
 			wm = dom->low_id;
 		}
@@ -187,7 +187,7 @@ static bool idmap_tdb_upgrade(struct idmap_domain *dom, struct db_context *db)
 		}
 
 		if (wm != -1) {
-			wm = IREV(wm);
+			wm = BSWAP_U32(wm);
 		} else {
 			wm = dom->low_id;
 		}
