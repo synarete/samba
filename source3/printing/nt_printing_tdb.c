@@ -425,7 +425,7 @@ bool nt_printing_tdb_upgrade(void)
 
 	if (vers_id != NTDRIVERS_DATABASE_VERSION_5) {
 		if ((vers_id == NTDRIVERS_DATABASE_VERSION_1) ||
-		    (IREV(vers_id) == NTDRIVERS_DATABASE_VERSION_1)) {
+		    (BSWAP_U32(vers_id) == NTDRIVERS_DATABASE_VERSION_1)) {
 			if (!upgrade_to_version_3()) {
 				ret = false;
 				goto err_formsdb_close;
@@ -436,7 +436,7 @@ bool nt_printing_tdb_upgrade(void)
 		}
 
 		if ((vers_id == NTDRIVERS_DATABASE_VERSION_2) ||
-		    (IREV(vers_id) == NTDRIVERS_DATABASE_VERSION_2)) {
+		    (BSWAP_U32(vers_id) == NTDRIVERS_DATABASE_VERSION_2)) {
 			/*
 			 * Written on a bigendian machine with old fetch_int
 			 * code. Save as le. The only upgrade between V2 and V3

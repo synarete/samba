@@ -198,7 +198,7 @@ NTSTATUS share_info_db_init(void)
 	/* Move to at least V2. */
 
 	/* Cope with byte-reversed older versions of the db. */
-	if ((vers_id == SHARE_DATABASE_VERSION_V1) || (IREV(vers_id) == SHARE_DATABASE_VERSION_V1)) {
+	if ((vers_id == SHARE_DATABASE_VERSION_V1) || (BSWAP_U32(vers_id) == SHARE_DATABASE_VERSION_V1)) {
 		/* Written on a bigendian machine with old fetch_int code. Save as le. */
 
 		status = dbwrap_store_int32_bystring(

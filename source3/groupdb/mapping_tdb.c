@@ -94,7 +94,7 @@ static bool init_group_mapping(void)
 		/* Cope with byte-reversed older versions of the db. */
 		vers_id = tdb_fetch_int32(tdb, vstring);
 		if ((vers_id == DATABASE_VERSION_V1)
-		    || (IREV(vers_id) == DATABASE_VERSION_V1)) {
+		    || (BSWAP_U32(vers_id) == DATABASE_VERSION_V1)) {
 			/*
 			 * Written on a bigendian machine with old fetch_int
 			 * code. Save as le.
