@@ -52,7 +52,10 @@ testit "Looking for record key of open file" \
 	failed=$((failed + 1))
 
 # The assumption here is that only one file is open, so only one
-# record can exist in the database.
+# share mode record can exist in the database. There may be other
+# records, e.g. the DBWRAP_PERSISTENT_MIGRATION_MARKER record with
+# 'persistent handles = yes', so only the 24 byte keys of the share
+# mode records are used.
 
 echo "=== Debug Output for 'tdbtool locking.tdb hexkeys' =="
 $samba_tdbtool "$LOCKDIR/locking.tdb" hexkeys
@@ -70,8 +73,8 @@ echo "=== End Debug Output ==="
 # Select only valid hex byte values and join them together
 key="0x$("$samba_tdbtool" "$LOCKDIR/locking.tdb" hexkeys |
       awk '/^key/ && seen { exit }
-           /^key/ { seen=1; next }
-           /^\[/ { for(i=2; i<=NF; i++) if($i ~ /^[0-9A-Fa-f][0-9A-Fa-f]$/) printf "%s", $i }')"
+           /^key 24 bytes/ { seen=1; next }
+           seen && /^\[/ { for(i=2; i<=NF; i++) if($i ~ /^[0-9A-Fa-f][0-9A-Fa-f]$/) printf "%s", $i }')"
 
 echo "=== Debug Output for key =="
 echo "${key}"
