@@ -136,17 +136,6 @@ it also defines lots of intermediate macros, just ignore those :-)
  *
  ****************************************************************************/
 
-/* now the reverse routines - these are used in nmb packets (mostly) */
-#define SREV(x) ((((x)&0xFF)<<8) | (((x)>>8)&0xFF))
-#define IREV(x) ((SREV((uint32_t)(x))<<16) | (SREV(((uint32_t)(x))>>16)))
-#define BREV(x) ((IREV((uint64_t)(x))<<32) | (IREV(((uint64_t)(x))>>32)))
-
-/****************************************************************************
- *
- * ATTENTION: Do not use those macros anymore, use the ones from bytearray.h
- *
- ****************************************************************************/
-
 #define RSVAL(buf,pos) (uint32_t)PULL_BE_U16(buf, pos)
 #define RSVALS(buf,pos) PULL_BE_U16(buf, pos)
 #define RIVAL(buf,pos) PULL_BE_U32(buf, pos)
