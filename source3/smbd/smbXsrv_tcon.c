@@ -86,8 +86,6 @@ NTSTATUS smbXsrv_tcon_global_init(void)
  * We need to store the keys in big endian so that dbwrap_rbt's memcmp
  * has the same result as integer comparison between the uint32_t
  * values.
- *
- * TODO: implement string based key
  */
 
 #define SMBXSRV_TCON_LOCAL_TDB_KEY_SIZE sizeof(uint32_t)
