@@ -938,8 +938,9 @@ static size_t dbwrap_watched_id(struct db_context *db, uint8_t *id,
 
 /*
  * Only used by db_open_ex() for DBWRAP_FLAG_WATCHED and
- * DBWRAP_FLAG_G_LOCK, the layer is remembered in the
- * flags of the returned database.
+ * DBWRAP_FLAG_G_LOCK and by g_lock_ctx_init_rbt_testing() for
+ * the in-memory databases of db_open_rbt(), the layer is
+ * remembered in the flags of the returned database.
  */
 struct db_context *db_open_watched_layer(TALLOC_CTX *mem_ctx,
 					 struct db_context **backend,

@@ -27,6 +27,7 @@
 #include "dbwrap/dbwrap.h"
 #include "dbwrap/dbwrap_open.h"
 #include "dbwrap/dbwrap_watch.h"
+#include "dbwrap/dbwrap_rbt.h"
 #include "g_lock.h"
 #include "util_tdb.h"
 #include "../lib/util/tevent_ntstatus.h"
@@ -197,7 +198,7 @@ static NTSTATUS g_lock_store(
 
 /*
  * The watched layer for DBWRAP_FLAG_G_LOCK is created by db_open_ex()
- * for g_lock_ctx_init_db().
+ * for g_lock_ctx_init_db() or by g_lock_ctx_init_rbt_testing().
  */
 static struct g_lock_ctx *g_lock_ctx_init_backend(
 	TALLOC_CTX *mem_ctx,
@@ -218,6 +219,45 @@ static struct g_lock_ctx *g_lock_ctx_init_backend(
 	result->db = talloc_move(result, backend);
 
 	return result;
+}
+
+/*
+ * Only for tests, e.g. LOCAL-G-LOCK*: an in-memory database of
+ * db_open_rbt(), which is only used by the current process, *praw
+ * returns the database below the layers, so that the caller can
+ * check the raw records.
+ */
+struct g_lock_ctx *g_lock_ctx_init_rbt_testing(TALLOC_CTX *mem_ctx,
+					       struct messaging_context *msg,
+					       struct db_context **praw)
+{
+	struct db_context *raw = NULL;
+	struct db_context *backend = NULL;
+	struct db_context *db = NULL;
+	struct g_lock_ctx *ctx = NULL;
+
+	raw = db_open_rbt(mem_ctx);
+	if (raw == NULL) {
+		return NULL;
+	}
+	backend = raw;
+
+	db = db_open_watched_layer(mem_ctx, &backend, msg, DBWRAP_FLAG_G_LOCK);
+	if (db == NULL) {
+		TALLOC_FREE(raw);
+		return NULL;
+	}
+
+	ctx = g_lock_ctx_init_backend(mem_ctx, msg, &db);
+	if (ctx == NULL) {
+		TALLOC_FREE(db);
+		return NULL;
+	}
+
+	if (praw != NULL) {
+		*praw = raw;
+	}
+	return ctx;
 }
 
 void g_lock_set_lock_order(struct g_lock_ctx *ctx,
